@@ -86,6 +86,47 @@ func (h *harness) Call(fn string, args map[string]int) (int, *sim.State) {
 	return st.Get("return", "R"), st
 }
 
+// CallSeq runs one function repeatedly in a single world, so a stateful
+// sequence can be checked.
+//
+// Args are re-supplied before every call because the ABI registers are
+// ordinary @s objectives: any call is free to overwrite a0..a(n-1), so
+// the callers in 1.12.2 must write their arguments before each call too.
+// loadFn, when non-empty, runs once before the first call.
+func (h *harness) CallSeq(loadFn, fn string, argSets []map[string]int) []int {
+	h.t.Helper()
+	setup := []string{
+		"function " + h.ns + "/init",
+		"kill @e[tag=" + h.tag + "]",
+		"summon armor_stand 0 0 0 {Marker:1b}",
+		"scoreboard players tag @e[type=armor_stand] add " + h.tag,
+	}
+	if loadFn != "" {
+		setup = append(setup, "function "+loadFn)
+	}
+	var run []string
+	for i, args := range argSets {
+		for _, k := range sortedKeys(args) {
+			run = append(run, fmt.Sprintf("scoreboard players set @e[tag=%s] %s %d", h.tag, k, args[k]))
+		}
+		run = append(run, fmt.Sprintf("execute @e[tag=%s] ~ ~ ~ function %s", h.tag, fn))
+		run = append(run, fmt.Sprintf("scoreboard players operation R%d return = @e[tag=%s] return", i, h.tag))
+	}
+	st, err := h.world.Run(setup, run)
+	if err != nil {
+		h.t.Fatalf("run %s: %v", fn, err)
+	}
+	out := make([]int, len(argSets))
+	for i := range argSets {
+		holder := fmt.Sprintf("R%d", i)
+		if !st.Has("return", holder) {
+			h.t.Fatalf("call %d of %s produced no result\nstate: %v\nerrors: %v", i, fn, st.Keys(), st.Errors)
+		}
+		out[i] = st.Get("return", holder)
+	}
+	return out
+}
+
 func sortedKeys(m map[string]int) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

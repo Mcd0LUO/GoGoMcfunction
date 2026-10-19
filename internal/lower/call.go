@@ -124,6 +124,78 @@ func needsSpill(op ir.Loc, paramCount int) bool {
 	return true
 }
 
+// clobberSummary computes, for every function in the module, how many
+// ABI registers a call to it disturbs.
+//
+// A call writes a0..a(n-1) to pass n arguments, and the callee's own body
+// may write a0..a(m-1) when it calls something in turn. A caller holding
+// a value in one of those registers across the call loses it, so this has
+// to be the transitive maximum rather than the argument count.
+//
+// The case that exposed it: lcg_next takes no arguments, so its call
+// sites looked harmless, but its body passes one argument to lcg_step and
+// so writes a0. luo:math/rand kept lo in a0 across that call and read the
+// step's argument back instead of lo.
+//
+// The assignment is monotone over a finite lattice, so iterating until
+// nothing changes terminates and handles recursion without a special case.
+func (l *Lowerer) clobberSummary(bodies map[string][]syntax.Stmt) map[string]int {
+	clobber := map[string]int{}
+	for path := range bodies {
+		clobber[path] = 0
+	}
+	for changed := true; changed; {
+		changed = false
+		for path, body := range bodies {
+			want := 0
+			for _, c := range syntax.Calls(body) {
+				if n := l.regsTouched(c, clobber); n > want {
+					want = n
+				}
+			}
+			if want > clobber[path] {
+				clobber[path] = want
+				changed = true
+			}
+		}
+	}
+	return clobber
+}
+
+// regsTouched reports how many ABI registers a single call disturbs.
+func (l *Lowerer) regsTouched(c syntax.Call, clobber map[string]int) int {
+	if xd, ok := l.externs[c.Name]; ok {
+		worst := len(c.Args)
+		for _, in := range xd.In {
+			if n, ok := abiIndex(in.Reg); ok && n+1 > worst {
+				worst = n + 1
+			}
+		}
+		return worst
+	}
+	path := l.path(c.Name)
+	worst := l.sigs[path]
+	if n, ok := clobber[path]; ok && n > worst {
+		worst = n
+	}
+	return worst
+}
+
+// abiIndex reads the register number out of an ABI register name.
+func abiIndex(reg string) (int, bool) {
+	if len(reg) < 2 || reg[0] != 'a' {
+		return 0, false
+	}
+	n := 0
+	for _, ch := range reg[1:] {
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n, true
+}
+
 func (l *Lowerer) marshalExtern(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syntax.Call, x syntax.ExternDecl) {
 	for i, a := range c.Args {
 		if i >= len(x.In) {

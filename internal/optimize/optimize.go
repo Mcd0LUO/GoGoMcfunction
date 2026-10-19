@@ -239,14 +239,32 @@ type CoalesceTemps struct{}
 func (CoalesceTemps) Name() string { return "coalesce-temps" }
 
 func (CoalesceTemps) Run(p *ir.Program) *ir.Program {
+	base := 0
 	for _, fn := range p.Funcs {
-		rename := interferenceRename(fn)
-		if len(rename) == 0 {
-			continue
-		}
+		rename, used := interferenceRename(fn, base)
 		applyRename(fn, rename)
+		base += used
 	}
 	return p
+}
+
+// addEdge records that two temporaries cannot share an objective.
+//
+// The relation is symmetric and MUST be stored that way. Recording only
+// the direction the scan happens to observe left one side blind: with
+// t10 -> t8 stored but not t8 -> t10, colouring t8 could not see that t10
+// already claimed the slot, and three temporaries that needed three
+// objectives collapsed into one. In luo:math/chance that turned
+// "rand <= p" into "always true".
+func addEdge(g map[string]map[string]bool, a, b string) {
+	if g[a] == nil {
+		g[a] = map[string]bool{}
+	}
+	if g[b] == nil {
+		g[b] = map[string]bool{}
+	}
+	g[a][b] = true
+	g[b][a] = true
 }
 
 // interferenceRename maps each temporary to a slot index such that no two
@@ -254,16 +272,40 @@ func (CoalesceTemps) Run(p *ir.Program) *ir.Program {
 //
 // A simple greedy colouring over the interference graph is sufficient: the
 // graphs produced by structured control flow are small and sparse.
-func interferenceRename(fn *ir.Function) map[string]string {
+//
+// Names are drawn from a module-wide pool: a function's colour k becomes
+// t(base+k), and base advances past every colour the function used.
+//
+// Reusing slot numbers from zero in each function would look tidier and
+// be wrong, for the same reason the locals were wrong. @s is one register
+// file across the whole call stack, so a callee's t0 IS the caller's t0;
+// two functions can only share a name if the allocator proves they are
+// never live at the same time, and being in different functions proves
+// nothing of the sort. It is exactly the case that made luo:math/chance
+// read a callee's scratch value as one of its own arguments.
+func interferenceRename(fn *ir.Function, base int) (map[string]string, int) {
 	interfere := map[string]map[string]bool{}
 	all := map[string]bool{}
 
+	out := analysis.LiveOut(fn)
 	for _, b := range fn.Blocks {
-		live := liveAfterBlock(fn, b)
+		// The exact fixed point, not a peek at the immediate successors.
+		// A local approximation misses conflicts that only appear
+		// through a back edge or a chain of blocks, and a missed
+		// conflict is two live values sharing one objective.
+		live := map[ir.Loc]bool{}
+		for l := range out[b.ID] {
+			live[l] = true
+		}
 		for j := len(b.Ops) - 1; j >= 0; j-- {
 			op := b.Ops[j]
 			defs := analysis.Defs(op)
 			uses := analysis.Uses(op)
+			for _, u := range uses {
+				if isTempName(u.Obj) {
+					all[u.Obj] = true
+				}
+			}
 
 			// Everything read AND written by this op is simultaneously live
 			// across it. Computing interference from `live` alone missed the
@@ -282,12 +324,9 @@ func interferenceRename(fn *ir.Function) map[string]string {
 					continue
 				}
 				all[d.Obj] = true
-				if interfere[d.Obj] == nil {
-					interfere[d.Obj] = map[string]bool{}
-				}
 				for l := range liveNow {
 					if isTempName(l.Obj) && l.Obj != d.Obj {
-						interfere[d.Obj][l.Obj] = true
+						addEdge(interfere, d.Obj, l.Obj)
 					}
 				}
 			}
@@ -322,42 +361,17 @@ func interferenceRename(fn *ir.Function) map[string]string {
 		colour[n] = c
 	}
 
-	// only rewrite when it actually reduces the number of distinct names
 	maxColour := -1
 	for _, c := range colour {
 		if c > maxColour {
 			maxColour = c
 		}
 	}
-	if maxColour+1 >= len(all) {
-		return nil
-	}
 	rename := map[string]string{}
 	for n, c := range colour {
-		rename[n] = "t" + itoa(c)
+		rename[n] = "t" + itoa(base+c)
 	}
-	return rename
-}
-
-// liveAfterBlock returns the set live at the end of a block, computed locally
-// so the renaming does not depend on whole-function fixed points.
-func liveAfterBlock(fn *ir.Function, b *ir.Block) map[ir.Loc]bool {
-	live := map[ir.Loc]bool{}
-	for _, s := range ir.Succs(b.Term) {
-		if int(s) < len(fn.Blocks) {
-			for _, op := range fn.Blocks[s].Ops {
-				for _, u := range analysis.Uses(op) {
-					live[u] = true
-				}
-			}
-			if br, ok := fn.Blocks[s].Term.(ir.Branch); ok {
-				for _, l := range analysis.PredUses(br.Cond) {
-					live[l] = true
-				}
-			}
-		}
-	}
-	return live
+	return rename, maxColour + 1
 }
 
 func applyRename(fn *ir.Function, rename map[string]string) {

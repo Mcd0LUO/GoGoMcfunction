@@ -1,111 +1,158 @@
 package syntax
 
-// EachIntLit visits every integer literal in a file, in source order.
+// Visitor receives the nodes of a file in source order.
 //
-// A leading minus is part of the literal rather than an operator: the
-// minimum score, -2147483648, is representable while 2147483648 is not.
-// Reporting the digits before the sign is applied would therefore reject
-// the most common boundary value, so the pair is reported as one signed
-// number.
-func EachIntLit(f *File, visit func(v int, p Pos)) {
-	var w intWalker
-	w.visit = visit
+// A nil callback is skipped; its children are still visited. One traversal
+// serves every caller that needs to ask a question about the tree, so a
+// new question does not mean a new walk that can disagree with the others.
+type Visitor struct {
+	// Ident is called for every identifier used as a name.
+	Ident func(name string, p Pos)
+	// Call is called for every call expression, before its arguments.
+	Call func(c Call)
+	// IntLit is called for every integer literal.
+	//
+	// A leading minus is part of the literal rather than an operator: the
+	// minimum score, -2147483648, is representable while 2147483648 is
+	// not. The pair is therefore reported as one signed value, and this
+	// callback is not called for the digits alone.
+	IntLit func(v int, p Pos)
+}
+
+// WalkFile visits every node of a parsed file.
+func WalkFile(f *File, v Visitor) {
 	for _, expr := range f.Consts {
-		w.expr(expr)
+		Walk(expr, v)
 	}
 	for _, cb := range f.Comptime {
-		w.stmts(cb.Body)
+		WalkStmts(cb.Body, v)
 	}
 	for _, fn := range f.Funcs {
-		w.stmts(fn.Body)
+		WalkStmts(fn.Body, v)
 	}
 	for _, cl := range f.Classes {
 		for _, fld := range cl.Fields {
 			if fld.Init != nil {
-				w.expr(fld.Init)
+				Walk(fld.Init, v)
 			}
 		}
 		for _, m := range cl.Methods {
-			w.stmts(m.Body)
+			WalkStmts(m.Body, v)
 		}
 	}
 	for _, on := range f.Ons {
-		w.stmts(on.Body)
+		WalkStmts(on.Body, v)
 	}
 }
 
-type intWalker struct {
-	visit func(v int, p Pos)
-}
-
-func (w *intWalker) stmts(list []Stmt) {
+// WalkStmts visits every node of a statement list.
+func WalkStmts(list []Stmt, v Visitor) {
 	for _, s := range list {
-		w.stmt(s)
+		walkStmt(s, v)
 	}
 }
 
-func (w *intWalker) stmt(s Stmt) {
+func walkStmt(s Stmt, v Visitor) {
 	switch x := s.(type) {
 	case LetStmt:
-		w.expr(x.Value)
+		Walk(x.Value, v)
 	case AssignStmt:
-		w.expr(x.Target)
-		w.expr(x.Value)
+		Walk(x.Target, v)
+		Walk(x.Value, v)
 	case IfStmt:
-		w.expr(x.Cond)
-		w.stmts(x.Then)
-		w.stmts(x.Else)
+		Walk(x.Cond, v)
+		WalkStmts(x.Then, v)
+		WalkStmts(x.Else, v)
 	case WhileStmt:
-		w.expr(x.Cond)
-		w.stmts(x.Body)
+		Walk(x.Cond, v)
+		WalkStmts(x.Body, v)
 	case LoopStmt:
-		w.expr(x.Cond)
-		w.stmts(x.Body)
+		Walk(x.Cond, v)
+		WalkStmts(x.Body, v)
 	case ForStmt:
-		w.expr(x.Sel)
-		w.expr(x.Where)
-		w.stmts(x.Body)
+		Walk(x.Sel, v)
+		Walk(x.Where, v)
+		WalkStmts(x.Body, v)
 	case ExprStmt:
-		w.expr(x.X)
+		Walk(x.X, v)
 	case ReturnStmt:
 		if x.Value != nil {
-			w.expr(x.Value)
+			Walk(x.Value, v)
 		}
 	case BroadcastStmt:
-		w.expr(x.Sel)
-		w.expr(x.Value)
+		Walk(x.Sel, v)
+		Walk(x.Value, v)
 	}
 }
 
-func (w *intWalker) expr(e Expr) {
+// Walk visits an expression and everything under it.
+func Walk(e Expr, v Visitor) {
 	switch x := e.(type) {
 	case IntLit:
-		w.visit(x.Value, x.P)
-	case StringLit, BoolLit, Ident, SelfExpr:
-		// no literals
+		if v.IntLit != nil {
+			v.IntLit(x.Value, x.P)
+		}
+	case StringLit, BoolLit, SelfExpr:
+		// no children
+	case Ident:
+		if v.Ident != nil {
+			v.Ident(x.Name, x.P)
+		}
 	case Unary:
 		if x.Op == MINUS {
 			if lit, ok := x.X.(IntLit); ok {
-				w.visit(-lit.Value, x.P)
+				if v.IntLit != nil {
+					v.IntLit(-lit.Value, x.P)
+				}
 				return
 			}
 		}
-		w.expr(x.X)
+		Walk(x.X, v)
 	case Binary:
-		w.expr(x.L)
-		w.expr(x.R)
+		Walk(x.L, v)
+		Walk(x.R, v)
 	case Call:
+		if v.Call != nil {
+			v.Call(x)
+		}
 		for _, a := range x.Args {
-			w.expr(a)
+			Walk(a, v)
 		}
 	case Field:
-		w.expr(x.X)
+		Walk(x.X, v)
 	case Index:
-		w.expr(x.X)
-		w.expr(x.Idx)
+		Walk(x.X, v)
+		Walk(x.Idx, v)
 	case ListLit:
 		for _, el := range x.Elems {
-			w.expr(el)
+			Walk(el, v)
 		}
 	}
+}
+
+// EachIntLit visits every integer literal in a file, in source order.
+func EachIntLit(f *File, visit func(v int, p Pos)) {
+	WalkFile(f, Visitor{IntLit: visit})
+}
+
+// Mentions reports whether a statement list names an identifier.
+//
+// It is deliberately name-based rather than scope-aware: the only caller
+// uses it to decide whether a value is worth preserving, and preserving
+// one that turns out to be shadowed costs a single command.
+func Mentions(list []Stmt, name string) bool {
+	found := false
+	WalkStmts(list, Visitor{Ident: func(n string, _ Pos) {
+		if n == name {
+			found = true
+		}
+	}})
+	return found
+}
+
+// Calls lists every call expression in a statement list, in source order.
+func Calls(list []Stmt) []Call {
+	var out []Call
+	WalkStmts(list, Visitor{Call: func(c Call) { out = append(out, c) }})
+	return out
 }
