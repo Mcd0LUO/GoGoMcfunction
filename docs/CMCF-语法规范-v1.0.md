@@ -204,25 +204,47 @@ comptime {
 
 ## 7. 检查清单
 
-| 状态 | 代码 | 检查 |
-|---|---|---|
-| 计划 | `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 |
-| 计划 | `E_NO_BUDGET` | `while` 无 `#[budget]` |
-| 计划 | `E_UNINIT_FIELD` | `class` 字段无初始化器 |
-| 计划 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 |
-| `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 |
-| 计划 | `E_TYPE_MISMATCH` | `int` / `bool` 混用 |
-| 计划 | `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` |
-| **已实现** | `E_INT_RANGE` | 字面量超出 int32 计分板范围 |
-| 计划 | `W_DIV_ZERO` | 除数可能为 0 |
-| 计划 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 |
+### 已实现
 
-同一份清单中，`analysis.Verify` 与后端 `Validate` 另行强制若干结构不变量
-（空 objective、空 holder、不可达块、objective 名超 16 字符）。它们没有语言级代码，
-因为触发它们的是编译器自身的 bug，而不是用户代码。
+| 代码 | 检查 |
+|---|---|
+| `E_PARSE` | 语法错误（含未知属性、属性未附着到声明） |
+| `E_NO_NAMESPACE` | 文件没有 `namespace` |
+| `E_INT_RANGE` | 字面量或 `emit` 值超出 int32 计分板范围 |
+| `E_FN_COLLISION` | 两个声明在 1.12.2 归一化后是同一个函数 |
+| `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
+| `E_NO_BUDGET` | `while` / `loop` 没有 `#[budget(N)]` |
+| `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
+| `E_ARITY` | 调用实参个数与声明不符 |
+| `E_ASSIGN_TARGET` | 赋值目标不是可写位置 |
+| `E_COND` / `E_EXPR` / `E_ARG` / `E_STMT` | 表达式或语句无法降级 |
+| `E_FOR_SELECTOR` | `for e in` 的来源不是 `entities<...>` |
+| `E_BROADCAST_SELECTOR` / `E_BROADCAST_VALUE` | 广播写语句的选择器或值非法 |
+| `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` | `comptime` 的范围、列表或 `emit` 参数不是编译期常量 |
+| `E_STR_RUNTIME` | 字符串在运行期才求值 |
+| `E_BAD_COMMAND` | 后端生成的命令没通过语法检查（编译器 bug） |
+| `E_IR_INVARIANT` | IR 结构不变量被破坏（编译器 bug） |
+
+### 计划中
+
+| 代码 | 检查 | 缺什么才能做 |
+|---|---|---|
+| `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` | 值域分析 |
+| `W_DIV_ZERO` | 除数可能为 0 | 值域分析 |
+| `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 | 调用图上的 `@s` 可用性分析 |
+| `E_TYPE_MISMATCH` | `int` / `bool` 混用 | 类型检查（当前只有 `int`） |
+| `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 | 副作用分析 |
+| `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |
+| `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 | 循环迭代次数估计 |
+
+`E_BAD_COMMAND` 与 `E_IR_INVARIANT` 没有语言级触发路径：触发它们的是编译器自身的 bug，
+不是用户代码。它们是**在渲染前后各设的一道闸**，因为这类失败是静默误编译而不是崩溃。
+`internal/analysis/invariants.go` 里的结构不变量（空 objective、空 holder、不可达块、
+objective 名超 16 字符）同理。
 
 **复杂度花在这里，不是特性上。** 20 个用户写错 `@s[score_hp=0]`（以为等于 0，实际是 ≤ 0）
-的那一刻，比多一种 `enum` 重要一百倍。
+的那一刻，比多一种 `enum` 重要一百倍。但**清单上写着不等于实现了**——上面第一张表才是
+当前真实存在的检查。
 
 ---
 
