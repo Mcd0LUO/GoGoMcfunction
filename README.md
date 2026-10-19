@@ -2,7 +2,7 @@
 
 把 CMCF 编译成 Minecraft Java **1.12.2** 的 `.mcfunction`。
 
-**cmcf 0.1.0** · 语言规范 1.0 · 目标 1.12.2
+**cmcf 0.2.0** · 语言规范 1.0 · 目标 1.12.2
 
 ```
 cmcf [flags] <file.cmcf> ...
@@ -13,6 +13,7 @@ cmcf [flags] <file.cmcf> ...
   -check       只检查，不产出
   -q           安静模式
   -version     打印版本并退出
+  -comments    生成文件带声明位置注释（默认关闭）
 ```
 
 ## 状态
@@ -70,7 +71,7 @@ cmd/cmcf -> driver -> syntax -> lower -> optimize -> backend
 **经反编译和真服实测校验过的** 1.12.2 语义，不是猜测。
 
 ```sh
-go test ./...                                    # 语义：42 条，跑在真 1.12.2 语义上
+go test ./...                                    # 52 条，语义测试跑在真 1.12.2 语义上
 go test ./internal/driver -run GoldenBaseline    # 逐字：与签入的输出比对
 ```
 

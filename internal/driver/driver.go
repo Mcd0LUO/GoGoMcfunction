@@ -41,6 +41,10 @@ type Options struct {
 	Target target.Target
 	// Level selects the optimisation pipeline.
 	Level optimize.Level
+	// Comments adds a header naming the declaration each generated file
+	// came from. Off by default: the output is meant to be read as
+	// commands, and a comment per file is noise until you need it.
+	Comments bool
 }
 
 // Compile runs the full pipeline on one source file.
@@ -65,7 +69,7 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 
 	checkLiterals(file, opt.Target, bag)
 
-	res, lowerDiags := lower.Lower(file, opt.Target)
+	res, lowerDiags := lower.Lower(file, opt.Target, filename)
 	for _, d := range lowerDiags {
 		bag.Add(d)
 	}
@@ -107,7 +111,7 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 		bag.Error(diag.Pos{}, "E_IR_INVARIANT", "%s", v.String())
 	}
 
-	files, order := mcfunction.Render(prog, mcfunction.Options{Target: opt.Target})
+	files, order := mcfunction.Render(prog, mcfunction.Options{Target: opt.Target, Comments: opt.Comments})
 	for p, body := range files {
 		for _, line := range splitLines(body) {
 			if err := mcfunction.Validate(line); err != nil {

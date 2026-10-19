@@ -15,7 +15,7 @@ func mustLower(t *testing.T, src string) *ir.Program {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	res, diags := Lower(f, target.V1_12_2)
+	res, diags := Lower(f, target.V1_12_2, "test.cmcf")
 	for _, d := range diags {
 		if d.Severity == 0 {
 			t.Fatalf("lower: %v", d)

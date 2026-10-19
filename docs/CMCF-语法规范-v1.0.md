@@ -213,6 +213,9 @@ comptime {
 | `E_INT_RANGE` | 字面量或 `emit` 值超出 int32 计分板范围 |
 | `E_FN_COLLISION` | 两个声明在 1.12.2 归一化后是同一个函数 |
 | `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
+| `E_UNKNOWN_CALLEE` | 调用了本模块里不存在的函数 |
+| `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
+| `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
 | `E_NO_BUDGET` | `while` / `loop` 没有 `#[budget(N)]` |
 | `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
 | `E_ARITY` | 调用实参个数与声明不符 |
@@ -236,6 +239,14 @@ comptime {
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 | 副作用分析 |
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |
 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 | 循环迭代次数估计 |
+
+**`E_UNKNOWN_CALLEE` 和 `W_UNREACHABLE_FN` 是只有编译器能做的检查。**
+1.12.2 对「调用不存在的函数」既不报错也不执行——调用指令合法、文件加载成功、运行期什么都不发生。
+所以一个拼错的名字买到的是一条**静默死掉的代码路径**。同理，没有任何调用者的函数只是躺在那里，
+它本该驱动的功能永不触发。这两件事在单文件视角下不可见，在整模块视角下很廉价（一次遍历）。
+
+`W_UNREACHABLE_FN` 只能是警告：命令方块和 `gameLoopFunction` 都能从编译器看不见的地方调用它，
+所以消息里直接写明这个出口，而不是断言该函数是死代码。
 
 `E_BAD_COMMAND` 与 `E_IR_INVARIANT` 没有语言级触发路径：触发它们的是编译器自身的 bug，
 不是用户代码。它们是**在渲染前后各设的一道闸**，因为这类失败是静默误编译而不是崩溃。

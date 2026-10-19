@@ -32,6 +32,7 @@ func run() error {
 		levelStr = flag.String("O", "2", "optimisation level: 0, 1, 2 or 3")
 		showSkip = flag.Bool("v", false, "explain which optimisations the level omits")
 		showVer  = flag.Bool("version", false, "print the version and exit")
+		comments = flag.Bool("comments", false, "put a header naming each generated file's declaration")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: cmcf [flags] <file.cmcf> ...")
@@ -61,8 +62,9 @@ func run() error {
 			return err
 		}
 		out, diags := driver.Compile(string(src), in, driver.Options{
-			Target: target.V1_12_2,
-			Level:  level,
+			Target:   target.V1_12_2,
+			Level:    level,
+			Comments: *comments,
 		})
 		for _, d := range diags {
 			fmt.Fprintf(os.Stderr, "%s:%s\n", in, d.String())

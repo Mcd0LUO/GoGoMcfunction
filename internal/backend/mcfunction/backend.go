@@ -20,6 +20,8 @@ type Options struct {
 	Target target.Target
 	// BlockPath maps (function, block) to the generated function name.
 	BlockPath func(fn string, id ir.BlockID) string
+	// Comments puts a header naming the declaration each file came from.
+	Comments bool
 }
 
 // Render converts a program into files keyed by function path.
@@ -127,6 +129,19 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 		files[name] = kept
 	}
 
+	origin := map[string]string{}
+	if opt.Comments {
+		for _, fn := range prog.Funcs {
+			if fn.Origin == "" {
+				continue
+			}
+			origin[fn.Path] = fn.Origin
+			for _, b := range fn.Blocks {
+				origin[opt.BlockPath(fn.Path, b.ID)] = fn.Origin
+			}
+		}
+	}
+
 	out := map[string]string{}
 	var keptOrder []string
 	for _, p := range order {
@@ -135,6 +150,11 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 			continue // nothing to emit and nothing can reach it
 		}
 		var sb strings.Builder
+		if o := origin[p]; o != "" {
+			// 1.12.2 skips '#' lines, so this costs a line in the file
+			// and nothing at run time.
+			fmt.Fprintf(&sb, "# %s — declared at %s\n", p, o)
+		}
 		for _, c := range cmds {
 			sb.WriteString(c.Line())
 			sb.WriteByte('\n')

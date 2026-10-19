@@ -1,4 +1,4 @@
-# Baseline：cmcf 0.1.0
+# Baseline：cmcf 0.2.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -12,8 +12,9 @@
 | 产物 | 位置 | 怎么验证 |
 |---|---|---|
 | 生成结果 | `internal/driver/testdata/golden/*.txt` | `go test ./internal/driver -run GoldenBaseline` |
-| 语义行为 | `internal/driver/*_test.go`（42 条，跑在 GoMcRuntime 上） | `go test ./...` |
+| 语义行为 | `internal/*/**_test.go`（52 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
 | 版本标识 | `internal/version/version.go` | `cmcf -version` |
+| 全局检查 | 见下节 | `go test ./internal/driver -run 'Callee\|Uncalled\|Builtin'` |
 
 `testdata/golden/` 里是 `examples/*.cmcf` 在 `-O0`..`-O3` 下**完整**的输出，
 按函数名排序、以 `=== <函数 id> ===` 分节。文件头一行是
@@ -37,6 +38,19 @@ git diff internal/driver/testdata/golden
 
 失败信息会指出第一处不同的行号与两侧内容。**不要不看就 `-update`**——
 那样签入的只是「现在是这样」，而不是「我知道变成了这样」。
+
+---
+
+## 0.2.0 新增的三条全局检查
+
+这三条不改变任何生成结果（golden 逐字未变），它们只是把**编译器看得见、单文件工具看不见**
+的事实说出来。
+
+| 代码 | 性质 | 为什么需要全局视角 |
+|---|---|---|
+| `E_UNKNOWN_CALLEE` | error | 1.12.2 对「调用不存在的函数」既不报错也不执行，拼错的名字 = 静默死掉的代码路径 |
+| `E_BUILTIN_UNIMPLEMENTED` | error | `abs`（作值）、`clamp`、`count` 是语言的名字但未实现；说「未知函数」会误导 |
+| `W_UNREACHABLE_FN` | **warning** | 无调用者的函数永不运行。警告而非错误：命令方块与 `gameLoopFunction` 能调用它 |
 
 ---
 
@@ -66,6 +80,8 @@ git diff internal/driver/testdata/golden
 
 写清楚边界比写清楚内容更重要，否则 baseline 会变成一张写着「一切都好」的纸。
 
+- **`W_UNREACHABLE_FN` 会误报**：从命令方块或 `gameLoopFunction` 调用的函数会被标成无人调用。
+  这是设计上的取舍，不是缺陷——消息里写明了这个出口。
 - **类方法只有 `@tick` 入口可达。** 普通 `fn` 方法会被死代码消除，
   方法参数也还没有绑定。规范第 3.2 节的示例现在解析不了
   （`@tick fn` 里那个 `@` 是整段不可解析）。

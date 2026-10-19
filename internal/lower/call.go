@@ -33,7 +33,10 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		fb.Emit(block, ir.Call{Path: call.Name})
 		return
 	}
-	path := l.path(call.Name)
+	path, ok := l.resolveFunction(call)
+	if !ok {
+		return
+	}
 	l.marshalArgs(ctx, fb, block, path, call)
 	fb.Emit(block, ir.Call{Path: path})
 }
@@ -49,19 +52,58 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 	if r, ok := l.builtin(ctx, fb, block, c); ok {
 		return r, nil
 	}
-	path := l.path(c.Name)
-	if n, ok := l.sigs[path]; ok {
-		if len(c.Args) != n {
-			return ir.Loc{}, fmt.Errorf("%s takes %d argument(s), got %d", c.Name, n, len(c.Args))
-		}
-		l.marshalArgs(ctx, fb, block, path, c)
-		fb.Emit(block, ir.Call{Path: path})
-		t := fb.TmpLoc()
-		fb.Emit(block, ir.Copy{Dst: t, Src: loc("return")})
-		return t, nil
+	path, ok := l.resolveFunction(c)
+	if !ok {
+		return ir.Loc{}, nil
 	}
-	return ir.Loc{}, fmt.Errorf("call to %s is not usable as a value", c.Name)
+	n := l.sigs[path]
+	if len(c.Args) != n {
+		l.diags.Error(posOf(c.P), "E_ARITY", "%s takes %d argument(s), got %d", c.Name, n, len(c.Args))
+		return ir.Loc{}, nil
+	}
+	l.marshalArgs(ctx, fb, block, path, c)
+	fb.Emit(block, ir.Call{Path: path})
+	t := fb.TmpLoc()
+	fb.Emit(block, ir.Copy{Dst: t, Src: loc("return")})
+	return t, nil
 }
+
+// resolveFunction reports the path a call targets, and reports the call
+// as naming nothing when it does not.
+//
+// This is a fact only a whole-program view can supply. In 1.12.2 a
+// function command naming something that does not exist is not an error
+// at load time and does nothing at run time, so a mistyped name buys a
+// silently dead code path rather than a message. A reference project's
+// own audit found exactly that: a call written without its namespace
+// prefix left a random-number routine returning whatever the caller
+// happened to have in the return slot.
+func (l *Lowerer) resolveFunction(c syntax.Call) (string, bool) {
+	path := l.path(c.Name)
+	if _, ok := l.sigs[path]; ok {
+		return path, true
+	}
+	if reservedCalls[c.Name] {
+		// These are in the language, and this build does not implement
+		// them everywhere the grammar allows. Saying "unknown function"
+		// would send the reader looking for a declaration that is not
+		// supposed to exist.
+		l.diags.Error(posOf(c.P), "E_BUILTIN_UNIMPLEMENTED",
+			"%s is a builtin that this build does not implement in this position", c.Name)
+		return path, false
+	}
+	l.diags.Error(posOf(c.P), "E_UNKNOWN_CALLEE",
+		"no function named %q in this module; 1.12.2 does not treat that as an error, the call simply never runs", c.Name)
+	return path, false
+}
+
+// reservedCalls are the builtins whose names the language owns but this
+// build does not implement in every position the grammar allows.
+//
+// abs is implemented only as the left operand of a comparison, where it
+// is rewritten algebraically and never becomes a call. count has no
+// implementation at all.
+var reservedCalls = map[string]bool{"abs": true, "clamp": true, "count": true}
 
 // marshalArgs moves arguments into the callee's ABI registers.
 // 1.12.2 has no call stack, so parameters are entity-scoped objectives.

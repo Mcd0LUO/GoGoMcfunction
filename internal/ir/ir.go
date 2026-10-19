@@ -36,6 +36,14 @@ type Function struct {
 	Blocks []*Block
 	// Exported marks an entry point that must survive pruning.
 	Exported bool
+	// Origin is where the declaration was written, as "file:line", or ""
+	// for a function the compiler generated.
+	//
+	// It exists so the output can name the line to go and read. The text
+	// is carried as a string rather than a position type because the IR
+	// has no business knowing about source files, and three position
+	// types in one program is two too many.
+	Origin string
 }
 
 // BlockID identifies a basic block within its function.

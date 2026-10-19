@@ -36,6 +36,7 @@ type Lowerer struct {
 	kt      map[string]int
 	clobber map[string]int
 	localN  int
+	source  string
 	nsRoot  string
 	pathPre string
 	// funcIDs maps the id 1.12.2 will know a function by to what declared it.
@@ -50,10 +51,11 @@ type claimed struct {
 }
 
 // Lower compiles one parsed file.
-func Lower(f *syntax.File, tgt target.Target) (*Result, []diag.Diagnostic) {
+func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Diagnostic) {
 	bag := &diag.Bag{}
 	l := &Lowerer{
 		tgt:     tgt,
+		source:  source,
 		diags:   bag,
 		sigs:    map[string]int{},
 		externs: map[string]syntax.ExternDecl{},
@@ -92,6 +94,7 @@ func Lower(f *syntax.File, tgt target.Target) (*Result, []diag.Diagnostic) {
 		}
 	}
 	l.clobber = l.clobberSummary(bodies)
+	l.reportUncalled(f, bodies)
 	for _, fn := range f.Funcs {
 		l.lowerFunc(fn)
 	}
@@ -106,6 +109,50 @@ func Lower(f *syntax.File, tgt target.Target) (*Result, []diag.Diagnostic) {
 		ids[k] = v.what
 	}
 	return &Result{Program: l.prog, FuncIDs: ids}, bag.Sorted()
+}
+
+// reportUncalled warns about a declared function that nothing calls.
+//
+// In 1.12.2 a function with no caller simply never runs, and nothing says
+// so: the file loads, the function sits there, and the feature it was
+// written for never fires. A reference project's own audit listed eleven
+// such functions, two of them byte-identical copies of live ones.
+//
+// It is a warning rather than an error because a world may legitimately
+// reach a function from a command block or from gameLoopFunction, and the
+// compiler cannot see either. That is also why the message names the way
+// out rather than just asserting the function is dead.
+func (l *Lowerer) reportUncalled(f *syntax.File, bodies map[string][]syntax.Stmt) {
+	called := map[string]bool{}
+	for _, body := range bodies {
+		for _, c := range syntax.Calls(body) {
+			if _, ok := l.externs[c.Name]; ok {
+				continue
+			}
+			if _, ok := l.sigs[l.path(c.Name)]; ok {
+				called[l.path(c.Name)] = true
+			}
+		}
+	}
+	for _, fn := range f.Funcs {
+		path := l.path(fn.Name)
+		if !called[path] {
+			l.diags.Warn(posOf(fn.P), "W_UNREACHABLE_FN",
+				"nothing in this module calls %s; 1.12.2 will not run it unless a command block or gameLoopFunction does", path)
+		}
+	}
+	for _, cd := range f.Classes {
+		for _, m := range cd.Methods {
+			if m.Tick {
+				continue
+			}
+			path := l.path(cd.Name + "/" + m.Name)
+			if !called[path] {
+				l.diags.Warn(posOf(m.P), "W_UNREACHABLE_FN",
+					"nothing in this module calls %s; 1.12.2 will not run it unless a command block or gameLoopFunction does", path)
+			}
+		}
+	}
 }
 
 // claimDeclarations reserves every function id the file declares.
@@ -179,6 +226,17 @@ func (l *Lowerer) claim(id, what string, pos syntax.Pos) {
 // claimGenerated reserves an id the compiler emits rather than the author.
 func (l *Lowerer) claimGenerated(id, what string, pos syntax.Pos) {
 	l.funcIDs[strings.ToLower(id)] = claimed{what: what, pos: pos, generated: true}
+}
+
+// origin renders where a declaration was written, for the optional
+// comments in the output.
+func (l *Lowerer) origin(p syntax.Pos) string {
+	if l.source == "" || p.Line == 0 {
+		return ""
+	}
+	// The comment is read, not parsed, so the platform's separator is
+	// noise; forward slashes match the function ids on the same line.
+	return fmt.Sprintf("%s:%d", strings.ReplaceAll(l.source, "\\", "/"), p.Line)
 }
 
 // path renders a function identifier under the current namespace.
@@ -270,6 +328,7 @@ func (l *Lowerer) lowerFunc(fn syntax.FuncDecl) {
 	ctx := &fnCtx{path: l.path(fn.Name), scope: map[string]string{}, localN: &l.localN}
 	fb := l.prog.NewFunc(ctx.path)
 	fb.Func().Exported = true
+	fb.Func().Origin = l.origin(fn.P)
 	l.bindParams(ctx, fb, fn.Params, fn.Body)
 	end := l.lowerSeq(ctx, fb, 0, fn.Body)
 	if end != noFallThrough {
@@ -285,6 +344,7 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
 	fb := l.prog.NewFunc(name)
 	fb.Func().Exported = true
+	fb.Func().Origin = l.origin(od.P)
 	end := l.lowerSeq(ctx, fb, 0, od.Body)
 	if end != noFallThrough {
 		fb.SetTerm(end, ir.Return{})
@@ -297,6 +357,7 @@ func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {
 		ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
 		fb := l.prog.NewFunc(name)
 		fb.Func().Exported = m.Tick
+		fb.Func().Origin = l.origin(m.P)
 		l.bindParams(ctx, fb, m.Params, m.Body)
 		end := l.lowerSeq(ctx, fb, 0, m.Body)
 		if end != noFallThrough {
