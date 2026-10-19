@@ -68,8 +68,9 @@ func (p *parser) expectIdent() (Token, error) {
 
 func (p *parser) parseFile() (*File, error) {
 	f := &File{P: p.cur().Pos}
-	// attributes preceding a fn/class
-	attrs := map[string]bool{}
+	// Attributes preceding a fn/class. The position is kept so an
+	// unrecognised attribute can be reported where it was written.
+	attrs := map[string]Pos{}
 	for {
 		p.skipNewlines()
 		t := p.cur()
@@ -78,11 +79,11 @@ func (p *parser) parseFile() (*File, error) {
 		}
 		switch t.Kind {
 		case HASH:
-			name, err := p.parseAttr()
+			name, pos, err := p.parseAttr()
 			if err != nil {
 				return nil, err
 			}
-			attrs[name] = true
+			attrs[name] = pos
 			continue
 		case NAMESPACE:
 			p.next()
@@ -128,20 +129,26 @@ func (p *parser) parseFile() (*File, error) {
 			}
 			f.Externs = append(f.Externs, d)
 		case FN:
+			if err := checkAttrs(attrs, funcAttrs, "fn"); err != nil {
+				return nil, err
+			}
 			fd, err := p.parseFunc(attrs)
 			if err != nil {
 				return nil, err
 			}
 			f.Funcs = append(f.Funcs, *fd)
-			attrs = map[string]bool{}
+			attrs = map[string]Pos{}
 		case LBRACK:
 			// [selector(...)] class X
+			if err := checkAttrs(attrs, classAttrs, "class"); err != nil {
+				return nil, err
+			}
 			cd, err := p.parseClass(attrs)
 			if err != nil {
 				return nil, err
 			}
 			f.Classes = append(f.Classes, *cd)
-			attrs = map[string]bool{}
+			attrs = map[string]Pos{}
 		case ON:
 			od, err := p.parseOn()
 			if err != nil {
@@ -152,27 +159,58 @@ func (p *parser) parseFile() (*File, error) {
 			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("unexpected %s at top level", t.Kind)}
 		}
 	}
+	// An attribute that never reached a declaration would otherwise be
+	// dropped without a word.
+	for name, pos := range attrs {
+		return nil, &Error{Pos: pos, Msg: fmt.Sprintf("attribute #[%s] does not precede a declaration", name)}
+	}
 	return f, nil
 }
 
-func (p *parser) parseAttr() (string, error) {
+// funcAttrs are the attributes understood on a fn.
+//
+// wrapping is the only one, and it is accepted rather than acted on:
+// 1.12.2 scoreboard arithmetic always wraps at 32 bits, which is exactly
+// what the attribute asks for. It becomes load-bearing once a range
+// analysis can prove overflow and warn without it.
+var funcAttrs = map[string]bool{"wrapping": true}
+
+// classAttrs are the attributes understood on a class.
+var classAttrs = map[string]bool{}
+
+// checkAttrs rejects an attribute the parser does not implement.
+//
+// Silently ignoring a directive is worse than rejecting it: the author
+// goes on believing it took effect, and a typo becomes a behaviour
+// change nobody can see.
+func checkAttrs(attrs map[string]Pos, known map[string]bool, what string) error {
+	for name, pos := range attrs {
+		if !known[name] {
+			return &Error{Pos: pos, Msg: fmt.Sprintf("unknown attribute #[%s] on %s", name, what)}
+		}
+	}
+	return nil
+}
+
+func (p *parser) parseAttr() (string, Pos, error) {
+	start := p.cur().Pos
 	if _, err := p.expect(HASH); err != nil {
-		return "", err
+		return "", start, err
 	}
 	if _, err := p.expect(LBRACK); err != nil {
-		return "", err
+		return "", start, err
 	}
 	name := p.cur().Text
 	if p.cur().Kind == IDENT || p.cur().Kind == BUDGET || p.cur().Kind == WRAPPING {
 		p.next()
 	} else {
-		return "", &Error{Pos: p.cur().Pos, Msg: "expected attribute name"}
+		return "", start, &Error{Pos: p.cur().Pos, Msg: "expected attribute name"}
 	}
 	// optional (args)
 	depth := 0
 	for p.cur().Kind != RBRACK || depth > 0 {
 		if p.cur().Kind == EOF {
-			return "", &Error{Pos: p.cur().Pos, Msg: "unterminated attribute"}
+			return "", start, &Error{Pos: p.cur().Pos, Msg: "unterminated attribute"}
 		}
 		if p.cur().Kind == LPAREN {
 			depth++
@@ -183,7 +221,7 @@ func (p *parser) parseAttr() (string, error) {
 		p.next()
 	}
 	p.next() // ]
-	return name, nil
+	return name, start, nil
 }
 
 func (p *parser) parsePath() (string, error) {
@@ -223,7 +261,7 @@ func join(parts []string, sep string) string {
 	return out
 }
 
-func (p *parser) parseFunc(attrs map[string]bool) (*FuncDecl, error) {
+func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
 	t, err := p.expect(FN)
 	if err != nil {
 		return nil, err
@@ -249,7 +287,8 @@ func (p *parser) parseFunc(attrs map[string]bool) (*FuncDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: attrs["wrapping"], P: t.Pos}, nil
+	_, wrapping := attrs["wrapping"]
+	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: wrapping, P: t.Pos}, nil
 }
 
 func (p *parser) parseParams() ([]Param, error) {
@@ -278,7 +317,7 @@ func (p *parser) parseParams() ([]Param, error) {
 	return out, nil
 }
 
-func (p *parser) parseClass(attrs map[string]bool) (*ClassDecl, error) {
+func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 	if _, err := p.expect(LBRACK); err != nil {
 		return nil, err
 	}
@@ -358,14 +397,14 @@ func (p *parser) parseClass(attrs map[string]bool) (*ClassDecl, error) {
 			}
 			cd.Fields = append(cd.Fields, FieldDecl{Name: n.Text, Type: typ, Init: init, P: n.Pos})
 		case FN:
-			fd, err := p.parseFunc(map[string]bool{})
+			fd, err := p.parseFunc(map[string]Pos{})
 			if err != nil {
 				return nil, err
 			}
 			cd.Methods = append(cd.Methods, Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, P: fd.P})
 		case TICK:
 			p.next()
-			fd, err := p.parseFunc(map[string]bool{})
+			fd, err := p.parseFunc(map[string]Pos{})
 			if err != nil {
 				return nil, err
 			}

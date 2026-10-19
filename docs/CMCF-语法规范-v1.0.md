@@ -178,6 +178,14 @@ reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 
 `#[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。
 
+> **实现状态（2026-10-19）**：`W_WRAP_UNPROVEN` 尚未实现，因此 `#[wrapping]`
+> 目前**被接受但无作用**——1.12.2 的计分板算术本来就按 32 位回绕，注解所要求的
+> 行为就是默认行为。它真正生效的时机是范围分析落地、未标注的函数能报出溢出警告时。
+>
+> 与之相关且**已实现**的是字面量范围检查：超出 int32 的整数字面量一律拒收
+> （`E_INT_RANGE`），因为它没有正确编码——运行时会静默回绕成另一个数。
+> 前导负号在检查前并入字面量，所以 `-2147483648` 合法。
+
 ---
 
 ## 6. `comptime`
@@ -196,17 +204,22 @@ comptime {
 
 ## 7. 检查清单
 
-| 代码 | 检查 |
-|---|---|
-| `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 |
-| `E_NO_BUDGET` | `while` 无 `#[budget]` |
-| `E_UNINIT_FIELD` | `class` 字段无初始化器 |
-| `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 |
+| 状态 | 代码 | 检查 |
+|---|---|---|
+| 计划 | `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 |
+| 计划 | `E_NO_BUDGET` | `while` 无 `#[budget]` |
+| 计划 | `E_UNINIT_FIELD` | `class` 字段无初始化器 |
+| 计划 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 |
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 |
-| `E_TYPE_MISMATCH` | `int` / `bool` 混用 |
-| `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` |
-| `W_DIV_ZERO` | 除数可能为 0 |
-| `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 |
+| 计划 | `E_TYPE_MISMATCH` | `int` / `bool` 混用 |
+| 计划 | `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` |
+| **已实现** | `E_INT_RANGE` | 字面量超出 int32 计分板范围 |
+| 计划 | `W_DIV_ZERO` | 除数可能为 0 |
+| 计划 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 |
+
+同一份清单中，`analysis.Verify` 与后端 `Validate` 另行强制若干结构不变量
+（空 objective、空 holder、不可达块、objective 名超 16 字符）。它们没有语言级代码，
+因为触发它们的是编译器自身的 bug，而不是用户代码。
 
 **复杂度花在这里，不是特性上。** 20 个用户写错 `@s[score_hp=0]`（以为等于 0，实际是 ≤ 0）
 的那一刻，比多一种 `enum` 重要一百倍。

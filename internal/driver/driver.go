@@ -10,6 +10,7 @@
 package driver
 
 import (
+	"errors"
 	"fmt"
 
 	"cmcf/internal/analysis"
@@ -50,7 +51,14 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 
 	file, err := syntax.Parse(src)
 	if err != nil {
-		bag.Error(diag.Pos{}, "E_PARSE", "%s: %v", filename, err)
+		// A syntax error already carries its position; repeating the
+		// filename around it would print the location twice.
+		var se *syntax.Error
+		if errors.As(err, &se) {
+			bag.Error(diag.Pos{Line: se.Pos.Line, Col: se.Pos.Col}, "E_PARSE", "%s", se.Msg)
+		} else {
+			bag.Error(diag.Pos{}, "E_PARSE", "%s: %v", filename, err)
+		}
 		return nil, bag.Sorted()
 	}
 
