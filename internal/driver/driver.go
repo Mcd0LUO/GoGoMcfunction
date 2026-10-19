@@ -12,6 +12,7 @@ package driver
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"cmcf/internal/analysis"
 	"cmcf/internal/backend/mcfunction"
@@ -80,9 +81,22 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 		}
 	}
 	if len(consts) > 0 {
-		fb := prog.NewFunc(file.Namespace + "/comptime")
-		fb.Func().Exported = true
-		fb.Emit(0, comptime.ToIR(consts)...)
+		// The constant pool is emitted as a function of its own, so a
+		// declaration that already took that name would replace it and
+		// silently drop every constant in the program.
+		id := strings.ToLower(file.Namespace + "/comptime")
+		if what, taken := res.FuncIDs[id]; taken {
+			pos := diag.Pos{}
+			if len(file.Comptime) > 0 {
+				pos = diag.Pos{Line: file.Comptime[0].P.Line, Col: file.Comptime[0].P.Col}
+			}
+			bag.Error(pos, "E_FN_RESERVED",
+				"the compiler-generated constant pool needs the name %q, which %s already uses", id, what)
+		} else {
+			fb := prog.NewFunc(file.Namespace + "/comptime")
+			fb.Func().Exported = true
+			fb.Emit(0, comptime.ToIR(consts)...)
+		}
 	}
 
 	prog = optimize.Run(prog, opt.Level)

@@ -18,6 +18,12 @@ import (
 // Result is everything the back end needs.
 type Result struct {
 	Program *ir.Program
+	// FuncIDs maps each reserved function id, lower-cased the way 1.12.2
+	// lower-cases it, to a description of what claimed it.
+	//
+	// The driver generates further functions and checks its names here
+	// rather than guessing which of them exist.
+	FuncIDs map[string]string
 }
 
 // Lowerer holds the state of one module's lowering.
@@ -32,6 +38,15 @@ type Lowerer struct {
 	localN  int
 	nsRoot  string
 	pathPre string
+	// funcIDs maps the id 1.12.2 will know a function by to what declared it.
+	funcIDs map[string]claimed
+}
+
+// claimed records where a function id came from, for collision messages.
+type claimed struct {
+	what      string
+	pos       syntax.Pos
+	generated bool
 }
 
 // Lower compiles one parsed file.
@@ -52,6 +67,9 @@ func Lower(f *syntax.File, tgt target.Target) (*Result, []diag.Diagnostic) {
 		bag.Error(diag.Pos{}, "E_NO_NAMESPACE", "file has no `namespace` declaration")
 	}
 	l.prog = ir.NewProgram(f.Namespace)
+	l.funcIDs = map[string]claimed{}
+	l.claimGenerated(f.Namespace+"/init", "the compiler-generated initialiser", f.P)
+	l.claimDeclarations(f)
 
 	for name, expr := range f.Consts {
 		if v, ok := constInt(expr); ok {
@@ -83,7 +101,84 @@ func Lower(f *syntax.File, tgt target.Target) (*Result, []diag.Diagnostic) {
 	for _, cd := range f.Classes {
 		l.lowerClass(cd)
 	}
-	return &Result{Program: l.prog}, bag.Sorted()
+	ids := make(map[string]string, len(l.funcIDs))
+	for k, v := range l.funcIDs {
+		ids[k] = v.what
+	}
+	return &Result{Program: l.prog, FuncIDs: ids}, bag.Sorted()
+}
+
+// claimDeclarations reserves every function id the file declares.
+//
+// It runs before anything is lowered so that a collision is reported
+// against the declarations rather than discovered as one function quietly
+// replacing another.
+func (l *Lowerer) claimDeclarations(f *syntax.File) {
+	for _, fn := range f.Funcs {
+		l.claim(l.path(fn.Name), "function "+fn.Name, fn.P)
+	}
+	for _, od := range f.Ons {
+		if name, ok := l.onName(od); ok {
+			l.claim(name, "the "+od.Event+" entry point", od.P)
+		}
+	}
+	for _, cd := range f.Classes {
+		for _, m := range cd.Methods {
+			l.claim(l.path(cd.Name+"/"+m.Name), "method "+cd.Name+"."+m.Name, m.P)
+		}
+		if len(cd.Fields) > 0 {
+			l.claim(l.path(cd.Name+"/init"), "the field initialiser for class "+cd.Name, cd.P)
+		}
+	}
+}
+
+// onName returns the function an entry point lowers to.
+func (l *Lowerer) onName(od syntax.OnDecl) (string, bool) {
+	switch od.Event {
+	case "load":
+		return l.path("load"), true
+	case "tick":
+		return l.path("tick"), true
+	case "every":
+		return l.path("every/" + od.Every), true
+	}
+	return "", false
+}
+
+// claim reserves a function id, reporting a collision against whatever
+// reserved it first.
+//
+// 1.12.2 identifies a function with a MinecraftKey, whose constructor
+// lower-cases both the namespace and the path. Two names differing only in
+// case are therefore ONE function: fn Foo and fn foo compiled to a single
+// function whose body was whichever happened to be written last, and every
+// call to either went there. On a case-insensitive filesystem they are
+// also one file, so the second silently replaced the first on disk too.
+//
+// A user declaration colliding with a generated one is worse still: fn
+// init() overwrote the function that declares the module's objectives and
+// constant pool, so the entire program lost its objectives.
+func (l *Lowerer) claim(id, what string, pos syntax.Pos) {
+	key := strings.ToLower(id)
+	if prev, ok := l.funcIDs[key]; ok {
+		// A name the author declared landing on a name the compiler
+		// emits is a different mistake from two of the author's own
+		// names landing on each other, and the fix is different too.
+		code := "E_FN_COLLISION"
+		if prev.generated {
+			code = "E_FN_RESERVED"
+		}
+		l.diags.Error(posOf(pos), code,
+			"%s collides with %s: 1.12.2 lower-cases function ids, so both are %q",
+			what, prev.what, key)
+		return
+	}
+	l.funcIDs[key] = claimed{what: what, pos: pos}
+}
+
+// claimGenerated reserves an id the compiler emits rather than the author.
+func (l *Lowerer) claimGenerated(id, what string, pos syntax.Pos) {
+	l.funcIDs[strings.ToLower(id)] = claimed{what: what, pos: pos, generated: true}
 }
 
 // path renders a function identifier under the current namespace.
@@ -183,15 +278,8 @@ func (l *Lowerer) lowerFunc(fn syntax.FuncDecl) {
 }
 
 func (l *Lowerer) lowerOn(od syntax.OnDecl) {
-	var name string
-	switch od.Event {
-	case "load":
-		name = l.path("load")
-	case "tick":
-		name = l.path("tick")
-	case "every":
-		name = l.path("every/" + od.Every)
-	default:
+	name, ok := l.onName(od)
+	if !ok {
 		return
 	}
 	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
