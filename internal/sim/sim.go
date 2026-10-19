@@ -86,6 +86,13 @@ type State struct {
 	Scores map[string]int
 	// Output holds every command's output lines, in order.
 	Output []string
+	// Errors holds every error line the runtime reported.
+	//
+	// A command that fails inside a function does not stop the function,
+	// and a false branch test is *expected* to fail its selector, so a
+	// non-empty Errors is not by itself a test failure. It is carried
+	// here so an assertion can look at it when it matters.
+	Errors []string
 }
 
 // Run executes `setup` then `run` as a difftest case and returns the snapshot.
@@ -132,6 +139,9 @@ func parseState(text string) *State {
 			if strings.HasPrefix(trimmed, "feedback: ") {
 				st.Output = append(st.Output, strings.TrimPrefix(trimmed, "feedback: "))
 			}
+			if strings.HasPrefix(trimmed, "error: ") {
+				st.Errors = append(st.Errors, strings.TrimPrefix(trimmed, "error: "))
+			}
 			continue
 		}
 		if trimmed == "scores:" {
@@ -164,6 +174,16 @@ func parseState(text string) *State {
 // Get reads "objective/holder" from a snapshot.
 func (s *State) Get(objective, holder string) int {
 	return s.Scores[objective+"/"+holder]
+}
+
+// Has reports whether a score exists at all.
+//
+// Get cannot tell "0" from "never set", and that distinction is the
+// difference between a function that ran and one that silently did
+// nothing.
+func (s *State) Has(objective, holder string) bool {
+	_, ok := s.Scores[objective+"/"+holder]
+	return ok
 }
 
 // Keys lists score keys in sorted order, for stable assertions.
