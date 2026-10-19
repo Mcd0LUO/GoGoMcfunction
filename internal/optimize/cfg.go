@@ -551,50 +551,7 @@ func resolveTerm(t ir.Terminator, redirect map[ir.BlockID]ir.BlockID) ir.Termina
 }
 
 // negatePred returns the complement of a predicate in DNF.
-func negatePred(p ir.Predicate) ir.Predicate {
-	if p.Exist != nil {
-		ex := *p.Exist
-		ex.Negate = !ex.Negate
-		return ir.Predicate{Exist: &ex}
-	}
-	if len(p.Alts) == 0 {
-		return ir.Predicate{Alts: [][]ir.Cond{{}}}
-	}
-	var choices [][]ir.Cond
-	for _, alt := range p.Alts {
-		var opts []ir.Cond
-		for _, c := range alt {
-			opts = append(opts, complementCond(c)...)
-		}
-		if len(opts) == 0 {
-			return ir.Predicate{Alts: [][]ir.Cond{{}}}
-		}
-		choices = append(choices, opts)
-	}
-	result := [][]ir.Cond{{}}
-	for _, opts := range choices {
-		var next [][]ir.Cond
-		for _, acc := range result {
-			for _, o := range opts {
-				next = append(next, append(append([]ir.Cond(nil), acc...), o))
-			}
-		}
-		result = next
-	}
-	return ir.Predicate{Alts: result}
-}
-
-func complementCond(c ir.Cond) []ir.Cond {
-	switch {
-	case c.HasMin && c.HasMax:
-		var out []ir.Cond
-		out = append(out, ir.Cond{Obj: c.Obj, HasMax: true, Max: c.Min - 1})
-		out = append(out, ir.Cond{Obj: c.Obj, HasMin: true, Min: c.Max + 1})
-		return out
-	case c.HasMax:
-		return []ir.Cond{{Obj: c.Obj, HasMin: true, Min: c.Max + 1}}
-	case c.HasMin:
-		return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: c.Min - 1}}
-	}
-	return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: -1}}
-}
+//
+// The implementation lives in ir so that the lowering, the optimiser and
+// the back end cannot disagree about it.
+func negatePred(p ir.Predicate) ir.Predicate { return ir.Negate(p) }

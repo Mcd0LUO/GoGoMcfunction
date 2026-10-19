@@ -4,74 +4,10 @@ import "cmcf/internal/ir"
 
 // negate returns the logical complement of a predicate.
 //
-// De Morgan plus distribution: NOT(∨ᵢ ∧ⱼ cᵢⱼ) = ∧ᵢ (∨ⱼ NOT cᵢⱼ), and the
-// conjunction of disjunctions expands to the cross product of the per-clause
-// choices. Predicates are a handful of alternatives at most, so this stays
-// tiny.
-//
-// The complement of a point interval is TWO ranges (x < n and x > n), and
-// 1.12.2 has no boolean OR, so it must become two alternatives. Returning a
-// single range here produced `score_=0` guards in an earlier revision.
-func negate(p ir.Predicate) ir.Predicate {
-	if p.Exist != nil {
-		ex := *p.Exist
-		ex.Negate = !ex.Negate
-		return ir.Predicate{Exist: &ex}
-	}
-	if len(p.Alts) == 0 {
-		// NOT(true) is unsatisfiable: an empty conjunction never matches.
-		return ir.Predicate{Alts: [][]ir.Cond{{}}}
-	}
-	var choices [][]ir.Cond
-	for _, alt := range p.Alts {
-		var opts []ir.Cond
-		for _, c := range alt {
-			opts = append(opts, complements(c)...)
-		}
-		if len(opts) == 0 {
-			return ir.Predicate{Alts: [][]ir.Cond{{}}}
-		}
-		choices = append(choices, opts)
-	}
-	result := [][]ir.Cond{{}}
-	for _, opts := range choices {
-		var next [][]ir.Cond
-		for _, acc := range result {
-			for _, o := range opts {
-				merged := append(append([]ir.Cond(nil), acc...), o)
-				next = append(next, merged)
-			}
-		}
-		result = next
-	}
-	return ir.Predicate{Alts: result}
-}
-
-const (
-	int32Min = -2147483648
-	int32Max = 2147483647
-)
-
-// complements returns the disjoint intervals whose union is exactly the
-// complement of c.
-func complements(c ir.Cond) []ir.Cond {
-	switch {
-	case c.HasMin && c.HasMax:
-		var out []ir.Cond
-		if c.Min > int32Min {
-			out = append(out, ir.Cond{Obj: c.Obj, HasMax: true, Max: c.Min - 1})
-		}
-		if c.Max < int32Max {
-			out = append(out, ir.Cond{Obj: c.Obj, HasMin: true, Min: c.Max + 1})
-		}
-		return out
-	case c.HasMax:
-		return []ir.Cond{{Obj: c.Obj, HasMin: true, Min: c.Max + 1}}
-	case c.HasMin:
-		return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: c.Min - 1}}
-	}
-	return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: -1}}
-}
+// The implementation lives in ir, because the back end and the optimiser
+// need the same answer and three copies of it had already drifted apart:
+// two of them emitted a bound of 2147483648, which no score can hold.
+func negate(p ir.Predicate) ir.Predicate { return ir.Negate(p) }
 
 // withBudget folds `budget >= 1` into every alternative.
 func withBudget(p ir.Predicate, budget string) ir.Predicate {
@@ -85,7 +21,7 @@ func withBudget(p ir.Predicate, budget string) ir.Predicate {
 	for _, alt := range p.Alts {
 		out.Alts = append(out.Alts, append(append([]ir.Cond(nil), alt...), bc))
 	}
-	return out
+	return ir.Simplify(out)
 }
 
 // appendSelectorCond inserts a raw condition into a rendered selector.

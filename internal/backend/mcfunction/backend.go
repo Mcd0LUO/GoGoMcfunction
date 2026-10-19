@@ -232,51 +232,10 @@ func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.B
 	// Rendering only the FIRST complement alternative would drop the rest and
 	// make the exit edge fire on a subset of the intended inputs — a silent
 	// wrong-answer bug, so the whole complement is always emitted.
-	for _, alt := range complementDNF(br.Cond) {
+	for _, alt := range ir.Negate(br.Cond).Alts {
 		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: elseName}})
 	}
 	return out
-}
-
-// complementDNF returns the disjunctive normal form of the complement.
-func complementDNF(p ir.Predicate) [][]ir.Cond {
-	var choices [][]ir.Cond
-	for _, alt := range p.Alts {
-		var opts []ir.Cond
-		for _, c := range alt {
-			opts = append(opts, complementCond(c)...)
-		}
-		if len(opts) == 0 {
-			return [][]ir.Cond{{}}
-		}
-		choices = append(choices, opts)
-	}
-	result := [][]ir.Cond{{}}
-	for _, opts := range choices {
-		var next [][]ir.Cond
-		for _, acc := range result {
-			for _, o := range opts {
-				next = append(next, append(append([]ir.Cond(nil), acc...), o))
-			}
-		}
-		result = next
-	}
-	return result
-}
-
-func complementCond(c ir.Cond) []ir.Cond {
-	switch {
-	case c.HasMin && c.HasMax:
-		var out []ir.Cond
-		out = append(out, ir.Cond{Obj: c.Obj, HasMax: true, Max: c.Min - 1})
-		out = append(out, ir.Cond{Obj: c.Obj, HasMin: true, Min: c.Max + 1})
-		return out
-	case c.HasMax:
-		return []ir.Cond{{Obj: c.Obj, HasMin: true, Min: c.Max + 1}}
-	case c.HasMin:
-		return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: c.Min - 1}}
-	}
-	return []ir.Cond{{Obj: c.Obj, HasMax: true, Max: -1}}
 }
 
 // selectorFor builds @s with the given score conditions.

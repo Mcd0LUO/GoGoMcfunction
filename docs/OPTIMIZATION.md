@@ -54,59 +54,58 @@ while cond #[budget(N)] { body }    // 前测：先判据，可能一次都不�
 loop  cond #[budget(N)] { body }    // 后测：先执行一次，再看是否继续
 ```
 
-### 为什么需要 `loop`
-
-`while` 降级成「循环头判据 + 循环体」，两个基本块，**两个文件**：
-
-```
-H: cond; Branch(cond, B, X)
-B: body; Jump(H)
-```
-
-手写库写的是后测形式，**一个文件**：
+**两者生成的结构相同**，都是尾测：循环体和判据在同一个块里，回边是自调用。
+`while` 只是多一次入口预判，这就是它唯一的区别。
 
 ```
-B: body; cond; recurse-if(cond)
+while:  T: cond; Branch(cond, B, X)      // 预判一次
+        B: body; budget -= 1
+           cond; Branch(cond AND budget>=1, B, X)
+
+loop:   B: body; budget -= 1
+           cond; Branch(cond AND budget>=1, B, X)
 ```
 
-编译器可以尝试自动把 `while` 旋转成后测，但**这在一般情况下是错的**：
+### 曾经以为做不到
+
+「把 `while` 的判据移到尾部」这个说法本身就是错的：判据读的值会被循环体改写。
 
 ```
 while abs(x - prev) >= 1 { prev = x; x = (x + n/x)/2 }
 ```
 
-循环头的判据读 `x` 和 `prev`，而循环体**会改写它们**。把判据移到尾部，
-它读的就是更新后的值——语义完全变了。手写版能这么写，是因为作者**手工**把尾部判据
-写成了最终值的表达式。编译器要推出这一点需要值编号分析，而当前没有。
+判据读 `x` 和 `prev`，循环体会重写它们。把判据挪到尾部，它读的就是更新后的值——
+语义完全变了。
 
-于是我**撤回了循环旋转优化**，改为在语言里提供 `loop`：
-把「分析难题」变成「语法选择」，用户显式表达意图，编译器不需要猜。
+但**正确的改写不是移动判据**，而是：
 
 ```
-// 一个文件，一个自调用
-loop abs(x - prev) >= 1 #[budget(32)] {
-    prev = x
-    x = (x + n / x) / 2
-}
+while cond { body }  ==  if cond { loop cond { body } }
 ```
 
-生成：
+预判保留在入口，因此语义严格相同，而每次迭代都拿到了尾测的好处。
+这是 AST 级的等价改写，不需要值编号，也不需要证明任何东西。
+
+手写库里 `sqrt` 那种「尾部判据写成最终值的表达式」是作者手工推出来的——
+编译器不需要猜，因为它保留了入口预判。
+
+### 当前生成
 
 ```mcfunction
-scoreboard players operation @s l1 = @s l0
-scoreboard players operation @s t0 = @s a0
-...
-scoreboard players operation @s t2 = @s l0
-scoreboard players operation @s t2 -= @s l1
-scoreboard players remove @s l2 1
-execute @s[score_t2=-1] ~ ~ ~ function luo:math/sqrt$b2
-execute @s[score_t2_min=1] ~ ~ ~ function luo:math/sqrt$b2
-execute @s[score_l2_min=1] ~ ~ ~ function luo:math/sqrt$b2
-execute @s[score_t2_min=0,score_t2=0,score_l2=0] ~ ~ ~ function luo:math/sqrt$b3
+scoreboard players operation @s t1 = @s l4      # d = y - x
+scoreboard players operation @s t1 -= @s l3
+scoreboard players remove @s l5 1              # budget -= 1
+execute @s[score_l5_min=1,score_t1=-1] ~ ~ ~ function t:l/fl$b2   # 继续
+execute @s[score_l5=0] ~ ~ ~ function t:l/fl$b3                   # 预算耗尽
+execute @s[score_t1_min=0] ~ ~ ~ function t:l/fl$b3               # 判据为假
 ```
 
-三条继续守卫 + 一条退出守卫。退出是 `NOT(d<=-1 ∨ d>=1 ∨ budget>=1) = d==0 ∧ budget<=0`，
-一个合取式，正好一条 `execute`。
+一次迭代：3 条守卫 + 1 次自调用。分开测预算是 1+1（预算两侧）+1+1（判据两侧）
+= 4 条守卫 + 2 次调用，多出来的两条不是「一条」。
+
+退出条件是 `NOT(cond AND budget>=1)`。判据有 k 个分支时，补集就有 k 个分支
+（`NOT(A OR B) = NOT A AND NOT B`，一个合取式，一条守卫）；再加上预算那一支。
+两种写法在这里的规模完全一样，因为叉积两种写法都有。
 
 ---
 
@@ -115,11 +114,14 @@ execute @s[score_t2_min=0,score_t2=0,score_l2=0] ~ ~ ~ function luo:math/sqrt$b3
 对象是 `examples/luo-math-full.cmcf`（原库 309 行 / 17 文件 / 247 条命令）：
 
 ```
--O0: files=18  commands=127  objectives=30  consts=9  （无优化，调试用）
--O1: files=17  commands=125  objectives=30  consts=9
--O2: files=17  commands=123  objectives=28  consts=9
--O3: files=17  commands=123  objectives=28  consts=9
+-O0: files=16  commands=130  objectives=30  consts=9  （无优化，调试用）
+-O1: files=15  commands=128  objectives=30  consts=9
+-O2: files=15  commands=125  objectives=28  consts=9
+-O3: files=15  commands=125  objectives=28  consts=9
 ```
+
+**静态行数不是重点。** 循环体是热代码，同样的循环写成尾测后每次迭代的控制命令
+从 4 条降到 3 条，回边从「调用另一个块」变成自调用。实测 `sqrt(40000)`：
 
 **行数不是主要指标。** `init` 里有 30 条 `scoreboard objectives add` 和 9 条常量初始化，
 占 123 条中的 39 条，但它们只在加载时跑一次。真正的每次调用成本要看具体函数：
@@ -129,7 +131,7 @@ execute @s[score_t2_min=0,score_t2=0,score_l2=0] ~ ~ ~ function luo:math/sqrt$b3
 | `lcg_step` | 4 | `(A*s + C) % M` 的最优形式，中间量直接算进 `return` |
 | `chance` | 10 | 含一次跨函数调用 |
 | `rand` | 13 | 含一次调用 + 一次取模回绕 |
-| `sqrt` | 25 | 5 个块（1.12.2 无文件内标签，每个分支是一个文件） |
+| `sqrt` | 24 | 4 个块（1.12.2 无文件内标签，每个分支是一个文件） |
 
 objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s` 是整条调用栈共用的
 一个寄存器文件，被调函数的 `l0` 就是调用者的 `l0`。跨函数复用名字只有在分配器能证明
@@ -137,17 +139,35 @@ objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s`
 
 ---
 
-## 4. 一个不做的优化：循环旋转
+| | 静态命令 | 动态命令 | 失败守卫 |
+|---|---|---|---|
+| 初始 | 131 | 1531 | 21 |
+| 合并预算到条件 | 127 | 1022 | 39 |
+| 补集化简 | 125 | **896** | **21** |
 
-代码里 `rotateLoops` 和 `rotatePostTest` 两个函数保留着，但**不在任何
-管线里**，并有注释说明为什么。它们会：
+**−41%，结果不变（`sqrt(40000) = 200`）。**
 
-- 把循环头的判据移到尾部（读错值）
-- 把 2-alternative 的 `|d|>=1` 和预算守卫叉积成 4 条重叠守卫
-- 让回边指向错误的块
+---
 
-保留它们是为了将来实现值编号后可以启用。**在任何时候启用都会产生能加载、
-不报错、但行为错误的程序**——这正是本编译器最该避免的失败模式。
+## 4. 循环：`while` 就是「预判 + 尾测」
+
+`while cond { body }` 与 `if cond { loop cond { body } }` **是同一个程序**，
+所以 `lowerWhile` 直接按后者降级，复用已经写好、已经测过的 `lowerLoop`。
+没有 CFG 手术，没有值编号，也不需要证明什么——这就是正确的写法。
+
+堆栈里曾留着 `rotateLoops` / `rotatePostTest` 两个函数做真正的旋转，
+它们会读错值、把守卫叉积成 4 条、让回边指向错误的块。那些函数已删除：
+**AST 级的等价改写不需要它们**，而在任何时候启用它们都会产生能加载、
+不报错、但行为错误的程序。
+
+### 预算为什么必须折进条件
+
+直觉上「把预算单独测」只多一条命令，实际是**两条**：预算分支需要两侧各一条
+守卫（`budget>=1` 和 `budget<=0`），然后条件还要自己的一对。折进去之后，
+条件的补集只付一次。
+
+补集的规模两种写法完全一样——多分支条件本来就产生叉积——所以折进去永远不会更大，
+而且总是少一个块、少一次调用。
 
 ---
 
@@ -162,9 +182,40 @@ objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s`
 
 ---
 
+## 6. 补集只有一份实现
+
+补集是这个编译器里最容易写错、又最不会报错的东西：**匹配过宽会静默走错分支**。
+它曾经有三份独立实现——`lower`、后端、优化器各一份——而其中两份**已经分叉了**：
+
+| | 越界边界 |
+|---|---|
+| `lower.complements` | 丢弃（正确） |
+| `backend.complementCond` | 发出 `score_x_min=2147483648` |
+| `optimize.complementCond` | 同后端 |
+
+`x == 2147483647` 的补集是 `x < 2147483647` 一条；那两份会再发一条
+`x >= 2147483648`——没有任何分数能等于它，但它照样占一条命令和一行报错。
+
+现在只有 `ir.Negate` / `ir.Simplify` 一份，三处调用点都是薄包装，
+并有 9 条测试锁住区间约定。**同一份逻辑抄两遍，它们迟早会不一样。**
+
+### 化简补掉了什么
+
+叉积会重复条件。`|d|>=1 AND budget>=1` 的补集原本出来四条：
+
+```
+d >= 0 AND d <= 0          ← 真正的退出点（d == 0）
+d >= 0 AND budget <= 0     ← 被下面那条覆盖
+budget <= 0 AND d <= 0     ← 被下面那条覆盖
+budget <= 0 AND budget <= 0 ← 同一条条件写了两遍
+```
+
+`Simplify` 把同一 objective 的重复条件并成区间、丢掉被更弱分支覆盖的分支，
+四条变两条。
+
 ---
 
-## 6. 名字为什么不能跨函数复用
+## 7. 名字为什么不能跨函数复用
 
 这一条曾经写错，代价是三个静默误编译，全都在 `luo/math` 里。
 
