@@ -48,7 +48,7 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	if !ok {
 		return false
 	}
-	if exprMentions(bin.R, dst, ctx) {
+	if exprMentions(bin.R, loc(dst), ctx) {
 		return false
 	}
 	// When the left operand is itself an arithmetic op, compute it into dst
@@ -89,21 +89,29 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	return true
 }
 
-// exprMentions reports whether a name resolves to the given objective.
-func exprMentions(e syntax.Expr, obj string, ctx *fnCtx) bool {
+// exprMentions reports whether an expression reads the given location.
+//
+// It takes the location rather than an objective name because a class
+// field lives on a truncated objective ("C.hp") while the source spells it
+// "hp", and comparing the wrong pair would either miss the read or invent
+// one.
+func exprMentions(e syntax.Expr, at ir.Loc, ctx *fnCtx) bool {
 	switch x := e.(type) {
 	case syntax.Ident:
 		if strings.Contains(x.Name, ".") {
 			return false
 		}
-		return ctx.slot(x.Name) == obj
+		if ctx.isField(x.Name) {
+			return at.Obj == ctx.fieldLoc(x.Name)
+		}
+		return at.Holder == "@s" && ctx.slot(x.Name) == at.Obj
 	case syntax.Binary:
-		return exprMentions(x.L, obj, ctx) || exprMentions(x.R, obj, ctx)
+		return exprMentions(x.L, at, ctx) || exprMentions(x.R, at, ctx)
 	case syntax.Unary:
-		return exprMentions(x.X, obj, ctx)
+		return exprMentions(x.X, at, ctx)
 	case syntax.Call:
 		for _, a := range x.Args {
-			if exprMentions(a, obj, ctx) {
+			if exprMentions(a, at, ctx) {
 				return true
 			}
 		}
@@ -129,6 +137,12 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		if strings.Contains(x.Name, ".") {
 			parts := strings.SplitN(x.Name, ".", 2)
 			return ir.Loc{Holder: parts[0], Obj: parts[1]}, nil
+		}
+		// A field of the enclosing class beats a fresh local. Fields are
+		// checked after externs and constants so an explicit binding
+		// still wins.
+		if ctx.isField(x.Name) {
+			return loc(ctx.fieldLoc(x.Name)), nil
 		}
 		return loc(ctx.slot(x.Name)), nil
 	case syntax.Call:

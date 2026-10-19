@@ -291,6 +291,11 @@ func renderOp(t target.Target, op ir.Op) []mc.Command {
 		return out
 	case ir.Call:
 		return []mc.Command{mc.Function{Name: o.Path}}
+	case ir.FanOut:
+		return []mc.Command{mc.Execute{
+			Selector: parseSelector(o.Selector),
+			Cmd:      mc.Function{Name: o.Path},
+		}}
 	case ir.Raw:
 		return []mc.Command{mc.Raw{Text: o.Text}}
 	}

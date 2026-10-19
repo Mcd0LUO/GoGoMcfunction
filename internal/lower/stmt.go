@@ -79,6 +79,9 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string) ir.Loc {
 	if xd, ok := l.externs[name]; ok && (xd.Kind == "var" || xd.Kind == "global") {
 		return externLoc(xd)
 	}
+	if ctx.isField(name) {
+		return loc(ctx.fieldLoc(name))
+	}
 	return loc(ctx.slot(name))
 }
 

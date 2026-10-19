@@ -71,7 +71,16 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	l.prog = ir.NewProgram(f.Namespace)
 	l.funcIDs = map[string]claimed{}
 	l.claimGenerated(f.Namespace+"/init", "the compiler-generated initialiser", f.P)
+	// An entry point the module will generate owns its name, so a
+	// declaration that normalises onto it is reported rather than quietly
+	// sharing a file. Only the ones this file will actually produce are
+	// reserved: reserving them all would reject "fn Spawn" in a module
+	// that never hooks spawning.
+	for _, ev := range l.entryEvents(f) {
+		l.claimGenerated(f.Namespace+"/"+ev, "the compiler-generated "+ev+" entry point", f.P)
+	}
 	l.claimDeclarations(f)
+	l.claimClassFields(f)
 
 	for name, expr := range f.Consts {
 		if v, ok := constInt(expr); ok {
@@ -83,6 +92,16 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	}
 	for _, fn := range f.Funcs {
 		l.sigs[l.path(fn.Name)] = len(fn.Params)
+	}
+	// Class methods are functions too. Leaving them out of the signature
+	// table meant a call to one was not arity-checked, was not counted as
+	// a caller, and was not seen by the ABI analysis -- so a method could
+	// be called with the wrong number of arguments and the call resolved
+	// to nothing.
+	for _, cd := range f.Classes {
+		for _, m := range cd.Methods {
+			l.sigs[l.path(cd.Name+"/"+m.Name)] = len(m.Params)
+		}
 	}
 	bodies := map[string][]syntax.Stmt{}
 	for _, fn := range f.Funcs {
@@ -98,12 +117,26 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	for _, fn := range f.Funcs {
 		l.lowerFunc(fn)
 	}
+	// on-tick blocks and class tick methods share one entry point.
+	// Generating them separately would create two functions with the same
+	// id, and the second would replace the first on disk.
+	var tickBody []syntax.Stmt
+	tickPos := syntax.Pos{}
 	for _, od := range f.Ons {
+		if od.Event == "tick" {
+			tickBody = append(tickBody, od.Body...)
+			if tickPos.Line == 0 {
+				tickPos = od.P
+			}
+			continue
+		}
 		l.lowerOn(od)
 	}
 	for _, cd := range f.Classes {
 		l.lowerClass(cd)
 	}
+	l.lowerTickEntry(tickBody, tickPos, f.Classes)
+	l.lowerSpawnEntry(f.Classes)
 	ids := make(map[string]string, len(l.funcIDs))
 	for k, v := range l.funcIDs {
 		ids[k] = v.what
@@ -124,13 +157,11 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 // out rather than just asserting the function is dead.
 func (l *Lowerer) reportUncalled(f *syntax.File, bodies map[string][]syntax.Stmt) {
 	called := map[string]bool{}
-	for _, body := range bodies {
+	for owner, body := range bodies {
+		class := l.classOf(owner)
 		for _, c := range syntax.Calls(body) {
-			if _, ok := l.externs[c.Name]; ok {
-				continue
-			}
-			if _, ok := l.sigs[l.path(c.Name)]; ok {
-				called[l.path(c.Name)] = true
+			if path, ok := l.callTarget(class, c); ok {
+				called[path] = true
 			}
 		}
 	}
@@ -153,6 +184,169 @@ func (l *Lowerer) reportUncalled(f *syntax.File, bodies map[string][]syntax.Stmt
 			}
 		}
 	}
+}
+
+// claimClassFields reserves the objective each class field lives in.
+//
+// A field objective is "<class>.<field>" truncated to the version's
+// 16-character limit, so a class name past six characters is cut and two
+// long names sharing a prefix land on the same objective: a field of
+// Monster and a field of Monstrosity both become "Monste.hp". 1.12.2
+// keeps one score for both, and each class silently corrupts the other's
+// state.
+func (l *Lowerer) claimClassFields(f *syntax.File) {
+	owner := map[string]string{}
+	for _, cd := range f.Classes {
+		for _, fld := range cd.Fields {
+			obj := l.fieldObj(cd.Name, fld.Name)
+			what := cd.Name + "." + fld.Name
+			if prev, ok := owner[obj]; ok {
+				l.diags.Error(posOf(fld.P), "E_FIELD_COLLISION",
+					"field %s lives in objective %q, which %s already uses: objective names are truncated to %d characters",
+					what, obj, prev, l.tgt.ObjectiveNameLimit)
+				continue
+			}
+			owner[obj] = what
+		}
+	}
+}
+
+// entryEvents lists the generated entry points this file needs.
+func (l *Lowerer) entryEvents(f *syntax.File) []string {
+	// Only the entries that are generated WITHOUT a matching declaration
+	// are reserved here. An "on tick" block claims t:k/tick itself, and
+	// reserving it twice reported the declaration as colliding with the
+	// thing it was declaring.
+	declared := map[string]bool{}
+	for _, od := range f.Ons {
+		declared[od.Event] = true
+	}
+	need := map[string]bool{}
+	for _, cd := range f.Classes {
+		for _, m := range cd.Methods {
+			if m.Tick {
+				need["tick"] = true
+			}
+		}
+		for _, ev := range cd.Events {
+			need[ev.Event] = true
+		}
+	}
+	var out []string
+	for _, ev := range []string{"tick", "spawn", "death"} {
+		if need[ev] && !declared[ev] {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// spawnTag is the marker a class puts on an entity whose spawn hook has
+// already run.
+//
+// 1.12.2 has no entity-created event, so "run this once when the entity
+// appears" is built the way the hand-written libraries build it: a tag
+// recording what has already been handled, and a per-tick pass over the
+// entities that do not carry it yet.
+func spawnTag(class string) string { return "cmcf.spawn." + class }
+
+// withSelectorArg appends a raw argument to a selector's condition list.
+func withSelectorArg(sel, arg string) string {
+	if i := strings.LastIndex(sel, "]"); i >= 0 {
+		return sel[:i] + "," + arg + sel[i:]
+	}
+	return sel + "[" + arg + "]"
+}
+
+// lowerSpawnEntry builds the namespace spawn entry, if there is one.
+func (l *Lowerer) lowerSpawnEntry(classes []syntax.ClassDecl) {
+	type hook struct{ selector, path string }
+	var hooks []hook
+	for _, cd := range classes {
+		for _, ev := range cd.Events {
+			if ev.Event != "spawn" {
+				continue
+			}
+			hooks = append(hooks, hook{
+				selector: withSelectorArg(cd.Selector, "tag=!"+spawnTag(cd.Name)),
+				path:     l.path(cd.Name + "/spawn"),
+			})
+		}
+	}
+	if len(hooks) == 0 {
+		return
+	}
+	fb := l.prog.NewFunc(l.path("spawn"))
+	fb.Func().Exported = true
+	for _, h := range hooks {
+		fb.Emit(0, ir.FanOut{Selector: h.selector, Path: h.path})
+	}
+}
+
+// lowerClassEvent builds one lifecycle hook body.
+//
+// The marker tag is set BEFORE the user body runs. An early return in the
+// body would otherwise skip it, and the entity would be spawned again on
+// the next tick, forever.
+func (l *Lowerer) lowerClassEvent(cd syntax.ClassDecl, ev syntax.ClassEvent, fields map[string]string) {
+	name := l.path(cd.Name + "/" + ev.Event)
+	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN, class: cd.Name, fields: fields}
+	fb := l.prog.NewFunc(name)
+	fb.Func().Origin = l.origin(ev.P)
+	// Fields first: the body may read them, and an entity that reaches the
+	// body with uninitialised fields is worse than one that never spawned.
+	if len(cd.Fields) > 0 {
+		fb.Emit(0, ir.Call{Path: l.path(cd.Name + "/init")})
+	}
+	fb.Emit(0, ir.Raw{Text: "scoreboard players tag @s add " + spawnTag(cd.Name)})
+	end := l.lowerSeq(ctx, fb, 0, ev.Body)
+	if end != noFallThrough {
+		fb.SetTerm(end, ir.Return{})
+	}
+}
+
+// lowerTickEntry builds the namespace ticking entry, if there is one.
+func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []syntax.ClassDecl) {
+	type ticker struct{ path, selector string }
+	var tickers []ticker
+	for _, cd := range classes {
+		for _, m := range cd.Methods {
+			if m.Tick {
+				tickers = append(tickers, ticker{l.path(cd.Name + "/" + m.Name), cd.Selector})
+			}
+		}
+	}
+	if len(body) == 0 && len(tickers) == 0 {
+		return
+	}
+	name := l.path("tick")
+	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
+	fb := l.prog.NewFunc(name)
+	fb.Func().Exported = true
+	fb.Func().Origin = l.origin(pos)
+	end := l.lowerSeq(ctx, fb, 0, body)
+	if end == noFallThrough {
+		return
+	}
+	for _, t := range tickers {
+		fb.Emit(end, ir.FanOut{Selector: t.selector, Path: t.path})
+	}
+	fb.SetTerm(end, ir.Return{})
+}
+
+// classOf returns the class a method belongs to, or "" for a plain
+// function. Method paths are "<ns>/<Class>/<Name>", so the class is the
+// second-to-last segment.
+func (l *Lowerer) classOf(path string) string {
+	body := path
+	if i := strings.Index(body, ":"); i >= 0 {
+		body = body[i+1:]
+	}
+	parts := strings.Split(body, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-2]
 }
 
 // claimDeclarations reserves every function id the file declares.
@@ -306,7 +500,33 @@ type fnCtx struct {
 	// the live ranges cannot overlap -- the same rule the temporaries
 	// already follow.
 	localN *int
+	// class is the class whose method body is being lowered, and fields
+	// are its declared field names.
+	//
+	// A field is an objective on @s, and a bare name inside a method has
+	// to mean the field rather than a fresh local. Without this, the
+	// specification's own example
+	//
+	//	var hp: int = 40
+	//	fn deal(dmg: int) { hp -= dmg }
+	//
+	// read and wrote an uninitialised local: the objective was set once by
+	// the field initialiser and never touched again.
+	class string
+	// fields maps a field's name to the objective it lives in. The two
+	// differ because objective names are truncated to the version's limit.
+	fields map[string]string
 }
+
+// isField reports whether a bare name refers to a field of the enclosing
+// class.
+func (c *fnCtx) isField(name string) bool {
+	_, ok := c.fields[name]
+	return c.class != "" && ok
+}
+
+// fieldLoc returns the objective a field lives in.
+func (c *fnCtx) fieldLoc(name string) string { return c.fields[name] }
 
 func (c *fnCtx) slot(name string) string {
 	if s, ok := c.scope[name]; ok {
@@ -352,9 +572,13 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 }
 
 func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {
+	fields := map[string]string{}
+	for _, f := range cd.Fields {
+		fields[f.Name] = l.fieldObj(cd.Name, f.Name)
+	}
 	for _, m := range cd.Methods {
 		name := l.path(cd.Name + "/" + m.Name)
-		ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
+		ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN, class: cd.Name, fields: fields}
 		fb := l.prog.NewFunc(name)
 		fb.Func().Exported = m.Tick
 		fb.Func().Origin = l.origin(m.P)
@@ -363,6 +587,22 @@ func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {
 		if end != noFallThrough {
 			fb.SetTerm(end, ir.Return{})
 		}
+	}
+	for _, ev := range cd.Events {
+		if ev.Event != "spawn" {
+			// An empty body is a placeholder and there is nothing to
+			// run, so it is accepted. A non-empty one cannot be honoured
+			// correctly: 1.12.2 cannot observe an entity that is already
+			// gone, so the hook would need a shadow entity to hang the
+			// state on, and pretending otherwise would produce a handler
+			// that never fires.
+			if len(ev.Body) > 0 {
+				l.diags.Error(posOf(ev.P), "E_HOOK_UNSUPPORTED",
+					"on %s needs a shadow entity: 1.12.2 cannot observe an entity that is already gone, so the hook has no correct implementation yet", ev.Event)
+			}
+			continue
+		}
+		l.lowerClassEvent(cd, ev, fields)
 	}
 	if len(cd.Fields) > 0 {
 		init := l.path(cd.Name + "/init")

@@ -69,6 +69,29 @@ func (p *parser) expectName() (Token, error) {
 	return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected a name, got %s", p.cur().Kind)}
 }
 
+// nameable reports whether a keyword may also serve as a name.
+//
+// A method called tick is the natural spelling next to @tick, and 1.12.2
+// itself allows any path segment, so refusing it made the specification's
+// own example uncompilable. These five are only keywords inside "on ..."
+// and after "@", and none of them can be followed by "(" in valid syntax,
+// so treating them as names elsewhere is unambiguous.
+func nameable(k Kind) bool {
+	switch k {
+	case TICK, SPAWN, DEATH, LOAD, EVERY:
+		return true
+	}
+	return false
+}
+
+// expectNameLike accepts an identifier or a keyword that may double as one.
+func (p *parser) expectNameLike() (Token, error) {
+	if p.cur().Kind == IDENT || nameable(p.cur().Kind) {
+		return p.next(), nil
+	}
+	return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected identifier, got %s", p.cur().Kind)}
+}
+
 func (p *parser) expectIdent() (Token, error) {
 	if p.cur().Kind != IDENT {
 		return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected identifier, got %s", p.cur().Kind)}
@@ -276,7 +299,7 @@ func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	name, err := p.expectIdent()
+	name, err := p.expectNameLike()
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +414,7 @@ func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	name, err := p.expectIdent()
+	name, err := p.expectNameLike()
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +434,7 @@ func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 		switch p.cur().Kind {
 		case VAR:
 			p.next()
-			n, err := p.expectIdent()
+			n, err := p.expectNameLike()
 			if err != nil {
 				return nil, err
 			}
@@ -973,6 +996,13 @@ func (p *parser) parsePrimary() (Expr, error) {
 			return nil, err
 		}
 		return x, nil
+	case TICK, SPAWN, DEATH, LOAD, EVERY:
+		// A nameable keyword can only start an expression as a call.
+		p.next()
+		if p.cur().Kind != LPAREN {
+			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("%s cannot start an expression", t.Text)}
+		}
+		return p.finishCall(t.Text, t.Pos)
 	case EMIT:
 		p.next()
 		if p.cur().Kind != LPAREN {

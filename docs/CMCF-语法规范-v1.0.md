@@ -120,6 +120,13 @@ class CastTimer {
 | `on tick` | 生成 `luo:math/tick`，挂到 `gamerule gameLoopFunction` |
 | `on every 5s` | 相位分配 + **编译器生成归零**，整除 20 检查 |
 | `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` |
+| `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 |
+
+> **实现状态（0.3.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
+> `on death` **有非空体时报错**——1.12.2 无法观察已经消失的实体，正确实现需要一个
+> 影子实体，假装能做到只会产出一个永不触发的处理器。空体是占位符，接受。
+> 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
+> 由 `E_FIELD_COLLISION` 报出。
 
 ---
 
@@ -214,6 +221,8 @@ comptime {
 | `E_FN_COLLISION` | 两个声明在 1.12.2 归一化后是同一个函数 |
 | `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
 | `E_UNKNOWN_CALLEE` | 调用了本模块里不存在的函数 |
+| `E_FIELD_COLLISION` | 两个字段截断后落在同一个 objective 上 |
+| `E_HOOK_UNSUPPORTED` | `on death` 有非空函数体（需要影子实体） |
 | `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
 | `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
 | `E_NO_BUDGET` | `while` / `loop` 没有 `#[budget(N)]` |

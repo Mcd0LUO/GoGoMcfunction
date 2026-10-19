@@ -42,7 +42,7 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		fb.Emit(block, ir.Call{Path: call.Name})
 		return
 	}
-	path, ok := l.resolveFunction(call)
+	path, ok := l.resolveFunction(ctx, call)
 	if !ok {
 		return
 	}
@@ -61,7 +61,7 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 	if r, ok := l.builtin(ctx, fb, block, c); ok {
 		return r, nil
 	}
-	path, ok := l.resolveFunction(c)
+	path, ok := l.resolveFunction(ctx, c)
 	if !ok {
 		return ir.Loc{}, nil
 	}
@@ -87,11 +87,11 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 // own audit found exactly that: a call written without its namespace
 // prefix left a random-number routine returning whatever the caller
 // happened to have in the return slot.
-func (l *Lowerer) resolveFunction(c syntax.Call) (string, bool) {
-	path := l.path(c.Name)
-	if _, ok := l.sigs[path]; ok {
+func (l *Lowerer) resolveFunction(ctx *fnCtx, c syntax.Call) (string, bool) {
+	if path, ok := l.callTarget(ctx.class, c); ok {
 		return path, true
 	}
+	path := l.path(c.Name)
 	if reservedCalls[c.Name] {
 		// These are in the language, and this build does not implement
 		// them everywhere the grammar allows. Saying "unknown function"
@@ -104,6 +104,34 @@ func (l *Lowerer) resolveFunction(c syntax.Call) (string, bool) {
 	l.diags.Error(posOf(c.P), "E_UNKNOWN_CALLEE",
 		"no function named %q in this module; 1.12.2 does not treat that as an error, the call simply never runs", c.Name)
 	return path, false
+}
+
+// callTarget resolves a call to a declared function, without reporting.
+//
+// An unqualified call inside a class may name a method of that class.
+// Without this the call went to <ns>/<name>, which almost never existed,
+// so a method calling a sibling method silently called nothing at all --
+// and the sibling was then pruned as unreachable, so the two mistakes
+// covered for each other.
+func (l *Lowerer) callTarget(class string, c syntax.Call) (string, bool) {
+	if _, ok := l.externs[c.Name]; ok {
+		return "", false
+	}
+	if path := l.path(c.Name); l.hasSig(path) {
+		return path, true
+	}
+	if class != "" && !strings.Contains(c.Name, ".") {
+		if inClass := l.path(class + "/" + c.Name); l.hasSig(inClass) {
+			return inClass, true
+		}
+	}
+	return l.path(c.Name), false
+}
+
+// hasSig reports whether a function path is declared.
+func (l *Lowerer) hasSig(path string) bool {
+	_, ok := l.sigs[path]
+	return ok
 }
 
 // reservedCalls are the builtins whose names the language owns but this

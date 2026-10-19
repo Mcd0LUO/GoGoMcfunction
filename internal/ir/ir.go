@@ -158,6 +158,19 @@ type Guarded struct {
 // Call invokes another function without returning to this block.
 type Call struct{ Path string }
 
+// FanOut runs a function once for every entity a selector matches.
+//
+// It is how a class's tick entry reaches its instances: @s inside the
+// callee is each matched entity in turn, at that entity's position. It is
+// modelled separately from Raw so that the analysed call graph includes
+// the edge -- a Raw line would make the callee look unreachable.
+type FanOut struct {
+	// Selector is the raw selector text, e.g. "@e[tag=mob]".
+	Selector string
+	// Path is the function to run per matched entity.
+	Path string
+}
+
 // Raw is an escape hatch for commands the IR does not model.
 type Raw struct{ Text string }
 
@@ -168,6 +181,7 @@ func (Add) opNode()     {}
 func (Remove) opNode()  {}
 func (Guarded) opNode() {}
 func (Call) opNode()    {}
+func (FanOut) opNode()  {}
 func (Raw) opNode()     {}
 
 // Cond is a scoreboard interval test.

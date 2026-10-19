@@ -106,8 +106,15 @@ func pruneFuncs(p *ir.Program) {
 		}
 		for _, b := range fn.Blocks {
 			for _, op := range b.Ops {
-				if c, ok := op.(ir.Call); ok {
-					visit(c.Path)
+				switch o := op.(type) {
+				case ir.Call:
+					visit(o.Path)
+				case ir.FanOut:
+					// A fan-out is a call graph edge like any other.
+					// Missing it pruned every class lifecycle handler:
+					// the entry point existed and called a function the
+					// pruner had already thrown away.
+					visit(o.Path)
 				}
 			}
 			if c, ok := b.Term.(ir.TailCall); ok {
