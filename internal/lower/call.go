@@ -196,6 +196,32 @@ func abiIndex(reg string) (int, bool) {
 	return n, true
 }
 
+// callInto stores a call's result directly into dst, and reports
+// whether it handled the call.
+//
+// It declines builtins and reduce, which produce their value in a slot of
+// their own; those keep the general path.
+func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst ir.Loc, c syntax.Call) bool {
+	if xd, ok := l.externs[c.Name]; ok {
+		l.marshalExtern(ctx, fb, block, c, xd)
+		fb.Emit(block, ir.Call{Path: c.Name})
+		out := xd.Out
+		if out == "" {
+			out = "return"
+		}
+		fb.Emit(block, ir.Copy{Dst: dst, Src: loc(out)})
+		return true
+	}
+	path := l.path(c.Name)
+	if _, ok := l.sigs[path]; !ok {
+		return false
+	}
+	l.marshalArgs(ctx, fb, block, path, c)
+	fb.Emit(block, ir.Call{Path: path})
+	fb.Emit(block, ir.Copy{Dst: dst, Src: loc("return")})
+	return true
+}
+
 func (l *Lowerer) marshalExtern(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syntax.Call, x syntax.ExternDecl) {
 	for i, a := range c.Args {
 		if i >= len(x.In) {

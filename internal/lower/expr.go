@@ -21,6 +21,13 @@ func (l *Lowerer) assignInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d
 		fb.Emit(block, ir.Set{Dst: dst, Value: lit})
 		return
 	}
+	// A call in initialiser position needs no scratch slot. call() hands
+	// back a temporary because the value has to survive whatever the
+	// enclosing expression does next; here there is no next, so dst can
+	// read the ABI return register directly.
+	if c, ok := e.(syntax.Call); ok && l.callInto(ctx, fb, block, dst, c) {
+		return
+	}
 	if dst.Holder == "@s" {
 		if bin, ok := e.(syntax.Binary); ok && !isComparison(bin.Op) {
 			if l.assignBinaryInto(ctx, fb, block, dst.Obj, bin) {
@@ -43,6 +50,29 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	}
 	if exprMentions(bin.R, dst, ctx) {
 		return false
+	}
+	// When the left operand is itself an arithmetic op, compute it into dst
+	// as well. Writing (a + b) * c then costs three commands rather than
+	// four, because the intermediate result never needs a slot:
+	//
+	//	dst = a; dst += b; dst *= c
+	//
+	// This is safe for the same reason the copy below is: dst is written
+	// only after its old value has been read, and the right operand is
+	// known not to mention dst. An ABI register as dst is safe too --
+	// bindParams moves any parameter a nested call could reach into a
+	// local, so a dst still in a0.. is one no call in this function
+	// touches.
+	if inner, ok := bin.L.(syntax.Binary); ok && !isComparison(inner.Op) {
+		if l.assignBinaryInto(ctx, fb, block, dst, inner) {
+			rhs, err := l.expr(ctx, fb, block, bin.R)
+			if err != nil {
+				l.diags.Error(posOf(exprPos(bin.R)), "E_EXPR", "%s", err)
+				return true
+			}
+			fb.Emit(block, ir.Arith{Dst: loc(dst), Op: op, Src: rhs})
+			return true
+		}
 	}
 	lhs, err := l.expr(ctx, fb, block, bin.L)
 	if err != nil {
@@ -218,6 +248,22 @@ func (l *Lowerer) lowerCondInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	if p, ok, err := l.lowerAbsComparison(ctx, fb, block, d, x); ok {
 		return p, err
 	}
+	// Compute the left side straight into d.
+	//
+	// d is always a fresh temporary here, so nothing in x.R can read it,
+	// and a nested call cannot collide with it either: names are unique
+	// across the module, so no callee writes this slot. That removes the
+	// scratch slot a comparison used to need for its left operand --
+	// rand(1, scale) <= p becomes "d = return; d -= p" instead of
+	// "t = return; d = t; d -= p".
+	if l.assignOperandInto(ctx, fb, block, d, x.L) {
+		rhs, err := l.expr(ctx, fb, block, x.R)
+		if err != nil {
+			return ir.Predicate{}, err
+		}
+		fb.Emit(block, ir.Arith{Dst: loc(d), Op: "-=", Src: rhs})
+		return l.predicateFor(d, x.Op)
+	}
 	lhs, err := l.expr(ctx, fb, block, x.L)
 	if err != nil {
 		return ir.Predicate{}, err
@@ -229,6 +275,22 @@ func (l *Lowerer) lowerCondInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	fb.Emit(block, ir.Copy{Dst: loc(d), Src: lhs})
 	fb.Emit(block, ir.Arith{Dst: loc(d), Op: "-=", Src: rhs})
 	return l.predicateFor(d, x.Op)
+}
+
+// assignOperandInto computes e into the plain slot d, and reports whether
+// it could.
+//
+// It covers the two shapes worth redirecting -- a call and an arithmetic
+// chain -- and declines everything else so the caller keeps its general
+// path.
+func (l *Lowerer) assignOperandInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d string, e syntax.Expr) bool {
+	if c, ok := e.(syntax.Call); ok {
+		return l.callInto(ctx, fb, block, loc(d), c)
+	}
+	if bin, ok := e.(syntax.Binary); ok && !isComparison(bin.Op) {
+		return l.assignBinaryInto(ctx, fb, block, d, bin)
+	}
+	return false
 }
 
 func (l *Lowerer) lowerAbsComparison(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d string, x syntax.Binary) (ir.Predicate, bool, error) {
