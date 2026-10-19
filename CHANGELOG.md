@@ -16,6 +16,49 @@
 
 ---
 
+## [0.4.0] - 2026-10-20
+
+### 新增
+
+- **`!=` 可以用了。** 它此前根本不存在：`target.CondFor` 只能返回**一个** Condition，
+  而 `d != 0` 的真值是两段区间（`d <= -1` 或 `d >= 1`），结构上就表达不了。
+  解析通过，一旦真的使用就报 `unsupported comparison`。
+
+  `CondFor` 换成 `CondAlts`：返回**分支列表**而不是单个 Condition。补集不再由它计算——
+  那一直是 `ir.Negate` 的事，两处各算一遍正是当初分叉的原因。
+
+### 优化：`if` / `unless`
+
+1.12.2 的 `function` 支持 `/function <name> [if <selector>|unless <selector>]`
+（游戏语言文件 `commands.function.usage` 的原文，反编译的 `CommandFunction.execute`
+也确实是比对 `"if"` / `"unless"`）。`unless <sel>` 是「该选择器匹配不到」，也就是
+**选择器条件的补集**；而选择器只能表达合取。
+
+所以当分支任一侧是**单个合取式**时，两侧各一条命令就够：一侧 `if`，另一侧 `unless`。
+原先无条件「每条分支一个 `execute`」，三选一的预判要三条命令，现在两条：
+
+```mcfunction
+# 之前
+execute @s[score_t=-1] ~ ~ ~ function b3
+execute @s[score_t_min=1] ~ ~ ~ function b3
+execute @s[score_t_min=0,score_t=0] ~ ~ ~ function b4
+# 之后
+function b3 unless @s[score_t_min=0,score_t=0]
+function b4 if @s[score_t_min=0,score_t=0]
+```
+
+纯渲染层改写，语义不变：`unless @s[c]` 就是「c 不成立」，而且在当前执行上下文里跑，
+和守卫调用解析到的 `@s` 是同一个实体。
+
+`examples/luo-math-full.cmcf`：`-O0` 130→129，`-O1` 128→127，`-O2/O3` 125→124。
+
+### 测试
+
+新增 `comparison_test.go`：六种比较运算符 × 各有序组合，真机执行，并在四个优化级别上
+全部重复一遍。此前**没有任何测试覆盖比较运算符本身**。
+
+---
+
 ## [0.3.0] - 2026-10-20
 
 `class` 从「规范里写着、编译器不认」变成能用。它仍然是**这个语言存在的理由**：

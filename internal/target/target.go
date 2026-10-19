@@ -76,27 +76,35 @@ func (t Target) Condition(obj string, c ir.Cond) string {
 	return ""
 }
 
-// CondFor builds the canonical condition pair for a comparison operator.
-// Conditions are expressed over the DIFFERENCE slot (lhs - rhs).
+// CondAlts returns the predicate for a comparison over the DIFFERENCE
+// slot (lhs - rhs), as a list of alternatives.
 //
-// The second return value is the complement. For `==` the complement is two
-// disjoint ranges and cannot be a single selector, so callers must render it
-// as two alternatives; the Exhaustive flag says whether that happened.
-func CondFor(op string) (cons ir.Cond, complement ir.Cond, exhaustive bool, err error) {
+// Alternatives rather than one Condition because 1.12.2 selectors express
+// conjunction but not disjunction: `d != 0` means `d <= -1 OR d >= 1`,
+// which is two guarded calls. A single-Cond return could not express it,
+// so != was silently unimplemented -- parsing fine, stopping the build
+// with "unsupported comparison" only when someone actually used it.
+//
+// Only the true side is returned. The complement is derived from the
+// Conditions by ir.Negate, which is the single implementation of that
+// rule; computing it a second time here is how the two copies drifted
+// apart before.
+func CondAlts(op string) ([]ir.Cond, error) {
 	switch op {
 	case "<": // d <= -1
-		return ir.Cond{HasMax: true, Max: -1}, ir.Cond{HasMin: true, Min: 0}, true, nil
+		return []ir.Cond{{HasMax: true, Max: -1}}, nil
 	case "<=": // d <= 0
-		return ir.Cond{HasMax: true, Max: 0}, ir.Cond{HasMin: true, Min: 1}, true, nil
+		return []ir.Cond{{HasMax: true, Max: 0}}, nil
 	case ">": // d >= 1
-		return ir.Cond{HasMin: true, Min: 1}, ir.Cond{HasMax: true, Max: 0}, true, nil
+		return []ir.Cond{{HasMin: true, Min: 1}}, nil
 	case ">=": // d >= 0
-		return ir.Cond{HasMin: true, Min: 0}, ir.Cond{HasMax: true, Max: -1}, true, nil
-	case "==": // d == 0 requires BOTH bounds
-		// complement is `d <= -1 or d >= 1`, not representable as one Cond
-		return ir.Cond{HasMin: true, Min: 0, HasMax: true, Max: 0}, ir.Cond{HasMax: true, Max: -1}, false, nil
+		return []ir.Cond{{HasMin: true, Min: 0}}, nil
+	case "==": // d == 0 needs BOTH bounds at once
+		return []ir.Cond{{HasMin: true, Min: 0, HasMax: true, Max: 0}}, nil
+	case "!=": // d <= -1 or d >= 1: two alternatives, no OR available
+		return []ir.Cond{{HasMax: true, Max: -1}, {HasMin: true, Min: 1}}, nil
 	}
-	return ir.Cond{}, ir.Cond{}, false, fmt.Errorf("unsupported comparison %q", op)
+	return nil, fmt.Errorf("unsupported comparison %q", op)
 }
 
 // FitObjective truncates a name to the version's objective limit.

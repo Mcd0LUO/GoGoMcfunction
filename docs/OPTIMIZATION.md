@@ -114,10 +114,10 @@ execute @s[score_t1_min=0] ~ ~ ~ function t:l/fl$b3               # 判据为假
 对象是 `examples/luo-math-full.cmcf`（原库 309 行 / 17 文件 / 247 条命令）：
 
 ```
--O0: files=16  commands=130  objectives=30  consts=9  （无优化，调试用）
--O1: files=15  commands=128  objectives=30  consts=9
--O2: files=15  commands=125  objectives=28  consts=9
--O3: files=15  commands=125  objectives=28  consts=9
+-O0: files=16  commands=129  objectives=30  consts=9  （无优化，调试用）
+-O1: files=15  commands=127  objectives=30  consts=9
+-O2: files=15  commands=124  objectives=28  consts=9
+-O3: files=15  commands=124  objectives=28  consts=9
 ```
 
 **静态行数不是重点。** 循环体是热代码，同样的循环写成尾测后每次迭代的控制命令
@@ -171,7 +171,39 @@ objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s`
 
 ---
 
-## 5. 加新优化时该做什么
+## 5. `if` / `unless`：单合取分支只要两条命令
+
+1.12.2 的 `function` 有两种带条件的形式（游戏语言文件原文）：
+
+```
+commands.function.usage=/function <name> [if <selector>|unless <selector>]
+```
+
+`unless <selector>` 是「该选择器匹配不到」——也就是**选择器条件的补集**。
+而选择器只能表达**合取**，所以：
+
+- 一侧是单个合取式时，两侧都只要一条命令：`if` 走一侧，`unless` 走另一侧
+- 两侧都是析取式时，才需要每个分支一条守卫
+
+这正是区间约定的红利。`d == 0` 两侧都是单合取（`d==0` 与 `d!=0` 恰好互补），
+`d != 0` 同理：真值本身是析取（`d<=-1` 或 `d>=1`）需要两条守卫，
+但假值是单个合取，所以另一个方向一条就够。
+
+```mcfunction
+# d != 0
+execute @s[score_t=-1] ~ ~ ~ scoreboard players set @s return 1
+execute @s[score_t_min=1] ~ ~ ~ scoreboard players set @s return 1
+function t:e/ne$b2 if @s[score_t_min=0,score_t=0]
+```
+
+原来无条件走「每条分支一个 `execute`」，三选一的预判要三条命令；现在两条。
+
+**这是纯渲染层改写，语义不变**——`unless @s[c]` 就是「c 不成立」，
+而且在**当前执行上下文**里跑，和守卫调用解析到的 `@s` 是同一个实体。
+
+---
+
+## 6. 加新优化时该做什么
 
 1. 在 `analysis/` 写它需要的分析，单独测试
 2. 在 `optimize/` 写 pass，测试**断言 IR 结构**而不是输出字符串
@@ -182,7 +214,7 @@ objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s`
 
 ---
 
-## 6. 补集只有一份实现
+## 7. 补集只有一份实现
 
 补集是这个编译器里最容易写错、又最不会报错的东西：**匹配过宽会静默走错分支**。
 它曾经有三份独立实现——`lower`、后端、优化器各一份——而其中两份**已经分叉了**：
@@ -215,7 +247,7 @@ budget <= 0 AND budget <= 0 ← 同一条条件写了两遍
 
 ---
 
-## 7. 名字为什么不能跨函数复用
+## 8. 名字为什么不能跨函数复用
 
 这一条曾经写错，代价是三个静默误编译，全都在 `luo/math` 里。
 

@@ -1,4 +1,4 @@
-# files=15 commands=128
+# files=15 commands=127
 
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
@@ -115,7 +115,7 @@ execute @a[tag=math.sort,score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1
 scoreboard players operation @s t5 = @s a0
 scoreboard players operation @s t5 -= #4 cmcf.c
 execute @s[score_t5=-1] ~ ~ ~ scoreboard players set @s return 1
-execute @s[score_t5_min=0] ~ ~ ~ function luo:math/sqrt$b2
+function luo:math/sqrt$b2 unless @s[score_t5=-1]
 === luo:math/sqrt$b2 ===
 scoreboard players operation @s l10 = @s a0
 scoreboard players operation @s l10 /= #4 cmcf.c
@@ -123,9 +123,8 @@ scoreboard players set @s l11 0
 scoreboard players set @s l12 32
 scoreboard players operation @s t7 = @s l10
 scoreboard players operation @s t7 -= @s l11
-execute @s[score_t7=-1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_t7_min=1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_t7_min=0,score_t7=0] ~ ~ ~ function luo:math/sqrt$b4
+function luo:math/sqrt$b3 unless @s[score_t7_min=0,score_t7=0]
+function luo:math/sqrt$b4 if @s[score_t7_min=0,score_t7=0]
 === luo:math/sqrt$b3 ===
 scoreboard players operation @s l11 = @s l10
 scoreboard players operation @s t8 = @s a0

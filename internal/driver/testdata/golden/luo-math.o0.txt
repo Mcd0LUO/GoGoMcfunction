@@ -1,4 +1,4 @@
-# files=10 commands=70
+# files=10 commands=69
 
 === luo:math/comptime ===
 scoreboard players set #math.-1 math -1
@@ -49,8 +49,8 @@ scoreboard players set seed math 12345
 === luo:math/sqrt ===
 scoreboard players operation @s t0 = @s a0
 scoreboard players operation @s t0 -= #4 cmcf.c
-execute @s[score_t0=-1] ~ ~ ~ function luo:math/sqrt$b1
-execute @s[score_t0_min=0] ~ ~ ~ function luo:math/sqrt$b2
+function luo:math/sqrt$b1 if @s[score_t0=-1]
+function luo:math/sqrt$b2 unless @s[score_t0=-1]
 === luo:math/sqrt$b1 ===
 scoreboard players set @s return 1
 === luo:math/sqrt$b2 ===
@@ -60,9 +60,8 @@ scoreboard players set @s l3 0
 scoreboard players set @s l4 32
 scoreboard players operation @s t2 = @s l2
 scoreboard players operation @s t2 -= @s l3
-execute @s[score_t2=-1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_t2_min=1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_t2_min=0,score_t2=0] ~ ~ ~ function luo:math/sqrt$b4
+function luo:math/sqrt$b3 unless @s[score_t2_min=0,score_t2=0]
+function luo:math/sqrt$b4 if @s[score_t2_min=0,score_t2=0]
 === luo:math/sqrt$b3 ===
 scoreboard players operation @s l3 = @s l2
 scoreboard players operation @s t3 = @s a0

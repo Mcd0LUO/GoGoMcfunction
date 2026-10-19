@@ -354,20 +354,17 @@ func (l *Lowerer) lowerAbsComparison(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bl
 	return ir.Predicate{}, false, nil
 }
 
-// predicateFor delegates all version knowledge to target.CondFor.
+// predicateFor delegates all version knowledge to target.CondAlts.
 func (l *Lowerer) predicateFor(d string, op syntax.Kind) (ir.Predicate, error) {
-	cons, comp, exhaustive, err := target.CondFor(comparisonText(op))
+	alts, err := target.CondAlts(comparisonText(op))
 	if err != nil {
 		return ir.Predicate{}, err
 	}
-	first := ir.Cond{Obj: d, HasMin: cons.HasMin, Min: cons.Min, HasMax: cons.HasMax, Max: cons.Max}
-	if exhaustive {
-		return ir.Predicate{Alts: [][]ir.Cond{{first}}}, nil
+	var p ir.Predicate
+	for _, c := range alts {
+		p.Alts = append(p.Alts, []ir.Cond{{Obj: d, HasMin: c.HasMin, Min: c.Min, HasMax: c.HasMax, Max: c.Max}})
 	}
-	// non-exhaustive: the complement is a second alternative
-	second := ir.Cond{Obj: d, HasMin: comp.HasMin, Min: comp.Min, HasMax: comp.HasMax, Max: comp.Max}
-	_ = second
-	return ir.Predicate{Alts: [][]ir.Cond{{first}}}, nil
+	return p, nil
 }
 
 func comparisonText(k syntax.Kind) string {

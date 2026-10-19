@@ -234,25 +234,53 @@ func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.B
 		}
 	}
 
-	// The predicate is a disjunction. 1.12.2 has no boolean OR, so each
-	// alternative becomes its own guarded call.
-	var out []mc.Command
-	for _, alt := range br.Cond.Alts {
-		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: thenName}})
-	}
-	if len(br.Cond.Alts) == 0 {
+	thenAlts := br.Cond.Alts
+	if len(thenAlts) == 0 {
 		// Always true: the else edge is unreachable.
-		return out
+		return []mc.Command{mc.Function{Name: thenName}}
+	}
+	elseAlts := ir.Negate(br.Cond).Alts
+	if len(elseAlts) == 0 {
+		return []mc.Command{mc.Function{Name: elseName}}
 	}
 
-	// The else edge needs the complement. Its DNF is the cross product of the
-	// per-alternative complements; when that is a single conjunction it becomes
-	// one selector, otherwise it becomes one selector per alternative.
+	// When either side is a single conjunction, BOTH sides fit in one
+	// guard: one call with `if` and one with `unless`.
 	//
-	// Rendering only the FIRST complement alternative would drop the rest and
-	// make the exit edge fire on a subset of the intended inputs — a silent
-	// wrong-answer bug, so the whole complement is always emitted.
-	for _, alt := range ir.Negate(br.Cond).Alts {
+	// This is where the interval convention pays off. A selector cannot
+	// express a disjunction, so a side with k alternatives needs k guarded
+	// calls -- unless the other side is a single conjunction, which
+	// `unless` can negate directly. For d == 0 that is two commands
+	// instead of three, and for d != 0 likewise:
+	//
+	//	function t:e/ne$b2 if @s[score_t3=0,score_t3_min=0]
+	//	function t:e/ne     unless @s[score_t3=0,score_t3_min=0]
+	//
+	// `unless @s[c]` means c does not hold, which is exactly the
+	// complement, and it runs in the CURRENT execution context -- the same
+	// entity the guarded calls would have resolved @s to.
+	if len(thenAlts) == 1 {
+		return []mc.Command{
+			mc.Function{Name: thenName, Cond: selectorFor(t, thenAlts[0])},
+			mc.Function{Name: elseName, Cond: selectorFor(t, thenAlts[0]), Negate: true},
+		}
+	}
+	if len(elseAlts) == 1 {
+		return []mc.Command{
+			mc.Function{Name: thenName, Cond: selectorFor(t, elseAlts[0]), Negate: true},
+			mc.Function{Name: elseName, Cond: selectorFor(t, elseAlts[0])},
+		}
+	}
+
+	// Both sides are disjunctions. Each alternative becomes its own
+	// guarded call. Rendering only the FIRST alternative would drop the
+	// rest and make that edge fire on a subset of the intended inputs --
+	// a silent wrong-answer bug.
+	var out []mc.Command
+	for _, alt := range thenAlts {
+		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: thenName}})
+	}
+	for _, alt := range elseAlts {
 		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: elseName}})
 	}
 	return out

@@ -1,4 +1,4 @@
-# Baseline：cmcf 0.3.0
+# Baseline：cmcf 0.4.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -75,10 +75,10 @@ execute @e[type=zombie,tag=mob.monster,tag=!cmcf.spawn.Monster] ~ ~ ~ function t
 
 | 级别 | 文件 | 命令 |
 |---|---|---|
-| `-O0` | 16 | 130 |
-| `-O1` | 15 | 128 |
-| `-O2` | 15 | 125 |
-| `-O3` | 15 | 125 |
+| `-O0` | 16 | 129 |
+| `-O1` | 15 | 127 |
+| `-O2` | 15 | 124 |
+| `-O3` | 15 | 124 |
 
 **静态命令数不是重点。** `luo:math/init` 里有 39 条（30 条 `scoreboard objectives add`
 加 9 条常量），但它们只在加载时跑一次。热代码看动态：
