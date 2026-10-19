@@ -1,0 +1,41 @@
+// luo:math —— 原来 309 行手写 mcfunction 的 CMCF 版本
+namespace luo:math
+
+comptime {
+    for n in -1..3 { emit("#math." + str(n), "math", n) }
+}
+
+extern var arg1: int @ "arg1"
+extern var return: int @ "return"
+extern global SEED: int @ "math" @holder "seed"
+
+const LCG_A = 1103515245
+const LCG_C = 1234
+const LCG_M = 67108864
+
+#[wrapping]
+fn lcg_step(s: int) -> int {
+    (LCG_A * s + LCG_C) % LCG_M
+}
+
+// 整数平方根：小值分支消掉 n/4 == 0 的除零，收敛判据收紧为 >= 1
+fn sqrt(n: int) -> int {
+    if n < 4 { return 1 }
+    let x = n / 4
+    let prev = 0
+    while abs(x - prev) >= 1 #[budget(32)] {
+        prev = x
+        x = (x + n / x) / 2
+    }
+    x
+}
+
+fn is_happen_fix1000(p: int) -> bool {
+    let r = (SEED * LCG_A + LCG_C) % LCG_M
+    let span = 1000
+    r <= p
+}
+
+on load {
+    SEED = 12345
+}

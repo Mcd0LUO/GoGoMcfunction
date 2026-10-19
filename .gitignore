@@ -1,0 +1,15 @@
+# build output
+cmcf.exe
+*.exe
+
+# generated output (regenerate with `cmcf -out`)
+/out/
+/lv*/
+/o*/
+
+# scratch
+/_dbg/
+*.difftest
+
+# knowledge base is extracted from the attached zip; keep it out of history
+/.knowledge_cache/
