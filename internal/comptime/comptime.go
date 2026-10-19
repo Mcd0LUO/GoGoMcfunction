@@ -17,6 +17,9 @@ type Emitted struct {
 	Holder    string
 	Objective string
 	Value     int
+	// P is the position of the emit call, so an out-of-range value can be
+	// reported where the author wrote it rather than at the command.
+	P diag.Pos
 }
 
 // Eval runs all comptime blocks and returns the commands they produced.
@@ -35,6 +38,7 @@ func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 	case syntax.ExprStmt:
 		if call, ok := s.X.(syntax.Call); ok && call.Name == "emit" {
 			if e, ok := evalEmit(call); ok {
+				e.P = diag.Pos{Line: call.P.Line, Col: call.P.Col}
 				return []Emitted{e}
 			}
 			bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",

@@ -26,6 +26,21 @@ type Target struct {
 	// HasFunctionTag is true from 1.13 (data pack tags). 1.12.2 instead uses
 	// gamerule gameLoopFunction.
 	HasFunctionTag bool
+
+	// ScoreMin and ScoreMax bound a scoreboard value, inclusive.
+	//
+	// Every version so far stores a score as a signed 32-bit integer and
+	// wraps silently on overflow. That makes the bound a correctness fact
+	// rather than a range hint: a literal outside it has no encoding, and
+	// emitting one produces a constant that reads back as a different
+	// number with no error anywhere.
+	ScoreMin int
+	ScoreMax int
+}
+
+// FitsScore reports whether v can be stored in a scoreboard objective.
+func (t Target) FitsScore(v int) bool {
+	return v >= t.ScoreMin && v <= t.ScoreMax
 }
 
 // V1_12_2 is the shipped target.
@@ -34,6 +49,8 @@ var V1_12_2 = Target{
 	MaxCommandChainLength: 65536,
 	ObjectiveNameLimit:    16,
 	HasFunctionTag:        false,
+	ScoreMin:              -2147483648,
+	ScoreMax:              2147483647,
 }
 
 // Condition renders a score condition as a selector fragment.

@@ -54,6 +54,8 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 		return nil, bag.Sorted()
 	}
 
+	checkLiterals(file, opt.Target, bag)
+
 	res, lowerDiags := lower.Lower(file, opt.Target)
 	for _, d := range lowerDiags {
 		bag.Add(d)
@@ -62,6 +64,13 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 
 	// comptime output becomes its own function in the pool
 	consts := comptime.Eval(file.Comptime, bag)
+	for _, c := range consts {
+		if !opt.Target.FitsScore(c.Value) {
+			bag.Error(c.P, "E_INT_RANGE",
+				"emit value %d is outside the %s score range [%d, %d]",
+				c.Value, opt.Target.Name, opt.Target.ScoreMin, opt.Target.ScoreMax)
+		}
+	}
 	if len(consts) > 0 {
 		fb := prog.NewFunc(file.Namespace + "/comptime")
 		fb.Func().Exported = true
@@ -87,6 +96,22 @@ func Compile(src, filename string, opt Options) (*Output, []diag.Diagnostic) {
 	out := &Output{Files: files, Order: order, Skipped: optimize.Skipped(opt.Level)}
 	out.NeedsConstInit = file.Namespace + "/init"
 	return out, bag.Sorted()
+}
+
+// checkLiterals rejects integer literals the target cannot represent.
+//
+// This is a hard error rather than a warning because there is no correct
+// code to emit. The runtime wraps silently, so a rejected program would
+// otherwise compile, run, and produce a wrong value with no error
+// anywhere -- the same failure mode as a mis-derived selector bound.
+func checkLiterals(file *syntax.File, tgt target.Target, bag *diag.Bag) {
+	syntax.EachIntLit(file, func(v int, pos syntax.Pos) {
+		if !tgt.FitsScore(v) {
+			bag.Error(diag.Pos{Line: pos.Line, Col: pos.Col}, "E_INT_RANGE",
+				"%d is outside the %s score range [%d, %d]",
+				v, tgt.Name, tgt.ScoreMin, tgt.ScoreMax)
+		}
+	})
 }
 
 func splitLines(s string) []string {
