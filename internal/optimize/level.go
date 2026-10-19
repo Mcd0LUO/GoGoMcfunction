@@ -63,6 +63,9 @@ type PassInfo struct {
 	MinLevel Level
 	// Requires names the analysis or property that justifies the rewrite.
 	Requires string
+	// Cleanup marks a pass that only removes work, without needing to
+	// know anything about values. These run again after the value passes.
+	Cleanup bool
 }
 
 // Catalog is the ordered pass list with its justification. The pipeline for a
@@ -73,21 +76,25 @@ func Catalog() []PassInfo {
 		{
 			Pass:     SimplifyCFG{},
 			MinLevel: O1,
+			Cleanup:  true,
 			Requires: "structural only: merges blocks and inlines single-command arms, no value reasoning",
 		},
 		{
 			Pass:     PruneUnreachable{},
 			MinLevel: O1,
+			Cleanup:  true,
 			Requires: "reachability, which is exact",
 		},
 		{
 			Pass:     SelfAssign{},
 			MinLevel: O1,
+			Cleanup:  true,
 			Requires: "x = x is a no-op by definition",
 		},
 		{
 			Pass:     DeadStore{},
 			MinLevel: O2,
+			Cleanup:  true,
 			Requires: "whole-function liveness fixed point; deleting a live write changes behaviour",
 		},
 		{
@@ -108,10 +115,23 @@ func Catalog() []PassInfo {
 }
 
 // Pipeline returns the passes to run at a level, in catalog order.
+//
+// The cleanup passes run twice: once before the value passes and once
+// after. A value pass can create exactly the shapes cleanup removes --
+// coalescing two names onto one objective turns "x = y" into "x = x" and
+// a later write into a dead store -- so without the second sweep those
+// survive into the output. Running them before the value passes as well
+// keeps the input small enough that the value analysis has less to do.
 func Pipeline(l Level) []Pass {
+	cat := Catalog()
 	var out []Pass
-	for _, pi := range Catalog() {
+	for _, pi := range cat {
 		if pi.MinLevel <= l {
+			out = append(out, pi.Pass)
+		}
+	}
+	for _, pi := range cat {
+		if pi.Cleanup && pi.MinLevel <= l {
 			out = append(out, pi.Pass)
 		}
 	}
