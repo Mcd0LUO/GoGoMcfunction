@@ -1,0 +1,80 @@
+# files=9 commands=69
+
+=== luo:math/comptime ===
+scoreboard players set #math.-1 math -1
+scoreboard players set #math.0 math 0
+scoreboard players set #math.1 math 1
+scoreboard players set #math.2 math 2
+scoreboard players set #math.3 math 3
+=== luo:math/init ===
+scoreboard objectives add a0 dummy cmcf
+scoreboard objectives add l2 dummy cmcf
+scoreboard objectives add l3 dummy cmcf
+scoreboard objectives add l4 dummy cmcf
+scoreboard objectives add l5 dummy cmcf
+scoreboard objectives add l9 dummy cmcf
+scoreboard objectives add math dummy cmcf
+scoreboard objectives add return dummy cmcf
+scoreboard objectives add t0 dummy cmcf
+scoreboard objectives add t2 dummy cmcf
+scoreboard objectives add t3 dummy cmcf
+scoreboard objectives add t4 dummy cmcf
+scoreboard objectives add t6 dummy cmcf
+scoreboard objectives add t7 dummy cmcf
+scoreboard objectives add t8 dummy cmcf
+scoreboard objectives add cmcf.c dummy cmcf
+scoreboard players set #2 cmcf.c 2
+scoreboard players set #4 cmcf.c 4
+scoreboard players set #1234 cmcf.c 1234
+scoreboard players set #67108864 cmcf.c 67108864
+scoreboard players set #1103515245 cmcf.c 1103515245
+=== luo:math/is_happen_fix1000 ===
+scoreboard players operation @s l5 = seed math
+scoreboard players operation @s l5 *= #1103515245 cmcf.c
+scoreboard players operation @s l5 += #1234 cmcf.c
+scoreboard players operation @s l5 %= #67108864 cmcf.c
+scoreboard players set @s l9 1000
+scoreboard players operation @s t7 = @s l5
+scoreboard players operation @s t7 -= @s a0
+scoreboard players set @s t8 0
+execute @s[score_t7=0] ~ ~ ~ scoreboard players set @s t8 1
+scoreboard players operation @s return = @s t8
+=== luo:math/lcg_step ===
+scoreboard players operation @s return = #1103515245 cmcf.c
+scoreboard players operation @s return *= @s a0
+scoreboard players operation @s return += #1234 cmcf.c
+scoreboard players operation @s return %= #67108864 cmcf.c
+=== luo:math/load ===
+scoreboard players set seed math 12345
+=== luo:math/sqrt ===
+scoreboard players operation @s t0 = @s a0
+scoreboard players operation @s t0 -= #4 cmcf.c
+execute @s[score_t0=-1] ~ ~ ~ scoreboard players set @s return 1
+execute @s[score_t0_min=0] ~ ~ ~ function luo:math/sqrt$b2
+=== luo:math/sqrt$b2 ===
+scoreboard players operation @s l2 = @s a0
+scoreboard players operation @s l2 /= #4 cmcf.c
+scoreboard players set @s l3 0
+scoreboard players set @s l4 32
+scoreboard players operation @s t2 = @s l2
+scoreboard players operation @s t2 -= @s l3
+execute @s[score_t2=-1] ~ ~ ~ function luo:math/sqrt$b3
+execute @s[score_t2_min=1] ~ ~ ~ function luo:math/sqrt$b3
+execute @s[score_t2_min=0,score_t2=0] ~ ~ ~ function luo:math/sqrt$b4
+=== luo:math/sqrt$b3 ===
+scoreboard players operation @s l3 = @s l2
+scoreboard players operation @s t3 = @s a0
+scoreboard players operation @s t3 /= @s l2
+scoreboard players operation @s t4 = @s l2
+scoreboard players operation @s t4 += @s t3
+scoreboard players operation @s l2 = @s t4
+scoreboard players operation @s l2 /= #2 cmcf.c
+scoreboard players operation @s t6 = @s l2
+scoreboard players operation @s t6 -= @s l3
+scoreboard players remove @s l4 1
+execute @s[score_l4_min=1,score_t6=-1] ~ ~ ~ function luo:math/sqrt$b3
+execute @s[score_l4_min=1,score_t6_min=1] ~ ~ ~ function luo:math/sqrt$b3
+execute @s[score_l4=0] ~ ~ ~ function luo:math/sqrt$b4
+execute @s[score_t6_min=0,score_t6=0] ~ ~ ~ function luo:math/sqrt$b4
+=== luo:math/sqrt$b4 ===
+scoreboard players operation @s return = @s l2

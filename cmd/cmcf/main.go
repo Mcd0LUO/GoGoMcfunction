@@ -13,6 +13,7 @@ import (
 	"cmcf/internal/driver"
 	"cmcf/internal/optimize"
 	"cmcf/internal/target"
+	"cmcf/internal/version"
 )
 
 func main() {
@@ -30,12 +31,17 @@ func run() error {
 		tgtName  = flag.String("target", target.V1_12_2.Name, "Minecraft version to target")
 		levelStr = flag.String("O", "2", "optimisation level: 0, 1, 2 or 3")
 		showSkip = flag.Bool("v", false, "explain which optimisations the level omits")
+		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: cmcf [flags] <file.cmcf> ...")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVer {
+		fmt.Println(version.String())
+		return nil
+	}
 	if flag.NArg() == 0 {
 		flag.Usage()
 		return fmt.Errorf("no input files")
