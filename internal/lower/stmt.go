@@ -144,52 +144,52 @@ func (l *Lowerer) lowerIf(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s synt
 // Folding it into the head makes the exit predicate the complement of a
 // conjunction, which expands to four overlapping alternatives; keeping it at
 // the tail costs nothing and leaves both branch predicates as single ranges.
+// lowerWhile lowers a PRE-tested loop by turning it into its tail-tested
+// equivalent: if cond { loop cond { body } }.
+//
+// The two are the same program. The rewrite is worth doing because the
+// tail-tested shape keeps the condition in the same block as the body, so
+// each iteration costs one self-call instead of a call into a separate
+// test block.
 func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.WhileStmt) ir.BlockID {
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "`while` needs an explicit #[budget(N)]")
+		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "while needs an explicit #[budget(N)]")
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
 	fb.Emit(cur, ir.Set{Dst: loc(budget), Value: s.Budget})
 
-	loop := fb.NewBlock()
 	body := fb.NewBlock()
 	after := fb.NewBlock()
-	fb.SetTerm(cur, ir.Jump{Target: loop})
 
-	p, err := l.lowerCond(ctx, fb, loop, s.Cond)
+	// The entry test, evaluated once before the loop. This is what
+	// distinguishes a while loop from a tail-tested one.
+	p, err := l.lowerCond(ctx, fb, cur, s.Cond)
 	if err != nil {
 		l.diags.Error(posOf(s.P), "E_COND", "%s", err)
 		return after
 	}
-	fb.SetTerm(loop, ir.Branch{Cond: p, Then: body, Else: after})
+	fb.SetTerm(cur, ir.Branch{Cond: p, Then: body, Else: after})
 
 	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
-	if bodyEnd != noFallThrough {
-		fb.Emit(bodyEnd, ir.Remove{Dst: loc(budget), Value: 1})
-		budgetCond := ir.Predicate{Alts: [][]ir.Cond{{{Obj: budget, HasMin: true, Min: 1}}}}
-		fb.SetTerm(bodyEnd, ir.Branch{Cond: budgetCond, Then: loop, Else: after})
+	if bodyEnd == noFallThrough {
+		return after
 	}
+	l.closeLoop(ctx, fb, body, bodyEnd, after, budget, s.Cond, s.P)
 	return after
 }
 
 // lowerLoop lowers a TAIL-tested loop.
 //
 //	cur:   set budget; jump body
-//	body:  ...body...; cond evaluated here; Branch(cond, body, after); budget -= 1
+//	body:  ...body...; budget -= 1; Branch(cond AND budget>=1, body, after)
 //	after: ...rest...
 //
-// The budget is NOT folded into the condition.
-//
-// Folding it in makes the exit predicate the complement of
-// `(cond) AND (budget>0)`, whose DNF is a cross product: k alternatives for
-// `cond` times one for the budget becomes 2k alternatives in the complement.
-// A two-alternative `|d| > 1` therefore rendered FOUR overlapping exit guards.
-// Keeping the budget separate costs one extra command per iteration and keeps
-// the condition a clean single-level predicate.
+// The body and the test share one block, so the back edge is a self-call
+// and an iteration is one file rather than two.
 func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.LoopStmt) ir.BlockID {
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "`loop` needs an explicit #[budget(N)]")
+		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "loop needs an explicit #[budget(N)]")
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
@@ -203,26 +203,30 @@ func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s sy
 	if bodyEnd == noFallThrough {
 		return after
 	}
-
-	// condition, evaluated after the body has updated its inputs
-	p, err := l.lowerCond(ctx, fb, bodyEnd, s.Cond)
-	if err != nil {
-		l.diags.Error(posOf(s.P), "E_COND", "%s", err)
-		return after
-	}
-
-	// Decrement, then branch. The budget guard is a separate successor test so
-	// the condition predicate stays simple.
-	fb.Emit(bodyEnd, ir.Remove{Dst: loc(budget), Value: 1})
-
-	budgetOK := fb.NewBlock()
-	fb.SetTerm(bodyEnd, ir.Branch{
-		Cond: ir.Predicate{Alts: [][]ir.Cond{{{Obj: budget, HasMin: true, Min: 1}}}},
-		Then: budgetOK,
-		Else: after,
-	})
-	fb.SetTerm(budgetOK, ir.Branch{Cond: p, Then: body, Else: after})
+	l.closeLoop(ctx, fb, body, bodyEnd, after, budget, s.Cond, s.P)
 	return after
+}
+
+// closeLoop emits the back edge shared by both loop forms.
+//
+// The budget is folded into the continue condition rather than tested in
+// a successor block. Keeping it separate costs two guards per iteration,
+// not one: the budget test needs a guard for each side, and then the
+// condition needs its own. Merging them pays the condition's complement
+// once instead of twice.
+//
+// The complement has the same size either way -- a multi-alternative
+// condition already produces a cross product -- so folding is never
+// larger, and it always removes one block and one call.
+func (l *Lowerer) closeLoop(ctx *fnCtx, fb *ir.FuncBuilder, body, bodyEnd, after ir.BlockID, budget string, cond syntax.Expr, pos syntax.Pos) {
+	p, err := l.lowerCond(ctx, fb, bodyEnd, cond)
+	if err != nil {
+		l.diags.Error(posOf(pos), "E_COND", "%s", err)
+		fb.SetTerm(bodyEnd, ir.Jump{Target: after})
+		return
+	}
+	fb.Emit(bodyEnd, ir.Remove{Dst: loc(budget), Value: 1})
+	fb.SetTerm(bodyEnd, ir.Branch{Cond: withBudget(p, budget), Then: body, Else: after})
 }
 
 func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.ForStmt) ir.BlockID {
