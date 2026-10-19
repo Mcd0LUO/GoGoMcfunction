@@ -16,11 +16,11 @@ func (r Raw) Line() string { return r.Text }
 
 // ScoreboardOp is `scoreboard players operation <target> <obj> <op> <source> <srcObj>`.
 type ScoreboardOp struct {
-	Target   string
+	Target    string
 	Objective string
-	Op       string // += -= *= /= %= = < > <=
-	Source   string
-	SrcObj   string
+	Op        string // += -= *= /= %= = < > <=
+	Source    string
+	SrcObj    string
 }
 
 func (c ScoreboardOp) Line() string {
@@ -30,9 +30,9 @@ func (c ScoreboardOp) Line() string {
 
 // ScoreboardSet is `scoreboard players set <target> <obj> <value>`.
 type ScoreboardSet struct {
-	Target   string
+	Target    string
 	Objective string
-	Value    int
+	Value     int
 }
 
 func (c ScoreboardSet) Line() string {
@@ -41,9 +41,9 @@ func (c ScoreboardSet) Line() string {
 
 // ScoreboardAdd is `scoreboard players add <target> <obj> <value>`.
 type ScoreboardAdd struct {
-	Target   string
+	Target    string
 	Objective string
-	Value    int
+	Value     int
 }
 
 func (c ScoreboardAdd) Line() string {
@@ -52,9 +52,9 @@ func (c ScoreboardAdd) Line() string {
 
 // ScoreboardRemove is `scoreboard players remove <target> <obj> <value>`.
 type ScoreboardRemove struct {
-	Target   string
+	Target    string
 	Objective string
-	Value    int
+	Value     int
 }
 
 func (c ScoreboardRemove) Line() string {
@@ -112,8 +112,8 @@ func (c Execute) Line() string {
 // `execute @e[tag=x] ~ ~ ~ function F` runs F once PER matching entity.
 // They are not interchangeable.
 type Function struct {
-	Name  string // "namespace:path"
-	Cond  *Selector
+	Name   string // "namespace:path"
+	Cond   *Selector
 	Negate bool // emit `unless` instead of `if`
 }
 

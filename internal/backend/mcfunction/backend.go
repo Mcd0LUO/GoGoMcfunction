@@ -395,7 +395,6 @@ func collectCalls(c mc.Command, out map[string]bool) {
 	}
 }
 
-
 // usedObjectives returns every objective the program touches, sorted.
 //
 // The constant objective is excluded: it is declared alongside the pool.

@@ -25,8 +25,18 @@ func Parse(src string) (*File, error) {
 	return p.parseFile()
 }
 
-func (p *parser) cur() Token  { if p.i >= len(p.toks) { return p.toks[len(p.toks)-1] }; return p.toks[p.i] }
-func (p *parser) peek() Token { if p.i+1 >= len(p.toks) { return p.toks[len(p.toks)-1] }; return p.toks[p.i+1] }
+func (p *parser) cur() Token {
+	if p.i >= len(p.toks) {
+		return p.toks[len(p.toks)-1]
+	}
+	return p.toks[p.i]
+}
+func (p *parser) peek() Token {
+	if p.i+1 >= len(p.toks) {
+		return p.toks[len(p.toks)-1]
+	}
+	return p.toks[p.i+1]
+}
 
 func (p *parser) next() Token {
 	t := p.cur()
@@ -845,7 +855,7 @@ func (p *parser) parseExpr() (Expr, error) { return p.parseBinary(0) }
 
 var prec = map[Kind]int{
 	DOTDOT: 0,
-	OR: 1, AND: 2,
+	OR:     1, AND: 2,
 	EQ: 3, NEQ: 3,
 	LT: 4, LE: 4, GT: 4, GE: 4,
 	PLUS: 5, MINUS: 5,

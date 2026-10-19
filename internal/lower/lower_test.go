@@ -75,7 +75,7 @@ fn f(a: int) -> int {
 		if _, ok := b.Term.(ir.Return); ok {
 			foundReturn = true
 		}
-}
+	}
 	if !foundReturn {
 		t.Fatal("expected at least one Return terminator")
 	}

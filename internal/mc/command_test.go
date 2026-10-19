@@ -67,12 +67,12 @@ func TestCommandLines(t *testing.T) {
 
 func TestItoa(t *testing.T) {
 	cases := map[int]string{
-		0:            "0",
-		7:            "7",
-		-7:           "-7",
-		1000:         "1000",
-		-2147483647:  "-2147483647",
-		2147483647:   "2147483647",
+		0:           "0",
+		7:           "7",
+		-7:          "-7",
+		1000:        "1000",
+		-2147483647: "-2147483647",
+		2147483647:  "2147483647",
 	}
 	for in, want := range cases {
 		if got := itoa(in); got != want {

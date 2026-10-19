@@ -103,7 +103,7 @@ func (w *World) Run(setup, run []string) (*State, error) {
 	casePath := filepath.Join(os.TempDir(), "cmcf-case-"+filepath.Base(w.Dir)+".difftest")
 	defer os.Remove(casePath)
 	var sb strings.Builder
-	sb.WriteString("name: cmcf\nsetup:\n");
+	sb.WriteString("name: cmcf\nsetup:\n")
 	for _, c := range setup {
 		sb.WriteString("  " + c + "\n")
 	}

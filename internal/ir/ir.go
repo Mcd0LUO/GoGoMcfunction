@@ -153,14 +153,14 @@ type Call struct{ Path string }
 // Raw is an escape hatch for commands the IR does not model.
 type Raw struct{ Text string }
 
-func (Set) opNode()    {}
-func (Copy) opNode()   {}
-func (Arith) opNode()  {}
-func (Add) opNode()    {}
-func (Remove) opNode() {}
+func (Set) opNode()     {}
+func (Copy) opNode()    {}
+func (Arith) opNode()   {}
+func (Add) opNode()     {}
+func (Remove) opNode()  {}
 func (Guarded) opNode() {}
-func (Call) opNode()   {}
-func (Raw) opNode()    {}
+func (Call) opNode()    {}
+func (Raw) opNode()     {}
 
 // Cond is a scoreboard interval test.
 //

@@ -1,0 +1,9 @@
+# Normalise line endings in the repository.
+#
+# Without this, core.autocrlf=true stores LF and checks out CRLF, so
+# every `git add` prints a warning per file and gofmt reports every
+# file as unformatted because the trailing newline is converted.
+* text=auto eol=lf
+
+# Compiler output and scratch worlds are not source.
+*.mcfunction text eol=lf

@@ -122,7 +122,7 @@ func (r ScoreRange) Parts(objective string) []string {
 // Selector is a buildable entity selector.
 type Selector struct {
 	Base   Base
-	Args   []string          // raw conditions, e.g. "type=zombie", "tag=x", "c=1"
+	Args   []string // raw conditions, e.g. "type=zombie", "tag=x", "c=1"
 	Scores map[string]ScoreRange
 }
 
