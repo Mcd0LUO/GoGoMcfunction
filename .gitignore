@@ -2,14 +2,16 @@
 cmcf.exe
 *.exe
 
-# generated output (regenerate with `cmcf -out`)
+# generated output trees (regenerate with `cmcf -out DIR`)
 /out/
 /lv*/
+/w*/
 /o*/
+/data/
 
 # scratch
 /_dbg/
-*.difftest
+/*.difftest
 
-# knowledge base is extracted from the attached zip; keep it out of history
+# knowledge base is extracted from an attached zip; keep it out of history
 /.knowledge_cache/
