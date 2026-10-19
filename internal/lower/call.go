@@ -15,17 +15,26 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		return
 	}
 	switch call.Name {
-	case "tag_add":
-		fb.Emit(block, ir.Raw{Text: "tag @s add " + strArg(call.Args, 1)})
-		return
-	case "tag_remove":
-		fb.Emit(block, ir.Raw{Text: "tag @s remove " + strArg(call.Args, 1)})
+	case "tag_add", "tag_remove":
+		// Two things were wrong here. 1.12.2 has no bare tag command --
+		// that arrived in 1.13 -- and an unknown command makes the WHOLE
+		// function file fail to load, so the short spelling silently
+		// disabled every other command in the same file. And the target
+		// was hard-coded to @s while the tag was read from argument 1, so
+		// tag_add(@a, "x") dropped its selector and tag_add("x") read an
+		// argument that does not exist.
+		verb := "add"
+		if call.Name == "tag_remove" {
+			verb = "remove"
+		}
+		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("scoreboard players tag %s %s %s",
+			l.targetArg(call, 0), verb, l.rawString(call, 1))})
 		return
 	case "kill":
-		fb.Emit(block, ir.Raw{Text: "kill @s"})
+		fb.Emit(block, ir.Raw{Text: "kill " + l.targetArg(call, 0)})
 		return
 	case "say":
-		fb.Emit(block, ir.Raw{Text: "say " + strArg(call.Args, 0)})
+		fb.Emit(block, ir.Raw{Text: "say " + l.rawString(call, 0)})
 		return
 	}
 	if xd, ok := l.externs[call.Name]; ok {
@@ -365,11 +374,34 @@ func (l *Lowerer) builtin(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c sy
 	return ir.Loc{}, false
 }
 
-func strArg(args []syntax.Expr, i int) string {
-	if i < len(args) {
-		if s, ok := args[i].(syntax.StringLit); ok {
+// rawString reads a string-literal argument, reporting when it is missing
+// or is not a literal.
+//
+// It used to return "" for anything it could not read, which turned a
+// wrong argument into a command with an empty operand: valid syntax, no
+// error, and nothing like what was written.
+func (l *Lowerer) rawString(c syntax.Call, i int) string {
+	if i < len(c.Args) {
+		if s, ok := c.Args[i].(syntax.StringLit); ok {
 			return s.Value
 		}
 	}
+	l.diags.Error(posOf(c.P), "E_ARG", "%s needs a string literal as argument %d", c.Name, i+1)
 	return ""
+}
+
+// targetArg reads a selector argument, or self.
+func (l *Lowerer) targetArg(c syntax.Call, i int) string {
+	if i < len(c.Args) {
+		switch a := c.Args[i].(type) {
+		case syntax.Ident:
+			if strings.HasPrefix(a.Name, "@") {
+				return a.Name
+			}
+		case syntax.SelfExpr:
+			return "@s"
+		}
+	}
+	l.diags.Error(posOf(c.P), "E_ARG", "%s needs a selector or self as argument %d", c.Name, i+1)
+	return "@s"
 }

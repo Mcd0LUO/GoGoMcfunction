@@ -301,6 +301,33 @@ func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
 	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: wrapping, P: t.Pos}, nil
 }
 
+// parseMethod parses one method, with or without its tick annotation.
+//
+// The documented spelling is @tick, and it did not parse at all: the class
+// body only knew the bare word, which no reader of the specification would
+// write. Both are accepted, because the annotation reads as a modifier
+// while the bare word reads as a broken sentence.
+func (p *parser) parseMethod() (Method, error) {
+	start := p.cur().Pos
+	tick := false
+	if p.cur().Kind == AT {
+		p.next()
+		if p.cur().Kind != TICK {
+			return Method{}, &Error{Pos: start, Msg: "only @tick is allowed on a method"}
+		}
+		p.next()
+		tick = true
+	} else if p.cur().Kind == TICK {
+		p.next()
+		tick = true
+	}
+	fd, err := p.parseFunc(map[string]Pos{})
+	if err != nil {
+		return Method{}, err
+	}
+	return Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, Tick: tick, P: start}, nil
+}
+
 func (p *parser) parseParams() ([]Param, error) {
 	if _, err := p.expect(LPAREN); err != nil {
 		return nil, err
@@ -406,19 +433,24 @@ func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 				}
 			}
 			cd.Fields = append(cd.Fields, FieldDecl{Name: n.Text, Type: typ, Init: init, P: n.Pos})
-		case FN:
-			fd, err := p.parseFunc(map[string]Pos{})
+		case FN, AT, TICK:
+			m, err := p.parseMethod()
 			if err != nil {
 				return nil, err
 			}
-			cd.Methods = append(cd.Methods, Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, P: fd.P})
-		case TICK:
+			cd.Methods = append(cd.Methods, m)
+		case ON:
 			p.next()
-			fd, err := p.parseFunc(map[string]Pos{})
+			ev := p.cur()
+			if ev.Kind != SPAWN && ev.Kind != DEATH {
+				return nil, &Error{Pos: ev.Pos, Msg: "a class hook is on spawn or on death"}
+			}
+			p.next()
+			body, err := p.parseBlock()
 			if err != nil {
 				return nil, err
 			}
-			cd.Methods = append(cd.Methods, Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, Tick: true, P: fd.P})
+			cd.Events = append(cd.Events, ClassEvent{Event: ev.Text, Body: body, P: ev.Pos})
 		default:
 			return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("unexpected %s in class body", p.cur().Kind)}
 		}

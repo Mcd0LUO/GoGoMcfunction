@@ -166,12 +166,21 @@ type Method struct {
 	P      Pos
 }
 
+// ClassEvent is an entity lifecycle hook on a class.
+type ClassEvent struct {
+	// Event is "spawn" or "death".
+	Event string
+	Body  []Stmt
+	P     Pos
+}
+
 // ClassDecl is a class: selector predicate + objective namespace + methods.
 type ClassDecl struct {
 	Name     string
 	Selector string
 	Fields   []FieldDecl
 	Methods  []Method
+	Events   []ClassEvent
 	P        Pos
 }
 
