@@ -389,7 +389,45 @@ func Validate(line string) error {
 	if strings.HasPrefix(trimmed, "/") {
 		return fmt.Errorf("function commands must not start with '/': %s", trimmed)
 	}
+	for _, arg := range selectorArgsIn(trimmed) {
+		if !target.V1_12_2.SelectorArgOK(arg) {
+			return fmt.Errorf("invalid selector argument %q in: %s", arg, trimmed)
+		}
+	}
 	return nil
+}
+
+// selectorArgsIn returns the raw filter arguments of every selector on the
+// line.
+//
+// The check has to run over the rendered text, because that is where the
+// mistake lives: a score condition is assembled from an objective and two
+// bounds, and writing it with an operator instead of the interval
+// spelling produces a key no command recognises.
+func selectorArgsIn(line string) []string {
+	var out []string
+	for i := 0; i < len(line); i++ {
+		if line[i] != '@' || i+1 >= len(line) {
+			continue
+		}
+		open := strings.IndexByte(line[i:], '[')
+		if open < 0 {
+			break
+		}
+		open += i
+		close := strings.IndexByte(line[open:], ']')
+		if close < 0 {
+			break
+		}
+		close += open
+		for _, a := range strings.Split(line[open+1:close], ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				out = append(out, a)
+			}
+		}
+		i = close
+	}
+	return out
 }
 
 // collectCalls records every function name a command may invoke.

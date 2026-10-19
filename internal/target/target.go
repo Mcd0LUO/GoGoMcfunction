@@ -8,6 +8,7 @@ package target
 
 import (
 	"fmt"
+	"strings"
 
 	"cmcf/internal/ir"
 )
@@ -105,6 +106,88 @@ func CondAlts(op string) ([]ir.Cond, error) {
 		return []ir.Cond{{HasMax: true, Max: -1}, {HasMin: true, Min: 1}}, nil
 	}
 	return nil, fmt.Errorf("unsupported comparison %q", op)
+}
+
+// selectorArgs are the raw filter arguments 1.12.2 understands.
+//
+// The list is a whitelist because an unrecognised key is not ignored:
+// the command fails with "Invalid selector argument", and inside a
+// function file an unparseable command can stop the whole file from
+// loading. That makes a typo here cost an entire function, silently.
+var selectorArgs = map[string]bool{
+	"r": true, "rm": true, "l": true, "lm": true,
+	"x": true, "y": true, "z": true,
+	"dx": true, "dy": true, "dz": true,
+	"rx": true, "rxm": true, "ry": true, "rym": true,
+	"c": true, "m": true, "team": true, "name": true, "type": true, "tag": true,
+}
+
+// SelectorArgOK reports whether one raw selector argument is legal.
+//
+// This exists to catch the mistake the whole compiler is built around:
+// 1.12.2 has no comparison operators in a selector. A score is tested
+// with `score_x=N` meaning x <= N and `score_x_min=N` meaning x >= N, so
+// `score_x>=1` is not a narrower test, it is not a test at all -- the
+// key is `score_x>` and no such argument exists.
+func (t Target) SelectorArgOK(arg string) bool {
+	if arg == "" {
+		return true
+	}
+	eq := strings.Index(arg, "=")
+	if eq <= 0 {
+		// No '=' at all, or an empty key: a bare word is malformed.
+		return false
+	}
+	key, value := arg[:eq], arg[eq+1:]
+	if value == "" {
+		return false
+	}
+	// An operator cannot appear on either side. `score_x==0` splits at
+	// the first '=', leaving "=0" as the value, which is not a number;
+	// checking only the key accepted it.
+	if strings.ContainsAny(value, "=<>") {
+		return false
+	}
+	if selectorArgs[key] {
+		switch key {
+		case "tag", "team", "name", "type", "m":
+			// A leading '!' negates one of these.
+			return strings.TrimPrefix(value, "!") != ""
+		}
+		return isNumber(value)
+	}
+	name, ok := strings.CutPrefix(key, "score_")
+	if !ok {
+		return false
+	}
+	name = strings.TrimSuffix(name, "_min")
+	if name == "" || strings.ContainsAny(name, "=<>!") {
+		return false
+	}
+	return isNumber(value)
+}
+
+// isNumber reports whether s is an integer or decimal with an optional
+// sign. Selector values are never expressions.
+func isNumber(s string) bool {
+	s = strings.TrimPrefix(s, "-")
+	if s == "" {
+		return false
+	}
+	dot := false
+	for _, c := range s {
+		if c == '.' {
+			if dot {
+				return false
+			}
+			dot = true
+			continue
+		}
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // FitObjective truncates a name to the version's objective limit.

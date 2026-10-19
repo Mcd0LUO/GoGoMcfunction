@@ -234,7 +234,7 @@ comptime {
 | `E_BROADCAST_SELECTOR` / `E_BROADCAST_VALUE` | 广播写语句的选择器或值非法 |
 | `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` | `comptime` 的范围、列表或 `emit` 参数不是编译期常量 |
 | `E_STR_RUNTIME` | 字符串在运行期才求值 |
-| `E_BAD_COMMAND` | 后端生成的命令没通过语法检查（编译器 bug） |
+| `E_BAD_COMMAND` | 后端生成的命令没通过语法检查（编译器 bug）；含选择器参数白名单 |
 | `E_IR_INVARIANT` | IR 结构不变量被破坏（编译器 bug） |
 
 ### 计划中

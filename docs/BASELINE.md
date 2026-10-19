@@ -1,4 +1,4 @@
-# Baseline：cmcf 0.4.0
+# Baseline：cmcf 0.5.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -12,7 +12,7 @@
 | 产物 | 位置 | 怎么验证 |
 |---|---|---|
 | 生成结果 | `internal/driver/testdata/golden/*.txt` | `go test ./internal/driver -run GoldenBaseline` |
-| 语义行为 | `internal/*/**_test.go`（52 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
+| 语义行为 | `internal/*/**_test.go`（63 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
 | 版本标识 | `internal/version/version.go` | `cmcf -version` |
 | 全局检查 | 见下节 | `go test ./internal/driver -run 'Callee\|Uncalled\|Builtin'` |
 | 类语义 | `internal/driver/class_test.go`（7 条，含真机执行） | `go test ./internal/driver -run 'Class\|Tick\|Spawn'` |
