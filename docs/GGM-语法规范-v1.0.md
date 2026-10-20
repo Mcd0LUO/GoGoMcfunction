@@ -25,6 +25,8 @@
 命名空间   IDENT ":" IDENT                     // luo:math
 整数      [0-9]+                               // 不支持小数
 字符串    "..."  '...'
+NBT 值    n"..."                               // SNBT，编译期解析
+NBT 路径  p"..."                               // 从实体根起算的键路径
 换行      语句分隔符（与分号等价）
 ```
 
@@ -49,7 +51,7 @@ entities where budget wrapping
 
 ---
 
-## 3. 顶层声明（7 种）
+## 3. 顶层声明（8 种）
 
 ```
 namespace luo:math                        // 每文件一个
@@ -70,6 +72,8 @@ class Monster { var hp: int = 40; ... }   // 谓词 + 字段 + 方法
 on load { ... }                           // 入口
 on tick { ... }
 on every 5s { ... }
+
+obj wp.damage1                            // 声明一个 objective，编译器负责创建
 ```
 
 ### 3.1 `fn`
@@ -128,9 +132,37 @@ class CastTimer {
 > 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
 > 由 `E_FIELD_COLLISION` 报出。
 
+### 3.4 `obj` —— 声明一个 objective
+
+```ggm
+obj wp.damage1
+obj Eq.Defence "防御"
+obj post_damage stat.damageDealt "造成伤害"
+```
+
+对应 1.12.2 的三段：
+
+```
+scoreboard objectives add <名字> <criteria> [<display>]
+```
+
+| 写法 | 生成 |
+|---|---|
+| `obj wp.damage1` | `scoreboard objectives add wp.damage1 dummy` |
+| `obj Eq.Defence "防御"` | `… Eq.Defence dummy 防御` |
+| `obj post_damage stat.damageDealt "造成伤害"` | `… post_damage stat.damageDealt 造成伤害` |
+
+- 省略 criteria 时是 `dummy`。其它 criteria 全放行（`health` `food` `air`
+  `deathCount` `playerKillCount` `totalKillCount` `teamkill.<color>` `stat.*` `trigger`）。
+- **`obj` 和 `extern var` 的分工**：`obj` 由编译器发射 `objectives add`；
+  `extern var` 只绑定、不发射。两者同名报 `E_OBJECTIVE_CONFLICT`。
+
+**为什么必须有这个声明**：1.12.2 里写一个不存在的 objective **不报错、也不生效**，
+分数永远是 0。不声明就写等于静默丢掉结果——和选择器区间那条是同一类失败。
+
 ---
 
-## 4. 语句（6 种）
+## 4. 语句（8 种）
 
 ```
 let x = 5                      // 临时 objective，编译器按活跃区间分配
@@ -139,6 +171,8 @@ if cond { } else { }
 while cond #[budget(32)] { }   // 必须带预算
 for e in entities<@a[tag=x]> { }                 // 扇出
 @a[tag=math.sort] sort.diff = self.sort.key - lo // 广播写
+decode wp.damage1 from @s.Inventory(0)[atk_base] // NBT → 分数
+encode @s.Item[money] = return over 1..10        // 分数 → NBT
 ```
 
 **没有**：`match` `enum` `repeat` `break` `continue` `goto` `return` 之外的控制流。
@@ -167,6 +201,98 @@ for p in entities<@a[tag=math.sort]> { p.temp1 = ... }   // N 次调用
 `
 
 选择器在行首 `@` 开头 = 广播写；`p.field` 形式 = 扇出。字面可辨。
+
+### 4.3 `decode` / `encode` —— NBT 与分数互转
+
+**NBT 是谓词，不是数据源。** `scoreboard players add @s X 1 {…}` 的语义是
+「**如果** NBT 匹配这个模式，**就**加 1」。所谓「读」是对 w 个谓词做加权折叠。
+
+**两条方向的成本来自不同的地方**，所以是两个动词而不是一个 `=`：
+
+| 方向 | 命令数 | 由谁决定 |
+|---|---|---|
+| `decode` | `1 + 位宽` | 字段（编码事实） |
+| `encode` | **值域大小** | 使用点（作者的选择） |
+
+实测两者可差 200 倍，所以成本必须写在语法里。
+
+#### `decode` 只有一个原语
+
+```ggm
+decode <objective> from <容器> {
+    init 0
+    <NBT 谓词> add <v>
+    <NBT 谓词> set <v>
+}
+```
+
+发射 `set @s <obj> <init>`，然后每条 case 一条命令。
+
+**位梯子、枚举、标签枚举、哨兵位都是它的缩写：**
+
+| 想要 | 缩写 |
+|---|---|
+| 位折叠 | `[字段]`，字段声明为 `bits N` |
+| 恒等枚举 | `[字段]`，字段声明为 `enum 1..4` |
+| 映射枚举 | `[字段]`，字段声明为 `enum { "残响":1, … }` |
+| 哨兵位 | `[字段]` 展开位梯子后，**块里追加一条 `set` case** |
+
+哨兵位由作者自己放，不需要专门语法：
+
+```ggm
+decode temp2 from @s.SelectedItem[lv] {
+    n"{tag:{dat:{lv:{max:1b}}}}" set -1
+}
+```
+
+生成（与手写 `trigger.mcfunction` 逐条同序）：
+
+```mcfunction
+scoreboard players set @s temp2 0
+scoreboard players add @s temp2 1 {SelectedItem:{tag:{dat:{lv:{0:1b}}}}}
+scoreboard players add @s temp2 2 {SelectedItem:{tag:{dat:{lv:{1:1b}}}}}
+scoreboard players add @s temp2 4 {SelectedItem:{tag:{dat:{lv:{2:1b}}}}}
+scoreboard players set @s temp2 -1 {SelectedItem:{tag:{dat:{lv:{max:1b}}}}}
+```
+
+`add` 与 `set` 就是 1.12.2 的 `scoreboard players add` / `set`。
+哨兵必须用 `set`（覆盖），用 `add` 会得到「位梯子 + (-1)」。
+
+#### 容器
+
+用 1.12.2 自己的 NBT 键名，不另造词：
+
+| 写法 | 生成的 NBT 前缀 |
+|---|---|
+| `@s.SelectedItem` | `{SelectedItem:{tag:{…}}}` |
+| `@s.Inventory(0)` | `{Inventory:[{Slot:0b,tag:{…}}]}` |
+| `@s.Inventory(100..103)` | 四个槽位，**一次清零**后逐槽累加 |
+| `@s.Item` | `{Item:{tag:{…}}}` |
+
+`Inventory(n)` 里的 `n` 是**槽位号**（`Slot:nb`），不是列表下标。
+
+#### 字段
+
+```ggm
+const atk_base = p"dat.atk_base" : bits 11
+const spec     = p"dat.spec"     : enum 1..4
+const quality  = p"tag.Tags"     : enum { "残响":1, "蚀刻":2, "回响":3, "星烬":4, "窄门":5 }
+```
+
+`p"…"` 的路径**从实体根起算**。冒号后是编码方式，只有 `bits` / `enum` 两种。
+
+#### `encode`
+
+```ggm
+encode @s.Item[money] = return over 1..10
+```
+
+**`over` 是必须的**：字段 `money` 是 14 位（decode 要 16384 个值），
+但这一轮只掷出 1..10，所以只发 10 条 `entitydata`。
+1.12.2 无法用分数构造 NBT——NBT 是常量文本，分数只决定发射哪一条。
+
+> **不允许 `over full`。** 值域必须写死数字：`bits` 决定的是范围上界，
+> 而 `2^14 = 16384` 条命令会撞上 `maxCommandChainLength`，超限后**静默丢弃**。
 
 ---
 
@@ -241,6 +367,15 @@ comptime {
 
 | 代码 | 检查 | 缺什么才能做 |
 |---|---|---|
+| `E_OBJECTIVE_CONFLICT` | `obj` 与 `extern var` 绑定了同一个 objective | 无，可直接实现 |
+| `E_OBJECTIVE_NAME` | objective 名超过 16 字符（1.12.2 会截断，截断后静默撞车） | 无，可直接实现 |
+| `E_OBJECTIVE_DUP` | 同一个 `obj` 声明了两次 | 无，可直接实现 |
+| `E_OBJECTIVE_UNDECLARED` | `decode` 的目标没被 `obj` 或 `extern var` 声明过 | 无，可直接实现 |
+| `E_NBT_PARSE` | `n"…"` / `p"…"` 不是合法 SNBT | 无，可直接实现 |
+| `E_NBT_TYPE` | 字面量的类型与使用点要求不符 | 无，可直接实现 |
+| `E_FIELD_BITS` | `bits` 不在 1..30（`bits=32` 时最高位 `2^31` 超出 int32） | 无，可直接实现 |
+| `E_ENCODE_RANGE` | `over` 的上下界超出字段能表示的范围（会静默截断） | 无，可直接实现 |
+| `W_FIELD_UNUSED` | 字段声明了但既没 `decode` 也没 `encode` | 无，可直接实现 |
 | `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` | 值域分析 |
 | `W_DIV_ZERO` | 除数可能为 0 | 值域分析 |
 | `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 | 调用图上的 `@s` 可用性分析 |
@@ -248,6 +383,10 @@ comptime {
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 | 副作用分析 |
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |
 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 | 循环迭代次数估计 |
+
+> **实现状态（0.7.0）**：第 3.4 节与第 4.3 节**尚未实现**，它们是设计稿
+> （`docs/NBT-SYNTAX.md`）。上面「计划中」表里与它们相关的码同理。
+> 写进规范是因为**改规范先于改代码**：先定语义，再实现。
 
 **`E_UNKNOWN_CALLEE` 和 `W_UNREACHABLE_FN` 是只有编译器能做的检查。**
 1.12.2 对「调用不存在的函数」既不报错也不执行——调用指令合法、文件加载成功、运行期什么都不发生。
