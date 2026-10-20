@@ -163,6 +163,59 @@ scoreboard players set @s temp2 -1 {SelectedItem:{tag:{dat:{lv:{max:1b}}}}}
 > 哨兵位在原文件里用的是 `set`（覆盖），不是 `add`——通用原语必须能表达这个区别，
 > 否则抄不对。
 
+## 3.3b objective 声明 `obj`
+
+**背景**：GGM 目前**没有**给作者用的 objective 声明。`extern var` 的语义是「绑定一个**已存在**的
+objective」，`class` 字段和临时变量由编译器自己建。所以作者显式命名的 objective
+（`wp.damage1`、`Eq.Defence`）**只被写、不被建**——没建的话 1.12.2 静默丢弃写入。
+
+新增第 8 种顶层声明：
+
+```ggm
+obj wp.damage1
+obj Eq.Defence "防御"
+obj post_damage stat.damageDealt "造成伤害"
+```
+
+对应 1.12.2 的三段：
+
+```
+scoreboard objectives add <名字> <criteria> [<display>]
+                            └─ dummy 缺省 ─┘  └─ 可选 ─┘
+```
+
+| 写法 | 生成 |
+|---|---|
+| `obj wp.damage1` | `scoreboard objectives add wp.damage1 dummy` |
+| `obj Eq.Defence "防御"` | `… Eq.Defence dummy 防御` |
+| `obj post_damage stat.damageDealt "造成伤害"` | `… post_damage stat.damageDealt 造成伤害` |
+
+**criteria 全放行**（`dummy`、`health`、`food`、`air`、`deathCount`、`playerKillCount`、
+`totalKillCount`、`teamkill.<color>`、`stat.*`、`trigger`）。理由是它们是 1.12.2 的既有事实，
+放行不需要实现；拒绝反而要维护一张会过期的白名单。
+
+**编译器现有的 `ObjectiveAdd`（`internal/mc/command.go:77-89`）把 criteria 硬编码成 `dummy`**，
+要加一个 `Criteria` 字段才能覆盖 `stat.damageDealt`。实测 `main/config/scoreboard.mcfunction`
+的 141 条里有 `stat.damageDealt` 这种非 dummy 的。
+
+### 与 `extern var` 的边界
+
+```ggm
+obj wp.damage1                    // 我建
+extern var arg1: int @ "arg1"     // 外面已有，我不建
+```
+
+- `obj` = 由编译器发射 `objectives add`
+- `extern` = 不发射，只绑定
+
+两者名字撞车报 `E_OBJECTIVE_CONFLICT`，否则 `extern` 的「不建」承诺会被 `obj` 悄悄违背。
+
+### `decode` 的左边必须是已声明的
+
+`decode <objective> from …` 里的 objective 必须是 `obj` 声明过的或 `extern var` 绑定过的，
+否则 `E_OBJECTIVE_UNDECLARED`。这是本项目存在的理由的同一个形状：
+**写一个不存在的 objective 不报错，只是永远读到 0。**
+
 ## 3.4 encode —— 分数 → NBT 值分派
 
 ```ggm
@@ -204,20 +257,24 @@ NBT 值用 `n"…"` 字面量，成本恒为 1 条。
 
 ---
 
-# 五、待定
+# 五、已定 / 待定
 
-1. **`: bits 11` 还是 `: 0..2047`？**
-   前者是编码视角（作者编码时就想位），后者是取值视角（读者想知道范围）。
-   我倾向 `bits 11`：decode 的展开直接由它决定，且 `11` 比 `2047` 不容易抄错。
+**已定（2026-10-20）**
 
-2. **`@s.Inventory(0)` 里的 `0` 是槽位号，不是列表下标**（NBT 的 `Inventory` 是列表，
-   槽位靠 `Slot:0b` 匹配）。这个简写要确认不会误导。
+| 项 | 决定 |
+|---|---|
+| 编码方式写法 | `: bits 11`（不是 `0..2047`） |
+| 哨兵位 | 由作者自己放，用 3.3 的通用原语块形式追加 `set` case |
+| 读取 | 一个通用原语（3.3），其余是缩写 |
+| objective 声明 | `obj` 语句（3.3b） |
+| 路径指针 | `p` |
+| NBT 字面量 | 只取超文本法 `n"…"` |
 
-3. **encode 的值域上界要不要能推**？例如 `over 1..10` 里 10 是作者决定的；
-   若写成 `over full` 就是 `0..2^bits-1`（14 位 = 16384 条，危险）。
-   我倾向**不允许 `full`**，强制写数字。
+**仍待定**
 
-4. ~~哨兵位不在模型里~~ —— **已解决**：哨兵位由作者自己放，
-   用 3.3 的通用原语块形式追加一条 `set` case。不需要专门的语法。
-
-5. **`bits` 已定**（`: bits 11`）。
+1. **`@s.Inventory(0)` 里的 `0` 是槽位号，不是列表下标**（NBT 的 `Inventory` 是列表，
+   槽位靠 `Slot:0b` 匹配）。这个简写会不会误导？
+2. **要不要允许 `over full`**（= `0..2^bits-1`，14 位 = 16384 条）？
+   我倾向**禁止**，强制写数字。
+3. **`decode … { … }` 的块形式和 `if`/`while` 的 `{}` 同形**，但语义是编译期展开不是运行期块。
+   要不要换个记号（如 `case …`），还是同形就好？
