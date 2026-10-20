@@ -274,12 +274,46 @@ scoreboard players set @s temp2 -1 {SelectedItem:{tag:{dat:{lv:{max:1b}}}}}
 #### 字段
 
 ```ggm
-const atk_base = p"dat.atk_base" : bits 11
-const spec     = p"dat.spec"     : enum 1..4
-const quality  = p"tag.Tags"     : enum { "残响":1, "蚀刻":2, "回响":3, "星烬":4, "窄门":5 }
+nbt atk_base = p"tag.dat.atk_base" : bits 11
+nbt spec     = p"tag.dat.spec"     : enum 1..4
+nbt quality  = p"tag.Tags"         : enum { "残响":1, "蚀刻":2, "回响":3, "星烬":4, "窄门":5 }
+nbt count    = p"Count"            : enum 1..64
 ```
 
-`p"…"` 的路径**从实体根起算**。冒号后是编码方式，只有 `bits` / `enum` 两种。
+`p"…"` 的路径**从物品根起算**，和文件里的键写法一致（物品额外数据都在 `tag.dat` 下，
+所以字段写 `tag.dat.atk_base`）。不把 `tag` 设成隐式根，因为 `Count` 与 `tag` 平级，
+隐式根就表达不了它——**一条规则覆盖所有情况**，好过一条更短的写法加一个例外。
+
+冒号后是编码方式，只有两种，区别在**叶子多不多一层复合**：
+
+| 写法 | 生成 | 为什么 |
+|---|---|---|
+| `bits 11` | `{tag:{dat:{atk_base:{0:1b}}}}` | 位需要一层复合放下标 |
+| `enum 1..4` | `{tag:{dat:{spec:1b}}}` | 值直接贴在键上 |
+| `enum { "残响":1 }` | `{tag:{Tags:["残响"]}}` | 标签名是列表元素 |
+
+#### `matches` —— 用 NBT 模式做条件
+
+```ggm
+if @s.Item matches n"{Item:{tag:{dat:{qlt:0b}}}}" {
+    temp3 = 1
+}
+```
+
+**这是模式匹配，不是「键存在」。** 数据包自己的写法（19 处）：
+
+```mcfunction
+scoreboard players tag @s add 残响 {Item:{tag:{dat:{qlt:0b}}}}
+```
+
+`qlt:0b` 要**等于** 0 才算匹配，物品上是 `qlt:1b` 就不匹配。
+
+1.12.2 的选择器放不下 NBT，所以降级成两步：先
+`scoreboard players tag <sel> add <编译器私有标记> <NBT>`，再用
+`execute <sel>[tag=<标记>]` 分支。标记在每次探测前**先移除**——否则上一次匹配留下的
+标记会让下一次无条件通过。
+
+`n"…"` 是**完整的** NBT 值（自带 `Item:`/`SelectedItem:` 这层），不是片段。
 
 #### `encode`
 
@@ -384,9 +418,11 @@ comptime {
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |
 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 | 循环迭代次数估计 |
 
-> **实现状态（0.7.0）**：第 3.4 节与第 4.3 节**尚未实现**，它们是设计稿
-> （`docs/NBT-SYNTAX.md`）。上面「计划中」表里与它们相关的码同理。
-> 写进规范是因为**改规范先于改代码**：先定语义，再实现。
+> **实现状态（0.8.0）**：第 3.4 节（`obj`）与第 4.3 节（`decode` / `encode` /
+> `matches` / `n"…"` / `p"…"`）**已实现**，并在 GoMcRuntime 上做过往返验证。
+> 上面「计划中」表里与它们相关的码也随之实现。
+>
+> `p"…"` 目前只在 `nbt` 声明里可用，还不是一般表达式——没有测量到独立使用的需求。
 
 **`E_UNKNOWN_CALLEE` 和 `W_UNREACHABLE_FN` 是只有编译器能做的检查。**
 1.12.2 对「调用不存在的函数」既不报错也不执行——调用指令合法、文件加载成功、运行期什么都不发生。

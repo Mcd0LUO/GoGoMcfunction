@@ -21,7 +21,19 @@ type (
 		P    Pos
 	}
 	SelfExpr struct{ P Pos }
-	Binary   struct {
+	// MatchCond is `<container> matches n"..."`: an NBT pattern test.
+	//
+	// It is a pattern match, not a key-existence test. The data pack's own
+	// spelling, repeated 19 times, matches on a value:
+	//   scoreboard players tag @s add 残响 {Item:{tag:{dat:{qlt:0b}}}}
+	// so qlt:0b must compare equal rather than merely be present.
+	MatchCond struct {
+		Sel       string
+		Container Container
+		NBT       string
+		P         Pos
+	}
+	Binary struct {
 		Op   Kind
 		L, R Expr
 		P    Pos
@@ -57,6 +69,7 @@ func (StringLit) exprNode() {}
 func (BoolLit) exprNode()   {}
 func (Ident) exprNode()     {}
 func (SelfExpr) exprNode()  {}
+func (MatchCond) exprNode() {}
 func (Binary) exprNode()    {}
 func (Unary) exprNode()     {}
 func (Call) exprNode()      {}

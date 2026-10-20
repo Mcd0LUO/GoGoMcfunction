@@ -16,7 +16,7 @@ import (
 const nbtRoundTripSrc = `namespace t:n
 
 obj money
-nbt money = p"dat.money" : bits 9
+nbt money = p"tag.dat.money" : bits 9
 
 on load {
   decode money from @s.SelectedItem[money]
@@ -87,7 +87,7 @@ func TestNBTEncodeDecodeRoundTrip(t *testing.T) {
 func TestNBTEncodeRangeIsChecked(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 obj money
-nbt money = p"dat.money" : bits 9
+nbt money = p"tag.dat.money" : bits 9
 on load {
   money = 1
   encode @s.SelectedItem[money] = money over 0..600
@@ -102,7 +102,7 @@ on load {
 // error, so every value read back is 0 and nothing points at the cause.
 func TestNBTDecodeIntoUndeclaredObjective(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
-nbt money = p"dat.money" : bits 9
+nbt money = p"tag.dat.money" : bits 9
 on load {
   decode undeclared from @s.SelectedItem[money]
 }
@@ -129,7 +129,7 @@ on load {
 func TestNBTBitWidthIsChecked(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 obj money
-nbt money = p"dat.money" : bits 31
+nbt money = p"tag.dat.money" : bits 31
 on load { decode money from @s.SelectedItem[money] }
 `)
 	if !hasCode(msgs, "E_FIELD_BITS") {
@@ -175,7 +175,7 @@ func TestNBTCodecRoundTripsOnRealRuntime(t *testing.T) {
 	const src = `namespace t:n
 
 obj money
-nbt money = p"dat.money" : bits 9
+nbt money = p"tag.dat.money" : bits 9
 
 on load {
   decode money from @s.Item[money]
@@ -217,5 +217,201 @@ fn enc() -> int {
 		if got := st.Get("money", "R"); got != want {
 			t.Errorf("round trip of %d gave %d", want, got)
 		}
+	}
+}
+
+// Both enum forms are value dispatches, not bit ladders, and the two differ in
+// how the value sits in the NBT: a number is attached straight to the key
+// (`spec:1b`), while a name is an element of a list (`Tags:["残响"]`). Getting
+// that wrong produces a pattern that never matches, which 1.12.2 reports as
+// silence rather than an error.
+func TestNBTEnumForms(t *testing.T) {
+	files := compile(t, `namespace t:n
+obj spec
+obj quality
+nbt spec    = p"tag.dat.spec" : enum 1..4
+nbt quality = p"tag.Tags"     : enum { "残响":1, "蚀刻":2, "回响":3 }
+on load {
+  decode spec from @s.SelectedItem[spec]
+  decode quality from @s.SelectedItem[quality]
+}
+`, optimize.O0)
+
+	var body []string
+	for name, b := range files {
+		if strings.HasSuffix(name, "/load") {
+			for _, line := range strings.Split(b, "\n") {
+				// A rendered body ends with a newline; the empty tail is not a
+				// command and would shift every index if left in.
+				if strings.TrimSpace(line) != "" {
+					body = append(body, line)
+				}
+			}
+		}
+	}
+	want := []string{
+		"scoreboard players set @s spec 0",
+		"scoreboard players set @s spec 1 {SelectedItem:{tag:{dat:{spec:1b}}}}",
+		"scoreboard players set @s spec 2 {SelectedItem:{tag:{dat:{spec:2b}}}}",
+		"scoreboard players set @s spec 3 {SelectedItem:{tag:{dat:{spec:3b}}}}",
+		"scoreboard players set @s spec 4 {SelectedItem:{tag:{dat:{spec:4b}}}}",
+		"scoreboard players set @s quality 0",
+		"scoreboard players set @s quality 1 {SelectedItem:{tag:{Tags:[\"残响\"]}}}",
+		"scoreboard players set @s quality 2 {SelectedItem:{tag:{Tags:[\"蚀刻\"]}}}",
+		"scoreboard players set @s quality 3 {SelectedItem:{tag:{Tags:[\"回响\"]}}}",
+	}
+	if len(body) != len(want) {
+		t.Fatalf("want %d commands, got %d:\n%s", len(want), len(body), strings.Join(body, "\n"))
+	}
+	for i := range want {
+		if body[i] != want[i] {
+			t.Errorf("line %d:\n got  %s\n want %s", i, body[i], want[i])
+		}
+	}
+}
+
+// The enum shapes are checked against the engine, not just the text: a pattern
+// that looks right but never matches is the failure mode here, and only running
+// it can tell the two apart.
+func TestNBTEnumMatchesOnRealRuntime(t *testing.T) {
+	const src = `namespace t:n
+
+obj spec
+obj quality
+nbt spec    = p"tag.dat.spec" : enum 1..4
+nbt quality = p"tag.Tags"     : enum { "残响":1, "蚀刻":2 }
+
+on load {
+  decode spec from @s.Item[spec]
+  decode quality from @s.Item[quality]
+}
+`
+	files := compile(t, src, optimize.O0)
+	w, err := sim.NewWorld(files)
+	if err != nil {
+		t.Skipf("gomc runtime unavailable: %v", err)
+	}
+	defer w.Close()
+
+	cases := []struct {
+		nbt         string
+		wantSpec    int
+		wantQuality int
+	}{
+		{`{Item:{id:"stone",Count:1b,tag:{dat:{spec:3b}}}}`, 3, 0},
+		{`{Item:{id:"stone",Count:1b,tag:{Tags:["残响"]}}}`, 0, 1},
+		{`{Item:{id:"stone",Count:1b,tag:{Tags:["蚀刻"],dat:{spec:1b}}}}`, 1, 2},
+		// Neither marker is present: both stay at the reset value, which is how
+		// the data pack detects "this item carries nothing".
+		{`{Item:{id:"stone",Count:1b,tag:{}}}`, 0, 0},
+	}
+	for _, tc := range cases {
+		st, err := w.Run([]string{
+			"function t:n/init",
+			"kill @e[type=item]",
+			"summon item 0 4 0 " + tc.nbt,
+		}, []string{
+			"execute @e[type=item] ~ ~ ~ function t:n/load",
+			"scoreboard players operation R spec = @e[type=item] spec",
+			"scoreboard players operation R2 quality = @e[type=item] quality",
+		})
+		if err != nil {
+			t.Fatalf("%s: run: %v", tc.nbt, err)
+		}
+		if got := st.Get("spec", "R"); got != tc.wantSpec {
+			t.Errorf("%s: spec = %d, want %d", tc.nbt, got, tc.wantSpec)
+		}
+		if got := st.Get("quality", "R2"); got != tc.wantQuality {
+			t.Errorf("%s: quality = %d, want %d", tc.nbt, got, tc.wantQuality)
+		}
+	}
+}
+
+// A match test is a pattern comparison, not a key-existence check: the data
+// pack writes `{Item:{tag:{dat:{qlt:0b}}}` and expects a specific value, so
+// qlt:1b in the item must NOT match it.
+//
+// 1.12.2 cannot put NBT in a selector, so the test has to go through a marker
+// tag. Only running it shows whether the marker is written when it should be,
+// and -- just as important -- whether a marker left by an earlier evaluation
+// makes a later test pass on stale evidence.
+func TestNBTMatchOnRealRuntime(t *testing.T) {
+	const src = `namespace t:n
+
+obj out
+
+on load {
+  out = 0
+  if @s.Item matches n"{Item:{tag:{dat:{qlt:0b}}}}" {
+    out = 1
+  }
+  if @s.Item matches n"{Item:{tag:{Tags:[\"残响\"]}}}" {
+    out += 2
+  }
+}
+`
+	files := compile(t, src, optimize.O0)
+	w, err := sim.NewWorld(files)
+	if err != nil {
+		t.Skipf("gomc runtime unavailable: %v", err)
+	}
+	defer w.Close()
+
+	cases := []struct {
+		nbt  string
+		want int
+	}{
+		// qlt:0b matches the first pattern.
+		{`{Item:{id:"stone",Count:1b,tag:{dat:{qlt:0b}}}}`, 1},
+		// qlt:1b is the same key with a different value: a key-existence test
+		// would wrongly accept it.
+		{`{Item:{id:"stone",Count:1b,tag:{dat:{qlt:1b}}}}`, 0},
+		{`{Item:{id:"stone",Count:1b,tag:{Tags:["残响"]}}}`, 2},
+		{`{Item:{id:"stone",Count:1b,tag:{Tags:["蚀刻"]}}}`, 0},
+		{`{Item:{id:"stone",Count:1b,tag:{Tags:["残响"],dat:{qlt:0b}}}}`, 3},
+		{`{Item:{id:"stone",Count:1b,tag:{}}}`, 0},
+	}
+	for _, tc := range cases {
+		st, err := w.Run([]string{
+			"function t:n/init",
+			"kill @e[type=item]",
+			"summon item 0 4 0 " + tc.nbt,
+		}, []string{
+			"execute @e[type=item] ~ ~ ~ function t:n/load",
+			"scoreboard players operation R out = @e[type=item] out",
+		})
+		if err != nil {
+			t.Fatalf("%s: run: %v", tc.nbt, err)
+		}
+		if got := st.Get("out", "R"); got != tc.want {
+			t.Errorf("%s:\n out = %d, want %d", tc.nbt, got, tc.want)
+		}
+	}
+}
+
+// Two match tests in one function must not read each other's marker. Without
+// per-site numbering the second probe would find the first one's tag still set
+// and report a match that never happened.
+func TestNBTMatchProbesAreDistinct(t *testing.T) {
+	files := compile(t, `namespace t:n
+obj out
+on load {
+  out = 0
+  if @s.Item matches n"{Item:{tag:{dat:{a:1b}}}}" { out = 1 }
+  if @s.Item matches n"{Item:{tag:{dat:{b:1b}}}}" { out = 2 }
+}
+`, optimize.O0)
+
+	seen := map[string]bool{}
+	for _, body := range files {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "tag @s add ggm.probe") {
+				f := strings.Fields(line)
+				seen[f[len(f)-2]] = true
+			}
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("want two distinct marker tags, got %v", seen)
 	}
 }

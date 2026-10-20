@@ -75,7 +75,37 @@ scoreboard players add @s wp.damage1 1 {Inventory:[{Slot:0b,…}]}
 | `E_FIELD_DUP` | 同一个字段声明两次 |
 | `E_OBJECTIVE_UNDECLARED` | `decode`/`encode` 的目标没被 `obj` 或 `extern` 声明过 |
 
-### 测试 71 → 79
+### 补全：枚举两种形式 + `matches` 条件
+
+**枚举两种形式的实际产物**（此前只实现了、没验证）：
+
+```mcfunction
+scoreboard players set @s temp1 1 {SelectedItem:{tag:{dat:{spec:1b}}}}      // enum 1..4
+scoreboard players set @s temp3 1 {SelectedItem:{tag:{Tags:["残响"]}}}      // enum { "残响":1 }
+```
+
+途中修掉两个自己写错的地方：
+
+1. **枚举叶子多了一层复合**：位梯子需要 `spec:{0:1b}`（一层复合放下标），
+   枚举是 `spec:1b`（值直接贴键上）。我一开始两种都套了复合。
+2. **路径起算点没定清**：容器包装又加了一次 `tag:`，和路径里的 `tag.` 撞成
+   `{SelectedItem:{tag:{tag:{Tags:…}}}}`。定死口径：**路径从物品根起算**，
+   和文件里的键写法一致。这样 `tag.dat.atk_base` 与 `Count` 用同一条规则
+   （`Count` 与 `tag` 平级，隐式根表达不了它）。
+
+**新增 `matches`**——设计时我写的是 `has`（键存在），数了之后改成 `matches`（模式匹配）：
+
+| 包内用法 | 次数 |
+|---|---|
+| `scoreboard players tag @s add <标记> {NBT}` | **19** |
+| `testfor {NBT}` | **0** |
+| `clear … {Tags:…}` | 302（消耗物品，与本特性无关） |
+
+那 19 处匹配的是**值**（`{dat:{qlt:0b}}`），不是键存在，所以 `has` 这个命名是错的。
+降级走数据包自己的办法：私有标记标签 + `scoreboard players tag add {NBT}` +
+`execute [tag=…]` 分支，标记每次探测前先移除。
+
+### 测试 71 → 83
 
 其中一条是**真机往返**：用 `encode` 把 0 / 1 / 500 / 511 写进物品实体，
 清零后用 `decode` 读回，在 GoMcRuntime 上比对。

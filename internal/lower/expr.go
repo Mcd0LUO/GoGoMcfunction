@@ -235,6 +235,9 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 			return ir.Predicate{Exist: &ir.ExistTest{Selector: sel.Name}}, nil
 		}
 	}
+	if mc, ok := e.(syntax.MatchCond); ok {
+		return l.lowerMatch(ctx, fb, block, mc)
+	}
 	if bin, ok := e.(syntax.Binary); ok && isComparison(bin.Op) {
 		d := fb.Tmp()
 		return l.lowerCondInto(ctx, fb, block, d, bin)

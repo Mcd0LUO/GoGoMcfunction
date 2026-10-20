@@ -1087,7 +1087,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		return LetStmt{Name: n.Text, Value: v, P: t.Pos}, nil
 	case IF:
 		p.next()
-		cond, err := p.parseExpr()
+		cond, err := p.parseCond()
 		if err != nil {
 			return nil, err
 		}
@@ -1115,7 +1115,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		return IfStmt{Cond: cond, Then: then, Else: els, P: t.Pos}, nil
 	case WHILE:
 		p.next()
-		cond, err := p.parseExpr()
+		cond, err := p.parseCond()
 		if err != nil {
 			return nil, err
 		}
@@ -1303,6 +1303,64 @@ func (p *parser) parseSelectorLiteral() (Expr, error) {
 }
 
 func (p *parser) parseExpr() (Expr, error) { return p.parseBinary(0) }
+
+// parseCond reads a condition: an expression optionally followed by
+// `matches n"..."`.
+//
+// `matches` stays an ordinary identifier rather than a keyword, the same way
+// add and set do, so a program may still name a variable after it.
+func (p *parser) parseCond() (Expr, error) {
+	// `@s.Item matches n"..."` starts with a selector, which is not an
+	// expression form anywhere else in the grammar. Trying the container first
+	// and rewinding keeps `@s` usable as a plain selector elsewhere.
+	if p.cur().Kind == AT {
+		save := p.i
+		if c, sel, err := p.tryMatchContainer(); err == nil {
+			pos := p.cur().Pos
+			p.next() // matches
+			if p.cur().Kind != NBT {
+				return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected an NBT literal after matches, got %s", p.cur().Kind)}
+			}
+			nb := p.next()
+			if _, err := CheckNBT(nb.Text); err != nil {
+				return nil, &Error{Pos: nb.Pos, Msg: err.Error()}
+			}
+			return MatchCond{Sel: sel, Container: c, NBT: nb.Text, P: pos}, nil
+		}
+		p.i = save
+	}
+	return p.parseExpr()
+}
+
+// tryMatchContainer parses `@sel.Key` and requires the word `matches` after it.
+// Any other shape rewinds, so an ordinary selector expression still parses.
+func (p *parser) tryMatchContainer() (Container, string, error) {
+	selExpr, err := p.parseSelectorLiteral()
+	if err != nil {
+		return Container{}, "", err
+	}
+	sel, ok := selExpr.(Ident)
+	if !ok || sel.Name != "@s" {
+		return Container{}, "", fmt.Errorf("not a container")
+	}
+	if p.cur().Kind != DOT {
+		return Container{}, "", fmt.Errorf("not a container")
+	}
+	p.next()
+	key, err := p.expectIdent()
+	if err != nil {
+		return Container{}, "", err
+	}
+	switch key.Text {
+	case "SelectedItem", "Item", "Inventory":
+	default:
+		return Container{}, "", fmt.Errorf("not a container")
+	}
+	if p.cur().Kind != IDENT || p.cur().Text != "matches" {
+		return Container{}, "", fmt.Errorf("not a match")
+	}
+	return Container{Key: key.Text, P: sel.P}, sel.Name, nil
+}
 
 var prec = map[Kind]int{
 	DOTDOT: 0,

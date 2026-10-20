@@ -38,7 +38,10 @@ type Lowerer struct {
 	// or the declaration would create an objective nothing ever writes.
 	objs map[string]bool
 	// fields are the `nbt` declarations: an NBT path plus its encoding.
-	fields  map[string]syntax.NBTField
+	fields map[string]syntax.NBTField
+	// probeN numbers the marker tags `matches` uses, so two tests in one
+	// function cannot read each other's result.
+	probeN  int
 	kt      map[string]int
 	clobber map[string]int
 	localN  int
