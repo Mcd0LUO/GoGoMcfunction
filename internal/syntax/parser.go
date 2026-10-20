@@ -92,6 +92,16 @@ func (p *parser) expectNameLike() (Token, error) {
 	return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected identifier, got %s", p.cur().Kind)}
 }
 
+// expectWord consumes a token by text. Used for words that read better as
+// punctuation than as keywords, so they stay usable as identifiers.
+func (p *parser) expectWord(w string) error {
+	if p.cur().Text != w {
+		return &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected %q, got %s", w, p.cur().Kind)}
+	}
+	p.next()
+	return nil
+}
+
 func (p *parser) expectIdent() (Token, error) {
 	if p.cur().Kind != IDENT {
 		return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected identifier, got %s", p.cur().Kind)}
@@ -194,6 +204,12 @@ func (p *parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Objs = append(f.Objs, *od)
+		case NBTDECL:
+			fd, err := p.parseNBTField()
+			if err != nil {
+				return nil, err
+			}
+			f.NBTFields = append(f.NBTFields, *fd)
 		default:
 			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("unexpected %s at top level", t.Kind)}
 		}
@@ -280,11 +296,11 @@ func (p *parser) parseObj() (*ObjDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	name, err := p.expectName()
+	name, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
 	}
-	od := &ObjDecl{Name: name.Text, P: t.Pos}
+	od := &ObjDecl{Name: name, P: t.Pos}
 	for {
 		switch p.cur().Kind {
 		case IDENT:
@@ -311,9 +327,313 @@ func (p *parser) parseObj() (*ObjDecl, error) {
 	}
 }
 
-// parseDottedName reads IDENT ("." IDENT)*, as used by scoreboard criteria.
+// parseNBTField reads `nbt <name> = p"<path>" : bits <n>` or
+// `nbt <name> = p"<path>" : enum <spec>`.
+//
+// The encoding after the colon is what the field is: `bits n` is a folded bit
+// ladder, `enum` is a value dispatch. One declaration, two shapes, because a
+// field is exactly one of them.
+func (p *parser) parseNBTField() (*NBTField, error) {
+	t, err := p.expect(NBTDECL)
+	if err != nil {
+		return nil, err
+	}
+	name, err := p.expectIdent()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(ASSIGN); err != nil {
+		return nil, err
+	}
+	if p.cur().Kind != NBTPATH {
+		return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected an NBT path p\"...\", got %s", p.cur().Kind)}
+	}
+	pathTok := p.next()
+	if err := CheckNBTPath(pathTok.Text); err != nil {
+		return nil, &Error{Pos: pathTok.Pos, Msg: err.Error()}
+	}
+	if _, err := p.expect(COLON); err != nil {
+		return nil, err
+	}
+	fd := &NBTField{Name: name.Text, Path: pathTok.Text, P: t.Pos}
+	switch p.cur().Kind {
+	case BITS:
+		p.next()
+		n, err := p.expect(INT)
+		if err != nil {
+			return nil, err
+		}
+		fd.Bits = atoi(n.Text)
+	case ENUM:
+		p.next()
+		cases, err := p.parseEnumCases()
+		if err != nil {
+			return nil, err
+		}
+		fd.Enum = cases
+	default:
+		return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected bits or enum after the NBT path, got %s", p.cur().Kind)}
+	}
+	return fd, nil
+}
+
+// parseEnumCases reads either `1..4` (identity) or `{ "残响":1, ... }` (mapped).
+func (p *parser) parseEnumCases() ([]EnumCase, error) {
+	if p.cur().Kind == LBRACE {
+		p.next()
+		var out []EnumCase
+		for {
+			p.skipNewlines()
+			if p.cur().Kind == RBRACE {
+				p.next()
+				return out, nil
+			}
+			if p.cur().Kind == EOF {
+				return nil, &Error{Pos: p.cur().Pos, Msg: "unterminated enum map"}
+			}
+			var key string
+			switch p.cur().Kind {
+			case STRING, IDENT, INT:
+				key = p.next().Text
+			default:
+				return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected an enum key, got %s", p.cur().Kind)}
+			}
+			if _, err := p.expect(COLON); err != nil {
+				return nil, err
+			}
+			neg := false
+			if p.cur().Kind == MINUS {
+				p.next()
+				neg = true
+			}
+			v, err := p.expect(INT)
+			if err != nil {
+				return nil, err
+			}
+			n := atoi(v.Text)
+			if neg {
+				n = -n
+			}
+			out = append(out, EnumCase{Key: key, Value: n})
+			p.skipNewlines()
+			if p.cur().Kind == COMMA {
+				p.next()
+			}
+		}
+	}
+	lo, err := p.expect(INT)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(DOTDOT); err != nil {
+		return nil, err
+	}
+	hi, err := p.expect(INT)
+	if err != nil {
+		return nil, err
+	}
+	l, h := atoi(lo.Text), atoi(hi.Text)
+	if h < l {
+		return nil, &Error{Pos: lo.Pos, Msg: fmt.Sprintf("enum range %d..%d is empty", l, h)}
+	}
+	var out []EnumCase
+	for v := l; v <= h; v++ {
+		out = append(out, EnumCase{Key: fmt.Sprint(v), Value: v})
+	}
+	return out, nil
+}
+
+// parseContainer reads `@sel.SelectedItem`, `@sel.Inventory(0..3)` or
+// `@sel.Item`.
+func (p *parser) parseContainer() (Container, error) {
+	selExpr, err := p.parseSelectorLiteral()
+	if err != nil {
+		return Container{}, err
+	}
+	sel, ok := selExpr.(Ident)
+	if !ok {
+		return Container{}, &Error{Pos: p.cur().Pos, Msg: "the container must be a selector"}
+	}
+	if sel.Name != "@s" {
+		return Container{}, &Error{Pos: sel.P, Msg: "the container must be @s: these NBT keys describe the executing entity"}
+	}
+	if _, err := p.expect(DOT); err != nil {
+		return Container{}, err
+	}
+	key, err := p.expectIdent()
+	if err != nil {
+		return Container{}, err
+	}
+	c := Container{Key: key.Text, P: sel.P}
+	switch key.Text {
+	case "SelectedItem", "Item":
+		return c, nil
+	case "Inventory":
+		if _, err := p.expect(LPAREN); err != nil {
+			return Container{}, err
+		}
+		c.IsSlot = true
+		lo, err := p.expect(INT)
+		if err != nil {
+			return Container{}, err
+		}
+		c.Lo, c.Hi = atoi(lo.Text), atoi(lo.Text)
+		if p.cur().Kind == DOTDOT {
+			p.next()
+			hi, err := p.expect(INT)
+			if err != nil {
+				return Container{}, err
+			}
+			c.Hi = atoi(hi.Text)
+		}
+		if _, err := p.expect(RPAREN); err != nil {
+			return Container{}, err
+		}
+		if c.Hi < c.Lo {
+			return Container{}, &Error{Pos: lo.Pos, Msg: fmt.Sprintf("slot range %d..%d is empty", c.Lo, c.Hi)}
+		}
+		return c, nil
+	}
+	return Container{}, &Error{Pos: key.Pos, Msg: fmt.Sprintf("unknown container %q; expected SelectedItem, Inventory or Item", key.Text)}
+}
+
+// parseDecode reads `decode <objective> from <container>[<field>] [ { cases } ]`.
+func (p *parser) parseDecode() (Stmt, error) {
+	t := p.next() // decode
+	target, err := p.parseDottedName()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectWord("from"); err != nil {
+		return nil, err
+	}
+	c, err := p.parseContainer()
+	if err != nil {
+		return nil, err
+	}
+	s := DecodeStmt{Target: target, Container: c, P: t.Pos}
+	if p.cur().Kind == LBRACK {
+		p.next()
+		f, err := p.expectIdent()
+		if err != nil {
+			return nil, err
+		}
+		s.Field = f.Text
+		if _, err := p.expect(RBRACK); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, &Error{Pos: p.cur().Pos, Msg: "decode needs a field: decode <objective> from <container>[<field>]"}
+	}
+	// Optional author-written cases, appended after the field's own.
+	if p.cur().Kind == LBRACE {
+		p.next()
+		for {
+			p.skipNewlines()
+			if p.cur().Kind == RBRACE {
+				p.next()
+				break
+			}
+			if p.cur().Kind == EOF {
+				return nil, &Error{Pos: p.cur().Pos, Msg: "unterminated decode block"}
+			}
+			if p.cur().Kind != NBT {
+				return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected an NBT literal in the decode block, got %s", p.cur().Kind)}
+			}
+			nb := p.next()
+			// add/set stay ordinary identifiers rather than keywords: they are
+			// plausible variable names, and a keyword would make `let add = 1`
+			// a parse error for no gain.
+			var op string
+			switch p.cur().Text {
+			case "add", "set":
+				op = p.cur().Text
+			default:
+				return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected add or set, got %s", p.cur().Kind)}
+			}
+			p.next()
+			neg := false
+			if p.cur().Kind == MINUS {
+				p.next()
+				neg = true
+			}
+			v, err := p.expect(INT)
+			if err != nil {
+				return nil, err
+			}
+			n := atoi(v.Text)
+			if neg {
+				n = -n
+			}
+			s.Cases = append(s.Cases, DecodeCase{NBT: nb.Text, Op: op, Val: n, P: nb.Pos})
+		}
+	}
+	return s, nil
+}
+
+// parseEncode reads `encode <container>[<field>] = <objective> over <lo>..<hi>`.
+func (p *parser) parseEncode() (Stmt, error) {
+	t := p.next() // encode
+	c, err := p.parseContainer()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(LBRACK); err != nil {
+		return nil, err
+	}
+	f, err := p.expectIdent()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(RBRACK); err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(ASSIGN); err != nil {
+		return nil, err
+	}
+	src, err := p.parseDottedName()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(OVER); err != nil {
+		return nil, err
+	}
+	neg := func() (int, error) {
+		sign := 1
+		if p.cur().Kind == MINUS {
+			p.next()
+			sign = -1
+		}
+		v, err := p.expect(INT)
+		if err != nil {
+			return 0, err
+		}
+		return sign * atoi(v.Text), nil
+	}
+	lo, err := neg()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(DOTDOT); err != nil {
+		return nil, err
+	}
+	hi, err := neg()
+	if err != nil {
+		return nil, err
+	}
+	if hi < lo {
+		return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("over range %d..%d is empty", lo, hi)}
+	}
+	return EncodeStmt{Container: c, Field: f.Text, Source: src, Lo: lo, Hi: hi, P: t.Pos}, nil
+}
+
+// parseDottedName reads a name of the form NAME ("." NAME)*.
+//
+// Objective and criteria names both use dots: `wp.damage1`, `stat.damageDealt`,
+// `teamkill.red`. The first segment goes through expectName so legacy ABI
+// registers such as `return` and `in` remain usable as objective names.
 func (p *parser) parseDottedName() (string, error) {
-	t, err := p.expectIdent()
+	t, err := p.expectName()
 	if err != nil {
 		return "", err
 	}
@@ -900,6 +1220,10 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		return ReturnStmt{Value: v, P: t.Pos}, nil
+	case DECODE:
+		return p.parseDecode()
+	case ENCODE:
+		return p.parseEncode()
 	case AT:
 		// broadcast write: @sel field = value
 		sel, err := p.parseSelectorLiteral()

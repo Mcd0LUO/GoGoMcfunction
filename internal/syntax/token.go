@@ -19,6 +19,10 @@ const (
 	IDENT
 	INT
 	STRING
+	// NBT is `n"..."`: an NBT value in SNBT form.
+	NBT
+	// NBTPATH is `p"..."`: a key path from the entity root.
+	NBTPATH
 	// keywords
 	NAMESPACE
 	COMPTIME
@@ -49,6 +53,12 @@ const (
 	TICK
 	LOOP
 	OBJ
+	BITS
+	ENUM
+	DECODE
+	ENCODE
+	OVER
+	NBTDECL
 	SPAWN
 	DEATH
 	LOAD
@@ -102,6 +112,8 @@ var keywords = map[string]Kind{
 	"emit": EMIT, "budget": BUDGET, "wrapping": WRAPPING, "tick": TICK,
 	"spawn": SPAWN, "death": DEATH, "load": LOAD, "every": EVERY,
 	"loop": LOOP, "obj": OBJ,
+	"bits": BITS, "enum": ENUM, "decode": DECODE, "encode": ENCODE, "over": OVER,
+	"nbt": NBTDECL,
 }
 
 func (k Kind) String() string {
@@ -114,6 +126,7 @@ func (k Kind) String() string {
 var kindNames = map[Kind]string{
 	EOF: "end of file", NEWLINE: "newline", IDENT: "identifier",
 	INT: "integer", STRING: "string literal",
+	NBT: "NBT value", NBTPATH: "NBT path",
 	NAMESPACE: "namespace", COMPTIME: "comptime", CONST: "const",
 	EXTERN: "extern", FN: "fn", CLASS: "class", SELECTOR: "selector",
 	ON: "on", LET: "let", IF: "if", ELSE: "else", WHILE: "while",
@@ -122,7 +135,9 @@ var kindNames = map[Kind]string{
 	GLOBAL: "global", ENTITIES: "entities", WHERE: "where", EMIT: "emit",
 	BUDGET: "budget", WRAPPING: "wrapping", TICK: "tick", SPAWN: "spawn",
 	DEATH: "death", LOOP: "loop", LOAD: "load", EVERY: "every", OBJ: "obj",
-	LPAREN: "(", RPAREN: ")", LBRACE: "{", RBRACE: "}",
+	BITS: "bits", ENUM: "enum", DECODE: "decode", ENCODE: "encode", OVER: "over",
+	NBTDECL: "nbt",
+	LPAREN:  "(", RPAREN: ")", LBRACE: "{", RBRACE: "}",
 	LBRACK: "[", RBRACK: "]", COLON: ":", SEMI: ";", COMMA: ",",
 	DOT: ".", DOTDOT: "..", AT: "@", HASH: "#", ASSIGN: "=",
 	PLUS: "+", MINUS: "-", STAR: "*", SLASH: "/", PERCENT: "%",

@@ -83,6 +83,23 @@ func (l *Lexer) Lex() ([]Token, error) {
 		case c == '\n':
 			l.advance()
 			toks = append(toks, Token{Kind: NEWLINE, Text: "\\n", Pos: p})
+		case (c == 'n' || c == 'p') && l.peekAt(1) == '"':
+			// n"..." and p"..." are NBT value and NBT path literals. They are
+			// recognised before the identifier case so that a name such as
+			// `n` or `px` is unaffected: only the immediate quote makes it a
+			// literal.
+			kind := NBT
+			what := "NBT literal"
+			if c == 'p' {
+				kind = NBTPATH
+				what = "NBT path"
+			}
+			l.advance() // the prefix letter
+			s, err := l.lexQuoted(what)
+			if err != nil {
+				return nil, err
+			}
+			toks = append(toks, Token{Kind: kind, Text: s, Pos: p})
 		case unicode.IsLetter(c) || c == '_':
 			start := l.i
 			for unicode.IsLetter(l.peek()) || unicode.IsDigit(l.peek()) || l.peek() == '_' {
@@ -101,29 +118,11 @@ func (l *Lexer) Lex() ([]Token, error) {
 			}
 			toks = append(toks, Token{Kind: INT, Text: string(l.src[start:l.i]), Pos: p})
 		case c == '"':
-			l.advance()
-			var sb strings.Builder
-			for l.peek() != 0 && l.peek() != '"' {
-				if l.peek() == '\\' {
-					l.advance()
-					esc := l.advance()
-					switch esc {
-					case 'n':
-						sb.WriteRune('\n')
-					case 't':
-						sb.WriteRune('\t')
-					default:
-						sb.WriteRune(esc)
-					}
-					continue
-				}
-				sb.WriteRune(l.advance())
+			s, err := l.lexQuoted("string literal")
+			if err != nil {
+				return nil, err
 			}
-			if l.peek() != '"' {
-				return nil, fmt.Errorf("%s: unterminated string literal", p)
-			}
-			l.advance()
-			toks = append(toks, Token{Kind: STRING, Text: sb.String(), Pos: p})
+			toks = append(toks, Token{Kind: STRING, Text: s, Pos: p})
 		default:
 			t, err := l.lexOperator(p)
 			if err != nil {
@@ -132,6 +131,38 @@ func (l *Lexer) Lex() ([]Token, error) {
 			toks = append(toks, t)
 		}
 	}
+}
+
+// lexQuoted reads a double-quoted literal, assuming the opening quote is the
+// current character, and returns its contents with backslash escapes resolved.
+//
+// Both the plain string form and the n"..." / p"..." forms go through here, so
+// an escape can never mean one thing in a string and another in an NBT literal.
+func (l *Lexer) lexQuoted(what string) (string, error) {
+	p := l.pos()
+	l.advance() // opening quote
+	var sb strings.Builder
+	for l.peek() != 0 && l.peek() != '"' {
+		if l.peek() == '\\' {
+			l.advance()
+			esc := l.advance()
+			switch esc {
+			case 'n':
+				sb.WriteRune('\n')
+			case 't':
+				sb.WriteRune('\t')
+			default:
+				sb.WriteRune(esc)
+			}
+			continue
+		}
+		sb.WriteRune(l.advance())
+	}
+	if l.peek() != '"' {
+		return "", fmt.Errorf("%s: unterminated %s", p, what)
+	}
+	l.advance()
+	return sb.String(), nil
 }
 
 func (l *Lexer) lexOperator(p Pos) (Token, error) {

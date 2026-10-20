@@ -37,6 +37,8 @@ type Lowerer struct {
 	// these must land on the declared objective rather than a fresh local,
 	// or the declaration would create an objective nothing ever writes.
 	objs map[string]bool
+	// fields are the `nbt` declarations: an NBT path plus its encoding.
+	fields  map[string]syntax.NBTField
 	kt      map[string]int
 	clobber map[string]int
 	localN  int
@@ -64,6 +66,7 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 		sigs:    map[string]int{},
 		externs: map[string]syntax.ExternDecl{},
 		objs:    map[string]bool{},
+		fields:  map[string]syntax.NBTField{},
 		kt:      map[string]int{},
 	}
 	l.nsRoot, l.pathPre = f.Namespace, ""
@@ -98,6 +101,7 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	}
 	// After externs, so the obj/extern conflict check can see both sides.
 	l.lowerObjs(f)
+	l.lowerFields(f)
 	for _, fn := range f.Funcs {
 		l.sigs[l.path(fn.Name)] = len(fn.Params)
 	}
@@ -585,6 +589,41 @@ func (l *Lowerer) lowerObjs(f *syntax.File) {
 		}
 		l.objs[od.Name] = true
 		l.prog.Objs = append(l.prog.Objs, ir.ObjDecl{Name: od.Name, Criteria: od.Criteria, Display: od.Display})
+	}
+}
+
+// lowerFields registers `nbt` declarations.
+//
+// A bit width above 30 would make the top rung's value 2^31, which is outside
+// int32: the emitted `add` would carry a constant that wraps to a negative
+// number, so the field would read back wrong with no error anywhere.
+func (l *Lowerer) lowerFields(f *syntax.File) {
+	for _, fd := range f.NBTFields {
+		pos := posOf(fd.P)
+		if _, dup := l.fields[fd.Name]; dup {
+			l.diags.Error(pos, "E_FIELD_DUP", "nbt field %q is declared twice", fd.Name)
+			continue
+		}
+		switch {
+		case fd.Bits > 0 && len(fd.Enum) > 0:
+			l.diags.Error(pos, "E_FIELD_BITS", "field %q is both bits and enum", fd.Name)
+			continue
+		case fd.Bits <= 0 && len(fd.Enum) == 0:
+			l.diags.Error(pos, "E_FIELD_BITS", "field %q has no encoding", fd.Name)
+			continue
+		case fd.Bits > 30:
+			l.diags.Error(pos, "E_FIELD_BITS",
+				"field %q is %d bits; the top rung would be 2^%d, which is outside the int32 a score holds",
+				fd.Name, fd.Bits, fd.Bits-1)
+			continue
+		}
+		for _, ec := range fd.Enum {
+			if !l.tgt.FitsScore(ec.Value) {
+				l.diags.Error(pos, "E_INT_RANGE",
+					"enum value %d for %q is outside the %s score range", ec.Value, fd.Name, l.tgt.Name)
+			}
+		}
+		l.fields[fd.Name] = fd
 	}
 }
 

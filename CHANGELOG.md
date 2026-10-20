@@ -16,6 +16,75 @@
 
 ---
 
+## [0.8.0] - 2026-10-20
+
+### 新增：NBT 位域编解码（`n"…"` / `p"…"` / `nbt` / `decode` / `encode`）
+
+```ggm
+namespace rpg:api
+
+obj wp.damage1
+obj Eq.Defence
+
+nbt atk_base = p"dat.atk_base" : bits 11
+nbt defence  = p"dat.defence"  : bits 11
+
+on load {
+  decode wp.damage1 from @s.Inventory(0)[atk_base]
+  decode Eq.Defence from @s.Inventory(100..103)[defence]
+}
+```
+
+**与手写文件逐行一致**（实测）：`weapon/damage/1.mcfunction` 12 行、
+`equip/defence.mcfunction` 45 行（1 次清零 + 4 槽位 × 11 位），生成结果完全同序同文。
+
+设计要点（依据是对 `末法` 数据包的实测）：
+
+- **NBT 是谓词，不是数据源。** `scoreboard players add … {NBT}` 的语义是
+  「如果匹配就加」，所以「读」是对 w 个谓词做加权折叠。
+- **两个动词而不是一个 `=`。** `decode` 成本 `1+位宽`，`encode` 成本
+  **值域大小**，实测两者差 200 倍（字段 11 位 vs 真实值域 11 条）。
+- **一个读取原语**：位梯子、恒等枚举、映射枚举、哨兵位全是它的缩写。
+  哨兵由作者在 `decode` 块里追加一条 `set` case。
+- **禁止 `over full`**：值域必须写死数字，`bits 14` 就是 16384 条命令。
+- **容器用 1.12.2 自己的键名**（`SelectedItem` / `Inventory(n)` / `Item`）。
+
+### 修复：后端校验器误判 NBT 参数（`selectorArgsIn`）
+
+`selectorArgsIn` 原先在 `@` 之后**向前搜索任意 `[`**，而选择器的参数表必须
+**紧跟**在选择器后面。于是
+
+```
+scoreboard players add @s wp.damage1 1 {Inventory:[{Slot:0b,…}]}
+```
+
+里的 `{Inventory:[` 被当成 `@s` 的参数表，`{Slot:0b` 被当成一个非法选择器参数，
+**每一条解码梯子都被自己的编译器拒收**。
+
+这是个既有的假阳性：GGM 此前从不发射 NBT 参数，所以没人碰到。
+`decode` 是第一个发射它的特性，把它暴露了出来。
+修法是只在 `[` **紧跟** `@s`/`@a`/`@e`/`@r`/`@p` 时才解析参数表。
+
+### 新增诊断（4 个，全部已实现）
+
+| 码 | 检查 |
+|---|---|
+| `E_FIELD_UNKNOWN` | `decode`/`encode` 引用了未声明的 `nbt` 字段 |
+| `E_FIELD_BITS` | 位宽不在 1..30（`bits 31` 的顶位 `2^30` 仍在 int32 内，`31` 是边界外） |
+| `E_ENCODE_RANGE` | `over` 的值域超出字段容量——高位会被**静默截断** |
+| `E_FIELD_DUP` | 同一个字段声明两次 |
+| `E_OBJECTIVE_UNDECLARED` | `decode`/`encode` 的目标没被 `obj` 或 `extern` 声明过 |
+
+### 测试 71 → 79
+
+其中一条是**真机往返**：用 `encode` 把 0 / 1 / 500 / 511 写进物品实体，
+清零后用 `decode` 读回，在 GoMcRuntime 上比对。
+把 `packBits` 故意改坏后该测试立刻红（三个值全部往返成 0），已确认。
+
+golden 未变：既有示例不用这些语法。
+
+---
+
 ## [0.7.0] - 2026-10-20
 
 ### 修复：复合赋值把运算符丢了

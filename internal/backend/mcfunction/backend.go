@@ -418,21 +418,34 @@ func Validate(line string) error {
 // spelling produces a key no command recognises.
 func selectorArgsIn(line string) []string {
 	var out []string
-	for i := 0; i < len(line); i++ {
-		if line[i] != '@' || i+1 >= len(line) {
+	for i := 0; i+1 < len(line); i++ {
+		if line[i] != '@' {
 			continue
 		}
-		open := strings.IndexByte(line[i:], '[')
-		if open < 0 {
-			break
+		// A selector is '@' plus exactly one of s/a/e/r/p. Anything else after
+		// '@' is not a selector.
+		switch line[i+1] {
+		case 's', 'a', 'e', 'r', 'p':
+		default:
+			continue
 		}
-		open += i
-		close := strings.IndexByte(line[open:], ']')
+		// The argument list, when present, starts IMMEDIATELY after the
+		// selector. Searching forward for the next '[' instead would make the
+		// '[' of a later NBT argument look like this selector's filters:
+		//   scoreboard players add @s dmg 1 {Inventory:[{Slot:0b,...}]}
+		// has no selector arguments at all, but the forward search reads
+		// "{Slot:0b" as one. NBT arguments are ordinary command arguments, and
+		// 1.12.2 has no nbt= selector filter (that arrived in 1.13).
+		j := i + 2
+		if j >= len(line) || line[j] != '[' {
+			continue
+		}
+		close := strings.IndexByte(line[j:], ']')
 		if close < 0 {
 			break
 		}
-		close += open
-		for _, a := range strings.Split(line[open+1:close], ",") {
+		close += j
+		for _, a := range strings.Split(line[j+1:close], ",") {
 			if a = strings.TrimSpace(a); a != "" {
 				out = append(out, a)
 			}

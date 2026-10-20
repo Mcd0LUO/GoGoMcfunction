@@ -65,6 +65,10 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 			cur = l.lowerFor(ctx, fb, cur, s)
 		case syntax.BroadcastStmt:
 			l.lowerBroadcast(ctx, fb, cur, s)
+		case syntax.DecodeStmt:
+			l.lowerDecode(ctx, fb, cur, s)
+		case syntax.EncodeStmt:
+			l.lowerEncode(ctx, fb, cur, s)
 		case syntax.ExprStmt:
 			l.lowerCallStmt(ctx, fb, cur, s)
 		}

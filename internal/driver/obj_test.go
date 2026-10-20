@@ -106,4 +106,3 @@ on load { arg1 = 1 }
 		t.Fatalf("want E_OBJECTIVE_CONFLICT, got %v", msgs)
 	}
 }
-

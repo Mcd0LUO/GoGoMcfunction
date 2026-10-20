@@ -131,6 +131,8 @@ func (ForStmt) stmtNode()       {}
 func (ExprStmt) stmtNode()      {}
 func (ReturnStmt) stmtNode()    {}
 func (BroadcastStmt) stmtNode() {}
+func (DecodeStmt) stmtNode()    {}
+func (EncodeStmt) stmtNode()    {}
 func (LoopStmt) stmtNode()      {}
 
 // Param is a function parameter.
@@ -230,6 +232,69 @@ type ObjDecl struct {
 	P        Pos
 }
 
+// FieldDecl2 is an `nbt` field: a bit-packed or enumerated value reachable
+// through a p"..." path.
+//
+// (Named FieldDecl2 because FieldDecl is already the class field.)
+type NBTField struct {
+	Name string
+	Path string // from CheckNBTPath
+	Bits int    // 0 when Enum is used
+	Enum []EnumCase
+	P    Pos
+}
+
+// EnumCase is one entry of `enum { "残响":1, ... }` or a range `enum 1..4`.
+type EnumCase struct {
+	// Key is the NBT text matched for this case. For a numeric range it is the
+	// decimal value; for a map it is the literal key text.
+	Key string
+	// Value is the score assigned when Key matches.
+	Value int
+}
+
+// DecodeStmt is `decode <objective> from <container>[<field>] [ { cases } ]`.
+type DecodeStmt struct {
+	Target    string
+	Container Container
+	Field     string
+	Cases     []DecodeCase
+	P         Pos
+}
+
+// DecodeCase is one author-written `<nbt> add|set <v>` inside a decode block.
+type DecodeCase struct {
+	NBT string // raw SNBT text
+	Op  string // "add" or "set"
+	Val int
+	P   Pos
+}
+
+// EncodeStmt is `encode <container>[<field>] = <objective> over <lo>..<hi>`.
+type EncodeStmt struct {
+	Container Container
+	Field     string
+	Source    string
+	Lo, Hi    int
+	P         Pos
+}
+
+// Container names where in the entity's NBT to look.
+//
+// The spellings are 1.12.2's own key names, not invented ones:
+//
+//	@s.SelectedItem        {SelectedItem:{tag:{...}}}
+//	@s.Inventory(0)        {Inventory:[{Slot:0b,tag:{...}}]}
+//	@s.Inventory(100..103) four slots, one reset then four ladders
+//	@s.Item                {Item:{tag:{...}}}
+type Container struct {
+	Key string // SelectedItem | Inventory | Item
+	// Lo, Hi are the slot range for Inventory; both 0 for the others.
+	Lo, Hi int
+	IsSlot bool
+	P      Pos
+}
+
 // File is a parsed source file.
 type File struct {
 	Namespace string
@@ -237,6 +302,7 @@ type File struct {
 	Comptime  []ComptimeBlock
 	Externs   []ExternDecl
 	Objs      []ObjDecl
+	NBTFields []NBTField
 	Funcs     []FuncDecl
 	Classes   []ClassDecl
 	Ons       []OnDecl
