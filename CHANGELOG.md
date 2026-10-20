@@ -16,6 +16,66 @@
 
 ---
 
+## [0.16.0] - 2026-10-21
+
+### 修复：`on every N` 没有相位门（规范已声称有）
+
+```ggm
+on tick { }
+on every 1s { beats = beats + 1 }
+```
+
+此前 `on every 1s` 生成的是**普通函数**：调用几次就跑几次。规范从第一版就写着
+「相位分配 + 编译器生成归零」，而 `lowerOn` 对 `every` 没有任何特殊处理。
+**规范与实现不符，且实现是错的那一方。**
+
+现在由 `on tick` 驱动：
+
+```mcfunction
+# tick.mcfunction
+scoreboard players add @s p.20 1
+function t:p/every/1s if @s[score_p.20_min=20,score_p.20=20]
+
+# every/1s.mcfunction
+scoreboard players set @s p.20 0
+scoreboard players operation @s beats += #1 ggm.c
+```
+
+真机实测：45 次 tick，`on every 1s` 执行 **2 次**（第 20 与第 40 tick），
+`p.20` 归零后重新累计到 5。
+
+三个细节：
+
+- **归零在入口最前面**，不是最后。`lowerSeq` 把提前 `return` 报成
+  `noFallThrough`，归零放末尾会让「body 里有 return 的周期」**静默丢掉归零**，
+  于是那个周期每 tick 都触发。
+- **计数器名是 `p.<ticks>`**，不是 `p.<duration text>`。`p.1000ticks` 会超出
+  16 字符上限被截断，两个周期就会共用一个计数器。
+- **时长单位只认 `ticks` / `s` / `m`**，其它直接报错。排不了期的入口比没有入口更糟。
+
+### 测试 102 → 104
+
+- `TestOnEveryFiresOncePerPeriod`：45 tick 触发 2 次（真机）
+- `TestOnEveryResetsBeforeAnEarlyReturn`：body 提前 return 时归零仍在第一行
+- `TestOnEveryRejectsUnknownUnits`
+
+删掉了 `TestOnEveryFiresOncePerCall`——它钉的是「无相位门」这个**错误行为**。
+和一个已被修复的 bug 绑定的测试，修复之后必须一起删，否则它会一直要求回到错的语义。
+
+### 未做：tick 分段与多周期链
+
+参考数据包的 `main/timer` 还有两层这一版没有：
+
+| 能力 | 参考包 | GGM |
+|---|---|---|
+| 周期链（0.1s 驱动 0.2/0.3/0.5s，0.5s 驱动 1s） | ✅ | ❌ 各自独立计数 |
+| tick 分段（`1-5`/`6-10`/`11-15`/`16-20` 分派） | ✅ | ❌ |
+
+分段的价值是把一个 20 tick 的循环切成 4 段、**每 tick 只做 1/4 的活**，
+用来分摊命令预算。这一版只做到「周期真的按期触发」。
+
+---
+
 ## [0.15.0] - 2026-10-21
 
 ### 新增：`comptime` 能生成任意命令

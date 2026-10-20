@@ -337,3 +337,90 @@ on load { }
 		t.Fatalf("want E_COMPTIME_STMT, got %v", msgs)
 	}
 }
+
+// `on every N` must actually fire once per period.
+//
+// The specification claimed a phase gate from the start; the implementation
+// generated a plain function that ran once per call, so `on every 1s` fired
+// every tick. Ten ticks produced ten beats instead of zero.
+//
+// The driver is the tick entry: one counter per period, incremented each tick,
+// with a guarded call when it reaches the bound. The period's own entry resets
+// its counter first, so the next call is exactly one period later.
+func TestOnEveryFiresOncePerPeriod(t *testing.T) {
+	const src = `namespace t:p
+
+obj beats
+on load { beats = 0 }
+on tick { }
+on every 1s { beats = beats + 1 }
+`
+	files := compile(t, src, optimize.O2)
+	w, err := sim.NewWorld(files)
+	if err != nil {
+		t.Skipf("gomc runtime unavailable: %v", err)
+	}
+	defer w.Close()
+
+	run := []string{"execute @e[tag=T] ~ ~ ~ function t:p/load"}
+	for i := 0; i < 45; i++ {
+		run = append(run, "execute @e[tag=T] ~ ~ ~ function t:p/tick")
+	}
+	run = append(run, "scoreboard players operation R beats = @e[tag=T] beats")
+
+	st, err := w.Run([]string{
+		"function t:p/init",
+		"kill @e[type=armor_stand]",
+		"summon armor_stand 0 0 0 {Marker:1b}",
+		"scoreboard players tag @e[type=armor_stand] add T",
+	}, run)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// 45 ticks at 20 ticks per second is two whole periods, with 5 ticks left
+	// over. One period would mean the counter never resets; 45 would mean
+	// there is no gate at all.
+	if got := st.Get("beats", "R"); got != 2 {
+		t.Errorf("45 ticks fired %d times, want 2", got)
+	}
+}
+
+// A period whose body returns early must still reset its counter. The reset
+// is emitted before the body for exactly this reason: `lowerSeq` reports an
+// early return as terminating, and a reset placed after the body would vanish.
+func TestOnEveryResetsBeforeAnEarlyReturn(t *testing.T) {
+	files := compile(t, `namespace t:p
+
+obj beats
+fn helper() -> int { 1 }
+
+on tick { }
+on every 2s { return }
+`, optimize.O2)
+
+	var entry string
+	for name, b := range files {
+		if strings.HasSuffix(name, "/every/2s") {
+			entry = b
+		}
+	}
+	if !strings.Contains(entry, "scoreboard players set @s p.40 0") {
+		t.Errorf("the period does not reset its counter:\n%s", entry)
+	}
+	first := strings.Split(strings.TrimSpace(entry), "\n")[0]
+	if !strings.Contains(first, "scoreboard players set @s p.40 0") {
+		t.Errorf("the reset must come first, got:\n%s", entry)
+	}
+}
+
+// A duration the compiler cannot convert to ticks is rejected rather than
+// becoming an entry that never fires.
+func TestOnEveryRejectsUnknownUnits(t *testing.T) {
+	msgs := compileDiags(`namespace t:p
+on tick { }
+on every 3fortnight { }
+`)
+	if !hasCode(msgs, "E_PARSE") {
+		t.Fatalf("want a parse error for an unschedulable duration, got %v", msgs)
+	}
+}

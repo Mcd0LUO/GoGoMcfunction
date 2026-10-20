@@ -41,7 +41,9 @@ type Lowerer struct {
 	fields map[string]syntax.NBTField
 	// probeN numbers the marker tags `matches` uses, so two tests in one
 	// function cannot read each other's result.
-	probeN  int
+	probeN int
+	// periods are the `on every N` declarations, driven from the tick entry.
+	periods []syntax.OnDecl
 	kt      map[string]int
 	clobber map[string]int
 	localN  int
@@ -164,6 +166,11 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 				tickPos = od.P
 			}
 			continue
+		}
+		if od.Event == "every" {
+			// Collected rather than lowered here: the driver lives in the tick
+			// entry, which is built after every other declaration.
+			l.periods = append(l.periods, od)
 		}
 		l.lowerOn(od)
 	}
@@ -357,7 +364,18 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 			}
 		}
 	}
-	if len(body) == 0 && len(tickers) == 0 {
+	// Periods are driven from here. `on every N` compiles to an ordinary
+	// function; without a driver nothing ever calls it, and the entry looks
+	// present in the output while never running -- which is what the spec
+	// claimed was a phase gate that did not exist.
+	//
+	// The counter is a plain objective written once per tick per period, so
+	// the cost is one add and one guarded call per period per tick.
+	var periods []syntax.OnDecl
+	for _, od := range l.periods {
+		periods = append(periods, od)
+	}
+	if len(body) == 0 && len(tickers) == 0 && len(periods) == 0 {
 		return
 	}
 	name := l.path("tick")
@@ -372,7 +390,44 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 	for _, t := range tickers {
 		fb.Emit(end, ir.FanOut{Selector: t.selector, Path: t.path})
 	}
+	// The period counters run AFTER the user body, so a long body cannot
+	// starve them.
+	for _, od := range periods {
+		obj := periodCounter(od.Every)
+		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: "@s", Obj: obj}, Value: 1})
+		fb.Emit(end, ir.Raw{Text: fmt.Sprintf(
+			"function %s if @s[score_%s_min=%d,score_%s=%d]",
+			l.path("every/"+od.Every), obj, od.EveryTicks, obj, od.EveryTicks)})
+		// Reset happens inside the period's own entry, so the counter only
+		// reaches the bound on the tick it fires.
+	}
 	fb.SetTerm(end, ir.Return{})
+}
+
+// periodCounter names the objective a period's tick counter lives on.
+//
+// Short and fixed: `p.<ticks>` stays inside the 16-character objective limit
+// for any duration a program would write (`p.1200` is 6 characters), whereas
+// `p.<duration text>` could outgrow it -- and an over-long objective name is
+// truncated by 1.12.2, so two periods would silently share one counter.
+func periodCounter(every string) string {
+	n := 0
+	for i := 0; i < len(every); i++ {
+		if every[i] >= '0' && every[i] <= '9' {
+			n = n*10 + int(every[i]-'0')
+			continue
+		}
+		break
+	}
+	// The text is `<count><unit>`; convert the unit to ticks.
+	unit := every[len(fmt.Sprint(n)):]
+	switch unit {
+	case "s", "sec", "second", "seconds":
+		n *= 20
+	case "m", "min", "minute", "minutes":
+		n *= 20 * 60
+	}
+	return fmt.Sprintf("p.%d", n)
 }
 
 // classOf returns the class a method belongs to, or "" for a plain
@@ -692,6 +747,16 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	fb := l.prog.NewFunc(name)
 	fb.Func().Exported = true
 	fb.Func().Origin = l.origin(od.P)
+	// Reset FIRST, unconditionally.
+	//
+	// The period's entry runs exactly when its counter reaches the bound, so
+	// zeroing here is the reset. Putting it at the end instead meant an early
+	// `return` in the body would skip it -- and `lowerSeq` reports an early
+	// return as noFallThrough, so the reset would silently vanish for exactly
+	// those periods whose body returns.
+	if od.Event == "every" {
+		fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: "@s", Obj: periodCounter(od.Every)}, Value: 0})
+	}
 	end := l.lowerSeq(ctx, fb, 0, od.Body)
 	if end != noFallThrough {
 		fb.SetTerm(end, ir.Return{})

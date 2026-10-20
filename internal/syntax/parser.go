@@ -1056,6 +1056,22 @@ func (p *parser) parseOn() (*OnDecl, error) {
 		}
 		d.Event = "every"
 		d.Every = n.Text + unit.Text
+		// 1.12.2 runs 20 game ticks per second, and a tick is the only unit
+		// the engine has. Anything else parses but cannot be scheduled, so it
+		// is reported here rather than becoming an entry that never fires.
+		count := atoi(n.Text)
+		switch unit.Text {
+		case "tick", "ticks":
+			d.EveryTicks = count
+		case "s", "sec", "second", "seconds":
+			d.EveryTicks = count * 20
+		case "m", "min", "minute", "minutes":
+			d.EveryTicks = count * 20 * 60
+		}
+		if d.EveryTicks <= 0 {
+			return nil, &Error{Pos: n.Pos, Msg: fmt.Sprintf(
+				"%q is not a duration I can schedule; use ticks, s or m with a positive count", d.Every)}
+		}
 	default:
 		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load, tick or every after on"}
 	}

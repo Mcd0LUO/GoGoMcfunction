@@ -129,16 +129,18 @@ class CastTimer {
 |---|---|
 | `on load` | 生成 `luo:math/load`，由 `gameLoopFunction` 的前置或命令方块调用 |
 | `on tick` | 生成 `luo:math/tick`，挂到 `gamerule gameLoopFunction` |
-| `on every 5s` | 生成 `luo:math/every/5s`，**与其它入口一样是普通函数** |
+| `on every 5s` | 生成 `luo:math/every/5s`，由 `on tick` 里的计数器驱动 |
 | `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` |
 | `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 |
 
 > **实现状态（0.11.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
 >
-> `on every N` **只生成函数，不含相位门**——调用它几次就跑几次，与 `on tick` 一样。
-> 真要做到「每 N 秒一次」，需要一个每 tick 递增的计数器加整除检查，而
-> `gameLoopFunction` 每 tick 调一次正好提供这个节拍。**未实现**，因为至今没有
-> 真实用例（示例与参考数据包里零使用）。见 `docs/roadmap.md`。
+> `on every N` **有真正的相位门**（0.16.0）：每个周期一个计数器
+> `p.<ticks>`，由 `on tick` 每 tick 递增，到达上界时调用该周期的入口；
+> 入口**先把自己归零**，所以下一次恰好是一个周期之后。
+>
+> 时长支持 `ticks` / `s` / `m`，其它单位直接报错——一个排不了期的入口
+> 比没有入口更糟。
 > `on death` **有非空体时报错**——1.12.2 无法观察已经消失的实体，正确实现需要一个
 > 影子实体，假装能做到只会产出一个永不触发的处理器。空体是占位符，接受。
 > 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
