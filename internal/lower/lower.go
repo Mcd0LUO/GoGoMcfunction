@@ -33,6 +33,10 @@ type Lowerer struct {
 	diags   *diag.Bag
 	sigs    map[string]int
 	externs map[string]syntax.ExternDecl
+	// objs names the objectives declared with `obj`. Assignment to one of
+	// these must land on the declared objective rather than a fresh local,
+	// or the declaration would create an objective nothing ever writes.
+	objs map[string]bool
 	kt      map[string]int
 	clobber map[string]int
 	localN  int
@@ -59,6 +63,7 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 		diags:   bag,
 		sigs:    map[string]int{},
 		externs: map[string]syntax.ExternDecl{},
+		objs:    map[string]bool{},
 		kt:      map[string]int{},
 	}
 	l.nsRoot, l.pathPre = f.Namespace, ""
@@ -71,6 +76,7 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	l.prog = ir.NewProgram(f.Namespace)
 	l.funcIDs = map[string]claimed{}
 	l.claimGenerated(f.Namespace+"/init", "the compiler-generated initialiser", f.P)
+
 	// An entry point the module will generate owns its name, so a
 	// declaration that normalises onto it is reported rather than quietly
 	// sharing a file. Only the ones this file will actually produce are
@@ -90,6 +96,8 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	for _, x := range f.Externs {
 		l.externs[x.Name] = x
 	}
+	// After externs, so the obj/extern conflict check can see both sides.
+	l.lowerObjs(f)
 	for _, fn := range f.Funcs {
 		l.sigs[l.path(fn.Name)] = len(fn.Params)
 	}
@@ -542,6 +550,42 @@ func (c *fnCtx) newSlot() string {
 	s := fmt.Sprintf("l%d", *c.localN)
 	*c.localN++
 	return s
+}
+
+// lowerObjs validates `obj` declarations and hands them to the IR.
+//
+// Three failures are worth catching here rather than at runtime, because all
+// three are silent in 1.12.2:
+//
+//   - a name over the objective limit is truncated, so two names differing
+//     only in their tail collide and share one objective;
+//   - declaring the same objective twice reads as "updating" it, but the
+//     second `objectives add` fails and changes nothing;
+//   - an objective both declared and bound with `extern var` means the author
+//     believes two different things about who creates it.
+func (l *Lowerer) lowerObjs(f *syntax.File) {
+	seen := map[string]diag.Pos{}
+	for _, od := range f.Objs {
+		pos := posOf(od.P)
+		if prev, dup := seen[od.Name]; dup {
+			l.diags.Error(pos, "E_OBJECTIVE_DUP",
+				"objective %q is declared twice (first at %s)", od.Name, prev)
+			continue
+		}
+		seen[od.Name] = pos
+		if n := l.tgt.ObjectiveNameLimit; n > 0 && len(od.Name) > n {
+			l.diags.Error(pos, "E_OBJECTIVE_NAME",
+				"objective %q is %d characters; %s truncates at %d, so it collides with any name sharing that prefix",
+				od.Name, len(od.Name), l.tgt.Name, n)
+		}
+		if xd, ok := l.externs[od.Name]; ok {
+			l.diags.Error(pos, "E_OBJECTIVE_CONFLICT",
+				"objective %q is both declared with obj and bound with extern %s; only one of them can create it",
+				od.Name, xd.Kind)
+		}
+		l.objs[od.Name] = true
+		l.prog.Objs = append(l.prog.Objs, ir.ObjDecl{Name: od.Name, Criteria: od.Criteria, Display: od.Display})
+	}
 }
 
 func (l *Lowerer) lowerFunc(fn syntax.FuncDecl) {

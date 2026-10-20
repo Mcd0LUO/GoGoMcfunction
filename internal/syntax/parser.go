@@ -188,6 +188,12 @@ func (p *parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Ons = append(f.Ons, *od)
+		case OBJ:
+			od, err := p.parseObj()
+			if err != nil {
+				return nil, err
+			}
+			f.Objs = append(f.Objs, *od)
 		default:
 			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("unexpected %s at top level", t.Kind)}
 		}
@@ -255,6 +261,72 @@ func (p *parser) parseAttr() (string, Pos, error) {
 	}
 	p.next() // ]
 	return name, start, nil
+}
+
+// parseObj reads `obj <name> [<criteria>] ["<display>"]`.
+//
+// The three forms map onto the three fields of 1.12.2's
+// `scoreboard objectives add <name> <criteria> [<display>]`:
+//
+//	obj wp.damage1                          -> dummy, no display
+//	obj Eq.Defence "防御"                    -> dummy + display
+//	obj post_damage stat.damageDealt "造成"  -> criteria + display
+//
+// A second bare word is the criteria; a string is the display. Distinguishing
+// them by token kind rather than by position keeps the two optional arguments
+// from needing a placeholder when only the display is given.
+func (p *parser) parseObj() (*ObjDecl, error) {
+	t, err := p.expect(OBJ)
+	if err != nil {
+		return nil, err
+	}
+	name, err := p.expectName()
+	if err != nil {
+		return nil, err
+	}
+	od := &ObjDecl{Name: name.Text, P: t.Pos}
+	for {
+		switch p.cur().Kind {
+		case IDENT:
+			if od.Criteria != "" {
+				return nil, &Error{Pos: p.cur().Pos, Msg: "obj takes at most one criteria"}
+			}
+			// A criteria is a dotted name: `stat.damageDealt`, `teamkill.red`.
+			// expectIdent alone would stop at the dot and leave the rest of the
+			// line to be parsed as a top-level declaration.
+			c, err := p.parseDottedName()
+			if err != nil {
+				return nil, err
+			}
+			od.Criteria = c
+		case STRING:
+			if od.Display != "" {
+				return nil, &Error{Pos: p.cur().Pos, Msg: "obj takes at most one display name"}
+			}
+			s := p.next()
+			od.Display = s.Text
+		default:
+			return od, nil
+		}
+	}
+}
+
+// parseDottedName reads IDENT ("." IDENT)*, as used by scoreboard criteria.
+func (p *parser) parseDottedName() (string, error) {
+	t, err := p.expectIdent()
+	if err != nil {
+		return "", err
+	}
+	s := t.Text
+	for p.cur().Kind == DOT {
+		p.next()
+		seg, err := p.expectIdent()
+		if err != nil {
+			return "", err
+		}
+		s += "." + seg.Text
+	}
+	return s, nil
 }
 
 func (p *parser) parsePath() (string, error) {

@@ -48,6 +48,7 @@ const (
 	WRAPPING
 	TICK
 	LOOP
+	OBJ
 	SPAWN
 	DEATH
 	LOAD
@@ -100,7 +101,7 @@ var keywords = map[string]Kind{
 	"var": VAR, "global": GLOBAL, "entities": ENTITIES, "where": WHERE,
 	"emit": EMIT, "budget": BUDGET, "wrapping": WRAPPING, "tick": TICK,
 	"spawn": SPAWN, "death": DEATH, "load": LOAD, "every": EVERY,
-	"loop": LOOP,
+	"loop": LOOP, "obj": OBJ,
 }
 
 func (k Kind) String() string {
@@ -120,7 +121,7 @@ var kindNames = map[Kind]string{
 	SELF: "self", TRUE: "true", FALSE: "false", VAR: "var",
 	GLOBAL: "global", ENTITIES: "entities", WHERE: "where", EMIT: "emit",
 	BUDGET: "budget", WRAPPING: "wrapping", TICK: "tick", SPAWN: "spawn",
-	DEATH: "death", LOOP: "loop", LOAD: "load", EVERY: "every",
+	DEATH: "death", LOOP: "loop", LOAD: "load", EVERY: "every", OBJ: "obj",
 	LPAREN: "(", RPAREN: ")", LBRACE: "{", RBRACE: "}",
 	LBRACK: "[", RBRACK: "]", COLON: ":", SEMI: ";", COMMA: ",",
 	DOT: ".", DOTDOT: "..", AT: "@", HASH: "#", ASSIGN: "=",

@@ -19,11 +19,25 @@ type Program struct {
 	// Consts are the integer literals the program needs, collected from the
 	// final IR so that optimised-away constants are not emitted.
 	Consts []int
+	// Objs are objectives the author declared with `obj`, in source order.
+	//
+	// Declaring one is not what makes it exist: the backend already emits a
+	// declaration for every objective it sees written. What this adds is the
+	// criteria and display name, plus the guarantee that the objective was
+	// named on purpose rather than by a typo.
+	Objs []ObjDecl
 	// tmpN backs program-wide temporary numbering. It is a deliberate
 	// over-approximation: @s is shared by every function, so a callee reusing
 	// the caller's slot would corrupt live state. Register allocation replaces
 	// this later.
 	tmpN int
+}
+
+// ObjDecl is one `obj` declaration.
+type ObjDecl struct {
+	Name     string
+	Criteria string
+	Display  string
 }
 
 // Function is a control-flow graph plus its calling convention.

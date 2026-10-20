@@ -56,6 +56,35 @@ x += e   →   x = x + e
 
 测试总数 63 → **66**。
 
+### 新增：`obj` 声明（已实现）
+
+```ggm
+obj wp.damage1
+obj Eq.Defence "防御"
+obj post_damage stat.damageDealt "造成伤害"
+```
+
+生成对应的 `scoreboard objectives add <名字> <criteria> [display]`。
+
+实现前的真实状况：后端**已经**为每个被写入的 objective 自动发射声明
+（`backend.go:60-64`），display 一律硬编码成 `"ggm"`。所以 `obj` 的价值不是「让
+objective 存在」，而是三件编译器无法替作者决定的事：
+
+1. **criteria**——`stat.damageDealt` 这类不是 `dummy`，原先根本表达不了；
+2. **display 名**——作者写的名字要出现在游戏里，不是 `ggm`；
+3. **名字归作者**——赋值给一个未声明的名字会**静默新分配一个局部 `l0`**，
+   声明的 objective 于是永远没人写。这条是 `obj` 存在的主要理由。
+
+### 新增诊断（3 个，全部已实现）
+
+| 码 | 检查 |
+|---|---|
+| `E_OBJECTIVE_NAME` | 名字超过 16 字符——1.12.2 会截断，截断后前缀相同的两个名字**静默撞车** |
+| `E_OBJECTIVE_DUP` | 同一个 objective 声明两次——看起来像「更新」，实际第二次 `objectives add` 失败且什么都不改 |
+| `E_OBJECTIVE_CONFLICT` | 同时用 `obj` 和 `extern var` 绑定同一个名字——两种「谁创建它」的信念不能同时成立 |
+
+测试 66 → **71**（新增 5 条）。golden 未变：`obj` 是新增语法，既有程序不用它。
+
 ### 规范：写入 NBT 编解码与 objective 声明（设计，未实现）
 
 按「改规范先于改代码」，把 `docs/NBT-SYNTAX.md` 的设计写进了语法规范：

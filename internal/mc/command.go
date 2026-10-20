@@ -74,14 +74,24 @@ func (c ScoreboardReset) Line() string {
 	return "scoreboard players reset " + c.Target + " " + c.Objective
 }
 
-// ObjectiveAdd is `scoreboard objectives add <name> dummy [display]`.
+// ObjectiveAdd is `scoreboard objectives add <name> <criteria> [display]`.
+//
+// Criteria is empty for the common case, which is `dummy`. It is not always
+// dummy: `stat.damageDealt` and friends track a statistic instead of being
+// written by hand, and 1.12.2 rejects an unknown criteria by refusing the
+// whole command.
 type ObjectiveAdd struct {
-	Name    string
-	Display string
+	Name     string
+	Criteria string
+	Display  string
 }
 
 func (c ObjectiveAdd) Line() string {
-	s := "scoreboard objectives add " + c.Name + " dummy"
+	crit := c.Criteria
+	if crit == "" {
+		crit = "dummy"
+	}
+	s := "scoreboard objectives add " + c.Name + " " + crit
 	if c.Display != "" {
 		s += " " + c.Display
 	}

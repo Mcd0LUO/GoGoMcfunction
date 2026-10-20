@@ -116,6 +116,12 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string) ir.Loc {
 	if xd, ok := l.externs[name]; ok && (xd.Kind == "var" || xd.Kind == "global") {
 		return externLoc(xd)
 	}
+	// A declared objective keeps its own name. Falling through to slot() would
+	// allocate l0 for it, and the declaration would then create an objective
+	// that nothing writes -- the exact silent-no-op obj exists to prevent.
+	if l.objs[name] {
+		return loc(name)
+	}
 	if ctx.isField(name) {
 		return loc(ctx.fieldLoc(name))
 	}

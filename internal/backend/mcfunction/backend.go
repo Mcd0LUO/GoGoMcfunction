@@ -58,8 +58,20 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 	// program just does nothing. Emitting the declarations is therefore a
 	// correctness requirement, not a nicety.
 	if objs := usedObjectives(prog); len(objs) > 0 {
+		// A declaration the author wrote supplies the criteria and display
+		// name. Everything else keeps the compiler's own label, so a reader of
+		// the generated file can tell which objectives were named on purpose.
+		declared := map[string]ir.ObjDecl{}
+		for _, od := range prog.Objs {
+			declared[od.Name] = od
+		}
 		for _, o := range objs {
-			add(prog.Namespace+"/init", mc.ObjectiveAdd{Name: o, Display: "ggm"})
+			cmd := mc.ObjectiveAdd{Name: o, Display: "ggm"}
+			if od, ok := declared[o]; ok {
+				cmd.Criteria = od.Criteria
+				cmd.Display = od.Display
+			}
+			add(prog.Namespace+"/init", cmd)
 		}
 	}
 

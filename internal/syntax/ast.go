@@ -217,12 +217,26 @@ type OnDecl struct {
 	P     Pos
 }
 
+// ObjDecl is an `obj` declaration: an objective the compiler must create.
+//
+// This is distinct from ExternDecl, which binds an objective that already
+// exists. In 1.12.2 writing to an undeclared objective neither errors nor
+// takes effect -- the score stays 0 forever -- so "who creates it" has to be
+// answerable from the source alone.
+type ObjDecl struct {
+	Name     string
+	Criteria string // empty means dummy
+	Display  string // empty means no display name
+	P        Pos
+}
+
 // File is a parsed source file.
 type File struct {
 	Namespace string
 	Consts    map[string]Expr
 	Comptime  []ComptimeBlock
 	Externs   []ExternDecl
+	Objs      []ObjDecl
 	Funcs     []FuncDecl
 	Classes   []ClassDecl
 	Ons       []OnDecl
