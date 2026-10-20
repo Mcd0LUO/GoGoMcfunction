@@ -1207,7 +1207,10 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		p.skipNewlines()
-		f, err := p.expectIdent()
+		// The field is an objective name, and objective names are often words
+		// the language reserves: `return` is the ABI return register in every
+		// 1.12.2 library, so `@a[tag=x] return = 1` has to parse.
+		f, err := p.expectName()
 		if err != nil {
 			return nil, err
 		}
@@ -1459,6 +1462,28 @@ func (p *parser) parsePrimary() (Expr, error) {
 			return nil, err
 		}
 		return x, nil
+	case ENTITIES:
+		// `entities<@sel>` is the fan-out source in `for e in entities<...>`.
+		// It is a keyword rather than an identifier so the `for` header reads
+		// as one phrase, which means the expression parser has to accept it
+		// where an identifier would otherwise be expected.
+		p.next()
+		if p.cur().Kind != LT {
+			return nil, &Error{Pos: p.cur().Pos, Msg: "expected '<' after entities"}
+		}
+		p.next()
+		sel, err := p.parseSelectorLiteral()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(GT); err != nil {
+			return nil, err
+		}
+		id, ok := sel.(Ident)
+		if !ok {
+			return nil, &Error{Pos: t.Pos, Msg: "entities<...> needs a selector"}
+		}
+		return id, nil
 	case TICK, SPAWN, DEATH, LOAD, EVERY:
 		// A nameable keyword can only start an expression as a call.
 		p.next()

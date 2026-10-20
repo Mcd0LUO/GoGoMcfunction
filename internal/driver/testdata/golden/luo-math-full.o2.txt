@@ -54,7 +54,6 @@ scoreboard players set #1000 ggm.c 1000
 scoreboard players set #1234 ggm.c 1234
 scoreboard players set #67108864 ggm.c 67108864
 scoreboard players set #1103515245 ggm.c 1103515245
-scoreboard players set #2147483647 ggm.c 2147483647
 === luo:math/is_happen_fix100 ===
 scoreboard players operation @s l8 = @s a0
 scoreboard players operation @s a0 = #100 ggm.c
@@ -97,15 +96,16 @@ scoreboard players operation @s return += @s t2
 === luo:math/sort_asc ===
 scoreboard players set @s l13 0
 scoreboard players set @s l14 64
-execute @a[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$b1
+function luo:math/sort_asc$b1 if @a[tag=math.sort]
 === luo:math/sort_asc$b1 ===
-scoreboard players operation @s t6 = #2147483647 ggm.c
-scoreboard players operation @s t6 < @a[tag=math.sort] math
+scoreboard players set #ggm.reduce math 2147483647
+execute @a[tag=math.sort] ~ ~ ~ scoreboard players operation #ggm.reduce math < @s math
+scoreboard players operation @s t6 = #ggm.reduce math
 scoreboard players operation @s l15 = @s t6
 scoreboard players operation @a[tag=math.sort] temp1 = @s l15
 scoreboard players operation @s l13 += #1 ggm.c
 scoreboard players remove @s l14 1
-execute @a[tag=math.sort,score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1
+execute @s[score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1 if @a[tag=math.sort]
 === luo:math/sqrt ===
 scoreboard players operation @s l10 = @s a0
 scoreboard players operation @s l11 = @s l10

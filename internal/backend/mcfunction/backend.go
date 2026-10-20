@@ -231,19 +231,45 @@ func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.B
 	elseName := bp(fn, br.Else)
 
 	if br.Cond.Exist != nil {
-		// An existence test is a single selector lookup. The else edge is the
-		// same selector with its tag conditions flipped, which is the only
-		// negation 1.12.2 selectors support directly.
-		if br.Cond.Exist.Negate {
-			return []mc.Command{
-				mc.Execute{Selector: parseSelector(br.Cond.Exist.Selector), Cmd: mc.Function{Name: elseName}},
-				mc.Execute{Selector: negateSelector(br.Cond.Exist.Selector), Cmd: mc.Function{Name: thenName}},
+		// An existence test asks WHETHER anything matches, so it must run the
+		// arm at most once. `execute <sel> ~ ~ ~ function F` does not: it runs
+		// F once per matching entity, so `if any<@e[tag=x]>` fired once per
+		// match and its else edge fired once per NON-match.
+		//
+		// 1.12.2's `function F if <selector>` is exactly the existence test --
+		// it runs F once when the selector matches anything and skips it
+		// otherwise -- and `unless` is its complement. That is why the IR calls
+		// this an ExistTest and not a fan-out.
+		// `unless` IS the complement. Flipping tag= conditions instead is not:
+		// @e[tag=!probe] means "an entity without the tag", which is true
+		// whenever any other entity exists, while "nothing matches @e[tag=probe]"
+		// is what an existence test negates.
+		//
+		// A predicate may also carry conditions on @s alongside the existence
+		// test -- the loop budget is one. Those cannot go into the existence
+		// selector, because that selector names OTHER entities and the budget
+		// lives on @s. `execute @s[<alts>] ~ ~ ~ function F if <sel>` tests both
+		// without changing which entity @s is.
+		cond := parseSelector(br.Cond.Exist.Selector)
+		wrappers := make([]*mc.Selector, 0, len(br.Cond.Alts))
+		for _, alt := range br.Cond.Alts {
+			wrappers = append(wrappers, selectorFor(t, alt))
+		}
+		emit := func(name string, negate bool) []mc.Command {
+			f := mc.Function{Name: name, Cond: cond, Negate: negate}
+			if len(wrappers) == 0 {
+				return []mc.Command{f}
 			}
+			var out []mc.Command
+			for _, w := range wrappers {
+				out = append(out, mc.Execute{Selector: w, X: "~", Y: "~", Z: "~", Cmd: f})
+			}
+			return out
 		}
-		return []mc.Command{
-			mc.Execute{Selector: parseSelector(br.Cond.Exist.Selector), Cmd: mc.Function{Name: thenName}},
-			mc.Execute{Selector: negateSelector(br.Cond.Exist.Selector), Cmd: mc.Function{Name: elseName}},
+		if br.Cond.Exist.Negate {
+			return append(emit(elseName, false), emit(thenName, true)...)
 		}
+		return append(emit(thenName, false), emit(elseName, true)...)
 	}
 
 	thenAlts := br.Cond.Alts
@@ -499,6 +525,17 @@ func usedObjectives(prog *ir.Program) []string {
 					note(o.Dst)
 				case ir.Guarded:
 					// handled below by recursion
+				case ir.Raw:
+					// Broadcast writes and codec commands are Raw text, so their
+					// objectives are invisible to the Loc scan above. Missing
+					// them left `@e[tag=x] temp1 = key math` writing an
+					// objective that was never declared -- silently discarded,
+					// exactly the failure obj exists to prevent.
+					for _, obj := range objectivesInRaw(o.Text) {
+						if obj != ir.ConstObjective {
+							seen[obj] = true
+						}
+					}
 				}
 			}
 			for _, c := range termConds(blk.Term) {
@@ -511,6 +548,30 @@ func usedObjectives(prog *ir.Program) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// objectivesInRaw finds the objective names in a rendered command.
+//
+// Only the scoreboard shapes this compiler emits are considered: the operand
+// positions are fixed, so the parse stays small instead of trying to be a
+// command parser.
+func objectivesInRaw(text string) []string {
+	var out []string
+	f := strings.Fields(text)
+	// scoreboard players <verb> <target> <objective> [<value>]
+	if len(f) >= 5 && f[0] == "scoreboard" && f[1] == "players" {
+		switch f[2] {
+		case "set", "add", "remove", "reset", "enable", "test", "get":
+			out = append(out, f[4])
+		case "operation":
+			// scoreboard players operation <t> <obj> <op> <src> <srcobj>
+			if len(f) >= 8 {
+				out = append(out, f[4], f[7])
+			}
+		}
+	}
+	// scoreboard players tag <target> <verb> <tag> -- no objective
 	return out
 }
 

@@ -10,12 +10,20 @@ import "github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 func negate(p ir.Predicate) ir.Predicate { return ir.Negate(p) }
 
 // withBudget folds `budget >= 1` into every alternative.
+//
+// The budget is a score on @s, so it can only be folded into conditions that
+// are also about @s. An existence test selects OTHER entities: appending
+// `score_budget_min=1` to `@e[tag=x]` asks whether any of those entities has
+// the budget, and they do not -- the budget lives on the caller. The loop then
+// stops after one iteration, which is exactly what a `while any<@e[...]>`
+// around a fan-out body did.
 func withBudget(p ir.Predicate, budget string) ir.Predicate {
 	bc := ir.Cond{Obj: budget, HasMin: true, Min: 1}
 	if p.Exist != nil {
-		ex := *p.Exist
-		ex.Selector = appendSelectorCond(ex.Selector, bc)
-		return ir.Predicate{Exist: &ex}
+		return ir.Predicate{
+			Exist: p.Exist,
+			Alts:  [][]ir.Cond{{bc}},
+		}
 	}
 	var out ir.Predicate
 	for _, alt := range p.Alts {

@@ -16,6 +16,60 @@
 
 ---
 
+## [0.13.0] - 2026-10-20
+
+### 修复：六个静默误编译，全部由**真机跑产物**发现
+
+这一轮想给标准库加 `sort`，结果一路上撞到六个既有 bug。每个都不报错、
+命令都能加载、症状只是一个错数字。
+
+| # | 缺陷 | 症状 |
+|---|---|---|
+| 1 | `expr` 不认 `obj` 声明的名字 | `ticks = ticks + 1` 编译成 `ticks = l0 + 1`，计数器恒为 1 |
+| 2 | `lvalueName` 不认 `a.b` | `seed.t = 0` 解析通过、静默写到局部 |
+| 3 | `any<sel>` 渲染成 `execute <sel> ~ ~ ~` | 存在性测试变成扇出，循环体每个匹配各跑一遍 |
+| 4 | `reduce<min>` 拿选择器当操作数 | `operation @s t < @e[…]` 被 1.12.2 **静默忽略**，reduce 恒返回种子值 |
+| 5 | `withBudget` 把预算折进 `@e` 选择器 | 预算在 `@s`、选择器选别人，循环第一轮就退出 |
+| 6 | 广播写的 objective 不被收集 | 写不存在的 objective，静默失败 |
+
+**1 和 2 是同一个错误的两个方向**：写路径认 `obj` / `holder.objective`，读路径不认。
+**3 和 5 也是同一处**：`ExistTest` 的注释早就写着「`function F if <sel>` 是存在性测试，
+`execute <sel> ~ ~ ~ function F` 是扇出，两者不可互换」——而后端正是用后者渲染前者。
+
+### 修复方式
+
+- `expr`：`obj` 声明的名字按自身读取；`a.b` 解析成 `holder.objective`
+- `lvalueName`：接受 `a.b` 形式的目标
+- `renderBranch`：存在性测试渲染成 `function F if <sel>` / `unless`，
+  附带 `@s` 侧条件时包一层 `execute @s[<conds>] ~ ~ ~`
+- `reduce`：种子放假玩家 `#ggm.reduce`，用 `execute` 扇出逐实体比较
+- `withBudget`：不再往里是选择器的谓词里塞 `@s` 的条件
+- `usedObjectives`：新增 `objectivesInRaw`，从广播写等原生命令文本里提取 objective
+
+### 新增：`entities<…>` 可作为表达式
+
+`for e in entities<@e[tag=x]> { … }` 以前解析不了——`entities` 是关键字，
+`parsePrimary` 不接受它。现在接受。
+
+### 测试 91 → 97
+
+新增 `regress_test.go` 六条，每条钉住一个缺陷。已逐条验证**回退修复后测试立刻红**
+（例如回退 `withBudget` 会得到
+`function t:b/spin$b1 if @e[tag=go,score_l1_min=1]`）。
+
+golden 重签并逐行读过：`reduce` 从无效的单条 `operation` 变成
+`execute` 扇出，`#2147483647` 常量不再需要，循环回边从
+`if @a[…,score_l14_min=1]` 变成 `execute @s[score_l14_min=1] ~ ~ ~ function …`。
+
+### 未完成：`sort_asc` / `sort_desc`
+
+标准库里的排序**没有落地**，从 `stdlib/math.ggm` 移除（该文件回到 8 个函数）。
+卡点不是 bug，是语言能力：循环体里要对一整组实体扇出，并在扇出体内写
+「这个实体的字段」——目前没有对应写法。`examples/luo-math-full.ggm` 里的
+`sort_asc` 同样依赖这个缺口，它的 golden 因此仍是一份**无法正确运行**的产物。
+
+---
+
 ## [0.12.0] - 2026-10-20
 
 ### 修复：读一个 `obj` 声明的 objective 会分配新的局部

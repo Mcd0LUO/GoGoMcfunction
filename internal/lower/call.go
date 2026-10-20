@@ -358,6 +358,19 @@ func (l *Lowerer) reduce(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syn
 	if !ok {
 		return ir.Loc{}, fmt.Errorf("reduce second argument must be an objective name")
 	}
+	// The accumulator is a fake player, not a temp on @s.
+	//
+	// `scoreboard players operation @s t < @a[tag=x] obj` looks plausible and
+	// is silently discarded: 1.12.2's `operation` takes ONE score holder on
+	// the right, never a selector. Measured on the engine: the command reports
+	// success, applies nothing, and the accumulator keeps its seed, so a
+	// reduce returns 2147483647 for every input.
+	//
+	// The working shape is the one the hand-written library uses: seed a fake
+	// player, then fan out with `execute` so each matching entity compares its
+	// own score against it. The holder is a constant name so the fan-out and
+	// the read-back refer to the same score.
+	acc := ir.Loc{Holder: "#ggm.reduce", Obj: obj.Name}
 	t := fb.TmpLoc()
 	seed := 2147483647
 	op := "<"
@@ -365,8 +378,10 @@ func (l *Lowerer) reduce(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syn
 		op = ">"
 		seed = -2147483647
 	}
-	fb.Emit(block, ir.Copy{Dst: t, Src: fb.Const(seed)})
-	fb.Emit(block, ir.Arith{Dst: t, Op: op, Src: ir.Loc{Holder: sel.Name, Obj: obj.Name}})
+	fb.Emit(block, ir.Set{Dst: acc, Value: seed})
+	fb.Emit(block, ir.Raw{Text: fmt.Sprintf("execute %s ~ ~ ~ scoreboard players operation %s %s %s @s %s",
+		sel.Name, acc.Holder, acc.Obj, op, obj.Name)})
+	fb.Emit(block, ir.Copy{Dst: t, Src: acc})
 	return t, nil
 }
 
