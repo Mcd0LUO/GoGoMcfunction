@@ -126,3 +126,34 @@ fn run() -> int {
 		t.Errorf("rand returned %v eight times; the seed is not advancing", results)
 	}
 }
+
+// The example libraries are shipped code, so they get the same treatment as
+// stdlib: run on the engine and compared against an independent answer.
+//
+// This test exists because the sqrt these examples used to contain was wrong
+// in two ways that nothing caught -- the golden baseline only compares output
+// against output, and the semantic test next door exercised a different
+// spelling of the same function. A baseline agrees with whatever it was
+// blessed from; only an independent expectation can disagree with it.
+func TestExampleSqrtOnRealRuntime(t *testing.T) {
+	for _, name := range []string{"luo-math.ggm", "luo-math-full.ggm"} {
+		t.Run(name, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join("..", "..", "examples", name))
+			if err != nil {
+				t.Skipf("read example: %v", err)
+			}
+			files := compile(t, string(body), optimize.O2)
+			h := newHarness(t, "luo:math", files)
+
+			// 0 exercises the case the old guard returned 1 for; 99 the one
+			// the oscillating test settled on 10 for; MaxInt32 the one the
+			// (x+1)/2 seed wrapped on.
+			for _, n := range []int{0, 1, 2, 3, 4, 8, 15, 16, 99, 100, 999, 10000, 46339, 46340, 2147483647} {
+				got, _ := h.Call("luo:math/sqrt", map[string]int{"a0": n})
+				if want := isqrt(n); got != want {
+					t.Errorf("sqrt(%d) = %d, want %d", n, got, want)
+				}
+			}
+		})
+	}
+}

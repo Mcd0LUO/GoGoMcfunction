@@ -46,13 +46,14 @@ fn is_happen_fix1000(p: int) -> bool {
     chance(1000, p)
 }
 
+// 收敛判据不能用「与上一次估计之差」：它在不动点两侧振荡，
+// sqrt(99) 会得到 10。起始值避开 (x+1)/2 的 int32 回绕。
 fn sqrt(n: int) -> int {
-    if n < 4 { return 1 }
-    let x = n / 4
-    let prev = 0
-    while abs(x - prev) >= 1 #[budget(32)] {
-        prev = x
-        x = (x + n / x) / 2
+    let x = n
+    let y = x / 2 + x % 2
+    while y < x #[budget(64)] {
+        x = y
+        y = (x + n / x) / 2
     }
     x
 }

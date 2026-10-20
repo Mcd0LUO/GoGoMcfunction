@@ -1,4 +1,4 @@
-# files=16 commands=129
+# files=14 commands=122
 
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
@@ -40,12 +40,11 @@ scoreboard objectives add math dummy ggm
 scoreboard objectives add return dummy ggm
 scoreboard objectives add t0 dummy ggm
 scoreboard objectives add t1 dummy ggm
-scoreboard objectives add t11 dummy ggm
-scoreboard objectives add t12 dummy ggm
 scoreboard objectives add t2 dummy ggm
 scoreboard objectives add t3 dummy ggm
 scoreboard objectives add t4 dummy ggm
 scoreboard objectives add t5 dummy ggm
+scoreboard objectives add t6 dummy ggm
 scoreboard objectives add t7 dummy ggm
 scoreboard objectives add t8 dummy ggm
 scoreboard objectives add t9 dummy ggm
@@ -53,7 +52,6 @@ scoreboard objectives add temp1 dummy ggm
 scoreboard objectives add ggm.c dummy ggm
 scoreboard players set #1 ggm.c 1
 scoreboard players set #2 ggm.c 2
-scoreboard players set #4 ggm.c 4
 scoreboard players set #100 ggm.c 100
 scoreboard players set #1000 ggm.c 1000
 scoreboard players set #1234 ggm.c 1234
@@ -104,44 +102,37 @@ scoreboard players set @s l13 0
 scoreboard players set @s l14 64
 execute @a[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$b1
 === luo:math/sort_asc$b1 ===
-scoreboard players operation @s t12 = #2147483647 ggm.c
-scoreboard players operation @s t12 < @a[tag=math.sort] math
-scoreboard players operation @s l15 = @s t12
+scoreboard players operation @s t9 = #2147483647 ggm.c
+scoreboard players operation @s t9 < @a[tag=math.sort] math
+scoreboard players operation @s l15 = @s t9
 scoreboard players operation @a[tag=math.sort] temp1 = @s l15
 scoreboard players operation @s l13 = @s l13
 scoreboard players operation @s l13 += #1 ggm.c
 scoreboard players remove @s l14 1
 execute @a[tag=math.sort,score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1
 === luo:math/sqrt ===
-scoreboard players operation @s t5 = @s a0
-scoreboard players operation @s t5 -= #4 ggm.c
-function luo:math/sqrt$b1 if @s[score_t5=-1]
-function luo:math/sqrt$b2 unless @s[score_t5=-1]
-=== luo:math/sqrt$b1 ===
-scoreboard players set @s return 1
-=== luo:math/sqrt$b2 ===
 scoreboard players operation @s l10 = @s a0
-scoreboard players operation @s l10 /= #4 ggm.c
-scoreboard players set @s l11 0
-scoreboard players set @s l12 32
-scoreboard players operation @s t7 = @s l10
-scoreboard players operation @s t7 -= @s l11
-function luo:math/sqrt$b3 unless @s[score_t7_min=0,score_t7=0]
-function luo:math/sqrt$b4 if @s[score_t7_min=0,score_t7=0]
-=== luo:math/sqrt$b3 ===
 scoreboard players operation @s l11 = @s l10
-scoreboard players operation @s t8 = @s a0
-scoreboard players operation @s t8 /= @s l10
-scoreboard players operation @s t9 = @s l10
-scoreboard players operation @s t9 += @s t8
-scoreboard players operation @s l10 = @s t9
-scoreboard players operation @s l10 /= #2 ggm.c
-scoreboard players operation @s t11 = @s l10
-scoreboard players operation @s t11 -= @s l11
+scoreboard players operation @s l11 /= #2 ggm.c
+scoreboard players operation @s t5 = @s l10
+scoreboard players operation @s t5 %= #2 ggm.c
+scoreboard players operation @s l11 += @s t5
+scoreboard players set @s l12 64
+scoreboard players operation @s t6 = @s l11
+scoreboard players operation @s t6 -= @s l10
+function luo:math/sqrt$b1 if @s[score_t6=-1]
+function luo:math/sqrt$b2 unless @s[score_t6=-1]
+=== luo:math/sqrt$b1 ===
+scoreboard players operation @s l10 = @s l11
+scoreboard players operation @s l11 = @s l10
+scoreboard players operation @s t7 = @s a0
+scoreboard players operation @s t7 /= @s l10
+scoreboard players operation @s l11 += @s t7
+scoreboard players operation @s l11 /= #2 ggm.c
+scoreboard players operation @s t8 = @s l11
+scoreboard players operation @s t8 -= @s l10
 scoreboard players remove @s l12 1
-execute @s[score_l12_min=1,score_t11=-1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_l12_min=1,score_t11_min=1] ~ ~ ~ function luo:math/sqrt$b3
-execute @s[score_l12=0] ~ ~ ~ function luo:math/sqrt$b4
-execute @s[score_t11_min=0,score_t11=0] ~ ~ ~ function luo:math/sqrt$b4
-=== luo:math/sqrt$b4 ===
+function luo:math/sqrt$b1 if @s[score_l12_min=1,score_t8=-1]
+function luo:math/sqrt$b2 unless @s[score_l12_min=1,score_t8=-1]
+=== luo:math/sqrt$b2 ===
 scoreboard players operation @s return = @s l10
