@@ -11,6 +11,9 @@ extern arg2: int = @s.arg2
 extern arg3: int = @s.arg3
 extern return: int = @s.return
 extern temp1: int = @s.temp1
+// 排序键放在实体的 math 上，排序结果放 return。两者都要绑定：
+// 扇出体里写裸名字得到的是执行者的局部槽，不是实体的 objective。
+extern math: int = @s.math
 extern SEED: int = seed.math
 
 const LCG_A = 1103515245
@@ -58,12 +61,27 @@ fn sqrt(n: int) -> int {
     x
 }
 
+// 给 @e[tag=math.sort] 的每个实体分配名次，写进各自的 return。
+//
+// 旧版只做「找最小 + 记录」，既不写名次也不摘标签，所以 while 的条件永远为真，
+// 跑满 64 次预算后停下——一个不会报错的死循环。
+//
+// 循环状态必须放在假玩家上：while 的预算挂在执行者 @s，而每轮都要对一整组
+// 实体扇出，被扇出的实体没有那份预算。
 fn sort_asc() {
-    let rank = 0
-    while any<@a[tag=math.sort]>, budget 64 {
-        let lo = reduce<min>(@a[tag=math.sort], math)
-        @a[tag=math.sort] temp1 = lo
-        rank = rank + 1
+    sort.rank = 0
+    while any<@e[tag=math.sort]>, budget 64 {
+        sort.rank = sort.rank + 1
+        let lo = reduce<min>(@e[tag=math.sort], math)
+        sort.key = lo
+        // 每个实体算自己与最小值的距离；只有恰好等于最小值的那个 distance 为 0，
+        // 这一轮就把名次定给它。用扇出而不是广播写：广播写会让每个实体读到
+        // 调用者的临时槽，而不是自己算出来的值。
+        for e in entities<@e[tag=math.sort]> {
+            temp1 = math - sort.key
+        }
+        @e[tag=math.sort, score_temp1_min=0, score_temp1=0] return = sort.rank
+        tag_remove(@e[tag=math.sort, score_temp1_min=0, score_temp1=0], "math.sort")
     }
 }
 

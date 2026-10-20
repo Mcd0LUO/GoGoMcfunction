@@ -1,4 +1,4 @@
-# files=14 commands=121
+# files=15 commands=130
 
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
@@ -22,12 +22,12 @@ scoreboard players set #math.-1 math -1
 === luo:math/init ===
 scoreboard objectives add a0 dummy ggm
 scoreboard objectives add a1 dummy ggm
+scoreboard objectives add key dummy ggm
 scoreboard objectives add l10 dummy ggm
 scoreboard objectives add l11 dummy ggm
 scoreboard objectives add l12 dummy ggm
 scoreboard objectives add l13 dummy ggm
 scoreboard objectives add l14 dummy ggm
-scoreboard objectives add l15 dummy ggm
 scoreboard objectives add l2 dummy ggm
 scoreboard objectives add l3 dummy ggm
 scoreboard objectives add l4 dummy ggm
@@ -37,9 +37,11 @@ scoreboard objectives add l7 dummy ggm
 scoreboard objectives add l8 dummy ggm
 scoreboard objectives add l9 dummy ggm
 scoreboard objectives add math dummy ggm
+scoreboard objectives add rank dummy ggm
 scoreboard objectives add return dummy ggm
 scoreboard objectives add t0 dummy ggm
 scoreboard objectives add t1 dummy ggm
+scoreboard objectives add t10 dummy ggm
 scoreboard objectives add t2 dummy ggm
 scoreboard objectives add t3 dummy ggm
 scoreboard objectives add t4 dummy ggm
@@ -97,18 +99,26 @@ scoreboard players operation @s t2 += @s l4
 scoreboard players operation @s t2 %= @s l4
 scoreboard players operation @s return += @s t2
 === luo:math/sort_asc ===
-scoreboard players set @s l13 0
-scoreboard players set @s l14 64
-function luo:math/sort_asc$b1 if @a[tag=math.sort]
+scoreboard players set sort rank 0
+scoreboard players set @s l13 64
+function luo:math/sort_asc$b1 if @e[tag=math.sort]
 === luo:math/sort_asc$b1 ===
+scoreboard players operation @s t9 = sort rank
+scoreboard players operation @s t9 += #1 ggm.c
+scoreboard players operation sort rank = @s t9
 scoreboard players set #ggm.reduce math 2147483647
-execute @a[tag=math.sort] ~ ~ ~ scoreboard players operation #ggm.reduce math < @s math
-scoreboard players operation @s t9 = #ggm.reduce math
-scoreboard players operation @s l15 = @s t9
-scoreboard players operation @a[tag=math.sort] temp1 = @s l15
-scoreboard players operation @s l13 += #1 ggm.c
-scoreboard players remove @s l14 1
-execute @s[score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1 if @a[tag=math.sort]
+execute @e[tag=math.sort] ~ ~ ~ scoreboard players operation #ggm.reduce math < @s math
+scoreboard players operation @s t10 = #ggm.reduce math
+scoreboard players operation @s l14 = @s t10
+scoreboard players operation sort key = @s l14
+execute @e[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$b3
+scoreboard players operation @e[tag=math.sort,score_temp1_min=0,score_temp1=0] return = sort rank
+scoreboard players tag @e[tag=math.sort,score_temp1_min=0,score_temp1=0] remove math.sort
+scoreboard players remove @s l13 1
+execute @s[score_l13_min=1] ~ ~ ~ function luo:math/sort_asc$b1 if @e[tag=math.sort]
+=== luo:math/sort_asc$b3 ===
+scoreboard players operation @s temp1 = @s math
+scoreboard players operation @s temp1 -= sort key
 === luo:math/sqrt ===
 scoreboard players operation @s l10 = @s a0
 scoreboard players operation @s l11 = @s l10
