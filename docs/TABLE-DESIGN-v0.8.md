@@ -15,6 +15,37 @@
 
 ---
 
+## 0.1 设计立场：手写文件只提供需求，不提供实现
+
+> 用户 2026-10-20 指正：**「看真实手写文件只取思想，有可能不是最优实现。」**
+
+这条直接作废了设计稿 §1.6 第 2 条验收标准（「与现有手写文件逐字节相同」）。
+那等于把一份未经优化的手写产物**冻结成编译器的规格**，再管它叫验收。
+
+**从手写文件取的**：
+
+- 需求：确实有 19 张表，且全是纯数据（无控制流、无运行期决策）
+- 形状：4 种参数化模式
+- 参数：槽位 / 字段 / 位宽 / objective
+- 语义：把 NBT 里的一段位域解成 objective 上的整数
+
+**不取、且有意允许不同的**：
+
+| 项 | 手写 | 编译器可自行决定 |
+|---|---|---|
+| 文件划分 | 19 个函数文件，`main` 逐个调 | 合并 / 拆分 / 内联，属于优化器的决定 |
+| 命令内联 | `defence` 把 4 个槽位塞进 1 个文件（44 条） | 按槽位拆开也行——只要语义等价 |
+| objective 命名 | `wp.damage1`、`wp.passiveId1:1`（不规则） | 由 `into` 显式给出，编译器不猜 |
+| 注释与 `tellraw` | 手写文本 | **完全不生成**，那是人的文本不是数据 |
+
+**编码自由度有多少（诚实评估）**：给定「位域 → objective」这个语义，
+`w` 条 `add` + 1 条 `set 0` 在 1.12.2 里**接近下界**——每个 bit 的 NBT 路径下标 `k` 不同，
+一条命令只能测一个下标，且 `add` 的右操作数必须是记分板名字/常量。
+所以真正的自由度不在「少发几条 bit 命令」，而在**文件划分、内联与否、命名**。
+**编译器不许比手写差**（见 §8 第 4 条），但也不该被手写的排版绑住。
+
+---
+
 ## 1. 实测
 
 复现命令（在仓库根执行）：
@@ -75,43 +106,80 @@ scoreboard objectives add wp.passiveId1:1 dummy 技能被动id1:1
 
 ---
 
-## 3. 语法提案
+## 3. 语法提案（按 §0.1 立场修正）
 
-`table` 是第 8 种顶层声明。**声明名就是生成的函数路径**：
+### 3.1 先否掉我自己上一版
+
+我上一版把**手写的排版搬进了语言**：
+
+```ggm
+// ✗ 已否：声明名 = 手写文件路径
+#[decode(slots = 0, field = "atk_base", width = 11, into = "wp.damage1")]
+table ApLoader/weapon/damage/1          // 一个「表」= 一个手写文件
+```
+
+这错在：**「一个槽位-字段 = 一个文件」是排版的偶然，不是语义。**
+语义只是「这些字段要解到这些 objective 上」。按这版写，作者仍要写 19 条声明，
+再在别处手写 18 行 `function` 调用——**手写文件的形状原封不动地留在了语言里**，
+只是把 `.mcfunction` 的后缀换成了 `table`。那不是抽象，那是转录。
+
+### 3.2 修正版：声明描述解码，编译器负责排版与接线
 
 ```ggm
 namespace rpg:api
 
-// A：单槽位
-#[decode(slots = 0, field = "atk_base", width = 11, into = "wp.damage1")]
-table ApLoader/weapon/damage/1
+table load_weapon_stats {
+    // 槽位 0
+    decode slot=0, field="atk_base", width=11, into="wp.damage1"
+    decode slot=0, field="pen_base", width=11, into="wp.pen_base1"
+    decode slot=0, field="passive",  width=10, index=0, into="wp.passiveId1:1"
+    decode slot=0, field="passive",  width=10, index=1, into="wp.passiveId1:2"
+    decode slot=0, field="cooldown", width=9,  into="wp.cd1"
+    enum   slot=0, field="spec", values=1..4,  into="wp.type1"
+    // 槽位 1、2 同理……
+}
 
-// A：多槽位（一个文件、4 段、同一个 objective）
-#[decode(slots = 100..103, field = "defence", width = 11, into = "Eq.Defence")]
-table ApLoader/equip/defence
-
-// B：嵌套位梯子
-#[decode(slots = 0, field = "passive", width = 10, index = 0, into = "wp.passiveId1:1")]
-table ApLoader/weapon/passive/1_1
-
-// C：枚举
-#[enum(slots = 0, field = "spec", values = 1..4, into = "wp.type1")]
-table ApLoader/weapon/type/1
+table load_armour {
+    decode slots=100..103, field="defence", width=11, into="Eq.Defence"
+}
 ```
+
+一张 `table` = **一个生成的函数**；body 是**扁平的解码条目列表**。
+
+这样换来什么：
+
+| 手写 | 修正版 |
+|---|---|
+| 19 个函数文件 | **2 条声明** |
+| `main` 里 18 行调用 + 手写注释 + `tellraw` | 作者调 `function rpg:api/load_weapon_stats` **一次** |
+| 文件划分、调用顺序靠人维护 | 编译器决定，作者不参与 |
 
 设计要点：
 
-- **没有函数体**。表是声明不是语句；给 `table` 加 body 就等于把控制流请回来，而那正是要消灭的东西。
-- `slots` 接受**单值或区间**两种写法，不引入第二种关键字。
-- 槽位后缀 `b`、objective 的 16 字符截断等版本事实**全部走 `internal/target`**，
-  这是项目铁律第 1 条。
-- 不提供 `holder` 参数：实测 19 个文件**全部**是 `@s`。等出现第二个 holder 再加（roadmap 规则）。
+- **body 里没有控制流**：只有 `decode` / `enum` 两种纯参数条目。
+  这与 `#[wrapping]` 的教训一致——**未知属性/条目必须拒绝**，不许静默忽略。
+  （「没有 body」是我上一版的教条；body 装**声明**不等于把语句请回来，我把两者混为一谈了。）
+- `slot` 与 `slots` 是同一条目的两种写法（单值 / 区间），不是两个关键字。
+- `index` 只在 `passive` 这种嵌套形状上出现，是可选参数。
+- 槽位后缀 `b`、objective 的 16 字符截断等版本事实**全部走 `internal/target`**（铁律第 1 条）。
+- 不提供 `holder` 参数：实测全部是 `@s`。出现第二个 holder 再加（roadmap 规则）。
+- 表格名仍要显式：它是作者**唯一**需要知道的名字（用于调用），不能让编译器随便取。
+
+> **需要你确认这一条**：手写布局在 `末法` 里是「`main` 按槽位分组调用、每组之间可插入别的逻辑」
+> （`main` 里 `legacy/main`、`equip/defence`、`tellraw` 与 18 行调用**交错**）。
+> 修正版把 18 行合成一次调用，就**失去了在中间插入其它逻辑的位置**。
+> 如果作者需要在第 6 行和第 7 行调用之间插一句别的命令，那「一张表一个函数」就不够用，
+> 得退回「一张表一个文件」。**这是修正版唯一的真实风险，我没法从文件本身判定，
+> 只能指出它。**
 
 ---
 
-## 4. 展开规则（逐字节精确）
+## 4. 展开规则（逐命令精确）
 
-**A** — `slots = s0..sN`、`field = f`、`width = w`、`into = o`：
+规则对**每个 `decode`/`enum` 条目**生效；**文件划分与条目顺序由编译器决定**（§3.2）。
+逐命令文本必须精确——它要过后端 `Validate`，也要能让 §8 第 4 条「不劣于手写」可判定。
+
+**A `decode`（无 `index`）** — `slots = s0..sN`、`field = f`、`width = w`、`into = o`：
 
 ```mcfunction
 scoreboard players set @s <o> 0
@@ -119,9 +187,9 @@ scoreboard players set @s <o> 0
 scoreboard players add @s <o> <2^k> {Inventory:[{Slot:<s>b,tag:{dat:{<f>:{<k>:1b}}}}]}
 ```
 
-**B** — 多一个 `index = i`：末段变成 `{dat:{<f>:{<i>:{<k>:1b}}}}`。
+**B `decode`（带 `index = i`）** — 末段变成 `{dat:{<f>:{<i>:{<k>:1b}}}}`。
 
-**C** — `values = v0..vN`：
+**C `enum`** — `values = v0..vN`：
 
 ```mcfunction
 scoreboard players set @s <o> 0
@@ -149,13 +217,18 @@ scoreboard players add @s Eq.Defence 1024 {Inventory:[{Slot:103b,tag:{dat:{defen
 |---|---|
 | `syntax/token.go` | 加关键字 `table` |
 | `syntax/ast.go` | 新 `TableDecl`；`File.Tables []TableDecl` |
-| `syntax/parser.go` | 解析 `table` + `#[decode]` / `#[enum]` 属性**参数**（见 5.1） |
+| `syntax/parser.go` | 解析 `table` 声明 + body 里的 `decode` / `enum` 条目（见 5.1） |
 | `lower/table.go`（新） | `lowerTables`：算出命令文本，写进一个新函数 |
 | `driver/driver.go` | 在 `comptime` 池之后调用（见下） |
 
-### 5.1 先决条件：属性参数解析器不存在
+### 5.1 属性参数解析器不存在（§3.1 旧提案的隐藏成本，修正版已绕开）
 
-**这是本方案最大的隐藏成本，必须先说清。**
+**先给结论**：§3.2 的修正版把参数放进 `table` 的 **body**，所以
+**不需要**给属性加参数支持——`parseTable` 自己解析 body 条目即可，
+与 `parseClass` 手写解析 `[selector(...)]` 同构（parser.go:380-411）。
+属性参数**不再是前置条件**。这是修正版的额外收益。
+
+但这条发现对**任何再想用属性形式的人**都是硬事实，记在这里：
 
 `parseAttr`（parser.go:228-258）读完属性名之后，对 `(...)` 里的 token 是**逐个跳过并丢弃**的：
 
@@ -198,7 +271,7 @@ for p.cur().Kind != RBRACK || depth > 0 { … p.next() }   // 只为跳过
 
 | 码 | 检查 | 为什么 |
 |---|---|---|
-| `E_TABLE_ATTR` | `#[decode]`/`#[enum]` 缺失、未知、类型错 | 未知属性必须拒绝（`#[wrapping]` 静默无效的教训） |
+| `E_TABLE_ENTRY` | body 里出现 `decode`/`enum` 之外的条目，或参数缺失/类型错 | 未知条目必须拒绝（`#[wrapping]` 静默无效的教训） |
 | `E_TABLE_WIDTH` | `width < 1` 或 `width > 31` | `width = 32` 时 `2^31` 超出 int32（`E_INT_RANGE` 的同类） |
 | `E_TABLE_OBJECTIVE` | `into` 长于 16 字符 | 1.12.2 objective 名上限 |
 | `E_FN_COLLISION` | table 名与 `fn` 撞在同一个函数 id 上（复用） | 1.12.2 归一化后同名 = 同一个函数 |
@@ -220,19 +293,23 @@ for p.cur().Kind != RBRACK || depth > 0 { … p.next() }   // 只为跳过
 
 ## 8. 验收标准（修正 §1.6）
 
-设计稿 §1.6 第 2 条「生成结果与现有手写文件**逐字节相同**」**按字面做不到**，要拆开：
+**设计稿 §1.6 第 2 条（逐字节相同）作废**，理由见 §0.1。
+验收改为**行为等价**，与项目既有方法论一致（`docs/VERIFICATION.md`：语义测试跑在真运行时上）。
 
-| # | 标准 | 判定 |
+| # | 标准 | 判定方式 |
 |---|---|---|
-| 1 | 19 个文件中的 10+6+3 = **19 个梯子文件**能由声明生成 | 声明数 = 19 |
-| 2 | 其中 **19 个**与手写文件逐字节相同 | `objective` 名走 `into` 显式给出，因此**连 objective 名也不必不同**——可以要求完全一致 |
-| 3 | `main.mcfunction` 的 **18 条 `function` 行**能生成 | 见下 |
-| 4 | `main` 的注释与 `tellraw` **不在生成范围** | 那是人写的文本，不是数据 |
+| 1 | 19 个解码点能由声明生成 | 2 条 `table`、19 条 `decode`/`enum` 条目，`-check` 零诊断 |
+| 2 | 解码**行为正确** | 喂给 `gomc.exe`：造一件带该 NBT 的装备，跑生成函数，比对 objective 值与 Go 里独立算的参考值 |
+| 3 | 位宽边界正确 | 全 0 / 全 1 / 每个 k 单独置位，共 w+2 个用例 |
+| 4 | **不劣于手写** | 命令数 ≤ 手写的 `w+1` 条/（槽位·字段）；若多于它，必须能解释多在哪 |
+| 5 | 命名 / 文件划分 / 注释**允许不同** | 明确不比对 |
 
-第 3 条要单独说清：`main` 里 18 条调用按槽位分组、夹着手写注释（`# 载入0栏位武器`）、
-末尾一句 `tellraw`。**生成器只该产那 18 行**，注释与 tellraw 留给作者。
-建议 v1 **不做**调用清单生成——它省下的是一份「名字的列表」，而 `main` 每加一个槽位
-本来就要动手写注释和 tellraw，省不掉。等出现第三个同构调用清单再说（roadmap 规则）。
+第 4 条是真正的验收：**生成器产出的命令比手写还多，这个特性就没有价值**。
+
+关于 `main` 的 18 行调用清单：它按槽位分组、夹着手写注释（`# 载入0栏位武器`）、末尾一句 `tellraw`。
+生成器只该产那 18 行，注释与 tellraw 留给作者。建议 v1 **不做**调用清单生成——
+它省下的是一份「名字的列表」，而 `main` 每加一个槽位本来就要动手写注释和 tellraw，省不掉。
+等出现第三个同构调用清单再说（roadmap 规则）。
 
 ---
 
