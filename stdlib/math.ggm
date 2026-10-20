@@ -20,6 +20,10 @@ namespace std:math
 // 随机数状态。整数种子存在 math 的 seed 假玩家上，
 // 所以它跨 tick、跨存档存在，不需要每 tick 重新播种。
 obj math "ggm math"
+// temp1 is the per-entity scratch the sort uses. It has to be DECLARED: a bare
+// name inside a fan-out body becomes a local on the executing @s, which is a
+// slot that does not exist on the entity the caller then selects on.
+obj temp1 "ggm sort scratch"
 extern SEED: int = seed.math
 
 // 1.12.2 的计分板算术是 int32 回绕，LCG 的设计就是要回绕。
@@ -105,6 +109,47 @@ fn sqrt(n: int) -> int {
 }
 
 // 一次播种，让库开箱可用。调用方也可以自己调 seed。
+
+// ─────────────────────────── 排序 ───────────────────────────
+
+// 给 @e[tag=math.sort] 的每个实体分配**名次**，写进各自的 return。
+//
+// 1.12.2 无法按分数排序，只能反复取最小值：每轮找出当前最小，
+// 定它的名次为「已排序数 + 1」，然后摘掉它的标签。N 个实体要 N 轮。
+//
+// 前提：调用方已给待排序实体打好 tag=math.sort，并把排序键写在 math 上。
+// 调用后这些标签会被摘掉——想再排一次要重新打。
+//
+// 循环状态放在假玩家上（sort.rank / sort.key）：while 的预算挂在执行者 @s，
+// 而这里每轮都要对一整组实体扇出，被扇出的实体没有那份预算。
+#[export]
+fn sort_asc() {
+    sort.rank = 0
+    while any<@e[tag=math.sort]>, budget 64 {
+        sort.rank = sort.rank + 1
+        let lo = reduce<min>(@e[tag=math.sort], math)
+        sort.key = lo
+        // Each entity measures its distance from the minimum. Only the one AT
+        // the minimum gets temp1 == 0, and that one's rank is fixed this round.
+        // The body runs with @s bound to the entity, so the subtraction is
+        // per-entity; a broadcast would have every entity read the caller's
+        // temporary instead.
+        for e in entities<@e[tag=math.sort]> {
+            temp1 = math - sort.key
+        }
+        @e[tag=math.sort, score_temp1_min=0, score_temp1=0] return = sort.rank
+        tag_remove(@e[tag=math.sort, score_temp1_min=0, score_temp1=0], "math.sort")
+    }
+}
+
+// 降序：把排序键取反后复用升序，再把键取反回来。
+#[export]
+fn sort_desc() {
+    @e[tag=math.sort] math = 0 - math
+    sort_asc()
+    @e[tag=math.sort] math = 0 - math
+}
+
 on load {
     SEED = 12345
 }

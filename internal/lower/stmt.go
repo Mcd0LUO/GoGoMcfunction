@@ -298,15 +298,25 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 			"`for` needs either a range (for i in 0..64) or an entities<@sel> source")
 		return cur
 	}
-	body := fb.NewBlock()
-	after := fb.NewBlock()
-	fb.Emit(cur, ir.Raw{Text: "execute " + sel.Name + " ~ ~ ~ function " + l.blockPath(fb.Path(), body)})
-	fb.SetTerm(cur, ir.Jump{Target: after})
-	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
-	if bodyEnd != noFallThrough {
-		fb.SetTerm(bodyEnd, ir.Jump{Target: after})
+	// The body becomes a FUNCTION of its own, not a block of this one.
+	//
+	// It is entered by `execute <sel> ~ ~ ~ function <body>`, which is a text
+	// call from another function; the CFG has no edge for it. Keeping the body
+	// as a block therefore left it with no predecessor, which the reachability
+	// pass removed and the IR invariant then reported as "block 1 is
+	// unreachable". A separate function is reachable by name, exactly like the
+	// `@tick` entry points.
+	bodyPath := l.blockPath(fb.Path(), ir.BlockID(len(fb.Func().Blocks)))
+	bb := l.prog.NewFunc(bodyPath)
+	bb.Func().Exported = true
+	bctx := &fnCtx{path: bodyPath, scope: map[string]string{}, localN: &l.localN, class: ctx.class, fields: ctx.fields}
+	end := l.lowerSeq(bctx, bb, 0, s.Body)
+	if end != noFallThrough {
+		bb.SetTerm(end, ir.Return{})
 	}
-	return after
+
+	fb.Emit(cur, ir.Raw{Text: "execute " + sel.Name + " ~ ~ ~ function " + bodyPath})
+	return cur
 }
 
 // lowerCountFor lowers `for i in lo..hi { }`.

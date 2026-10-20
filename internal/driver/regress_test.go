@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/sim"
 )
 
 // The five fixes below all come from running generated code on the engine
@@ -170,5 +171,94 @@ on load {
 	}
 	if !strings.Contains(init, "objectives add fresh") {
 		t.Errorf("broadcast target objective is not declared:\n%s", init)
+	}
+}
+
+// A fan-out body runs with @s bound to the selected entity, so an assignment
+// there writes THAT entity's score -- not the caller's.
+//
+// This is the shape sort_asc needs and could not express: measure something
+// per entity, then select the entity that matched. It also exposed a real bug:
+// the body used to be lowered as a block of the calling function, entered only
+// by a text `execute ... function` call, so the CFG gave it no predecessor and
+// the reachability pass deleted it.
+func TestFanOutBodyRunsPerEntity(t *testing.T) {
+	const src = `namespace t:f
+
+obj m
+obj d
+on load { m = 42 }
+
+fn run() -> int {
+  d = 0
+  for e in entities<@e[tag=x]> {
+    d = m - 5
+  }
+  d
+}
+`
+	files := compile(t, src, optimize.O2)
+	w, err := sim.NewWorld(files)
+	if err != nil {
+		t.Skipf("gomc runtime unavailable: %v", err)
+	}
+	defer w.Close()
+
+	st, err := w.Run([]string{
+		"function t:f/init",
+		"kill @e[type=armor_stand]",
+		"summon armor_stand 0 0 0 {Tags:[\"x\"],Marker:1b}",
+		"summon armor_stand 1 0 0 {Tags:[\"x\"],Marker:1b}",
+		"scoreboard players set @e[tag=x,x=0,dx=0] m 42",
+		"scoreboard players set @e[tag=x,x=1,dx=0] m 100",
+	}, []string{
+		"execute @e[tag=x] ~ ~ ~ function t:f/run",
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// Each entity computed its own value; a body that ran once, or on the
+	// caller, would leave both at the same number.
+	got := map[string]int{}
+	for _, k := range st.Keys() {
+		// Keys look like "objective/holder".
+		if obj, holder, ok := strings.Cut(k, "/"); ok && obj == "d" {
+			got[holder] = st.Get("d", holder)
+		}
+	}
+	seen := map[int]bool{}
+	for _, v := range got {
+		seen[v] = true
+	}
+	if !seen[37] || !seen[95] {
+		t.Errorf("want d = 37 and 95 (42-5, 100-5), got %v", got)
+	}
+}
+
+// The body must be reachable. It is entered by a text call from another
+// function, which the CFG cannot see, so lowering it as a block of the caller
+// left it with no predecessor.
+func TestFanOutBodyIsNotPruned(t *testing.T) {
+	files := compile(t, `namespace t:f
+obj m
+obj d
+on load { m = 1 }
+fn run() -> int {
+  d = 0
+  for e in entities<@e[tag=x]> {
+    d = m
+  }
+  d
+}
+`, optimize.O2)
+
+	var bodies int
+	for _, b := range files {
+		if strings.Contains(b, "players operation @s d = @s m") {
+			bodies++
+		}
+	}
+	if bodies == 0 {
+		t.Errorf("the fan-out body was pruned; files: %v", keysOf(files))
 	}
 }
