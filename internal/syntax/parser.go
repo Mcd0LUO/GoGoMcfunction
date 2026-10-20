@@ -228,7 +228,7 @@ func (p *parser) parseFile() (*File, error) {
 // 1.12.2 scoreboard arithmetic always wraps at 32 bits, which is exactly
 // what the attribute asks for. It becomes load-bearing once a range
 // analysis can prove overflow and warn without it.
-var funcAttrs = map[string]bool{"wrapping": true}
+var funcAttrs = map[string]bool{"wrapping": true, "export": true}
 
 // classAttrs are the attributes understood on a class.
 var classAttrs = map[string]bool{}
@@ -713,7 +713,8 @@ func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
 		return nil, err
 	}
 	_, wrapping := attrs["wrapping"]
-	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: wrapping, P: t.Pos}, nil
+	_, export := attrs["export"]
+	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: wrapping, Export: export, P: t.Pos}, nil
 }
 
 // parseMethod parses one method, with or without its tick annotation.

@@ -1,0 +1,110 @@
+// std:math —— GGM 标准库：数学与随机
+//
+// 与调用方一起编译成同一个模块：
+//
+//     ggm -out data/functions  app.ggm  stdlib/math.ggm
+//
+// **调用方放第一个。** 合并后的模块只有一份 <ns>/init 和一份常量池，
+// 归属命令行上的第一个文件：所有 objective 的声明都发在那里。
+// 库放前面的话，要运行的就是 std:math/init，而不是你自己那个。
+//
+// 跨命名空间调用必须写全名，和函数 id 一致：
+//
+//     sqrt(144)              // 调用本文件内的函数
+//     std:math/sqrt(144)     // 从别的文件调用
+//
+// 库函数标了 #[export]，否则编译器在库内部看不到调用者，
+// 会给每一个都报 W_UNREACHABLE_FN。
+namespace std:math
+
+// 随机数状态。整数种子存在 math 的 seed 假玩家上，
+// 所以它跨 tick、跨存档存在，不需要每 tick 重新播种。
+obj math "ggm math"
+extern global SEED: int @ "math" @holder "seed"
+
+// 1.12.2 的计分板算术是 int32 回绕，LCG 的设计就是要回绕。
+const LCG_A = 1103515245
+const LCG_C = 1234
+const LCG_M = 67108864
+
+#[export]
+#[wrapping]
+fn lcg_step(s: int) -> int {
+    (LCG_A * s + LCG_C) % LCG_M
+}
+
+// 推进种子并返回新值。
+//
+// 种子先加后取步，所以连续两次调用一定得到不同的数——
+// 若先取步再存回原值，两次调用会返回同一个数。
+#[export]
+fn lcg_next() -> int {
+    let next = SEED + LCG_C
+    SEED = next
+    lcg_step(next)
+}
+
+#[export]
+fn seed(v: int) {
+    SEED = v
+}
+
+// [lo, hi] 闭区间内的随机数。
+//
+// rem_euclid 而不是 %：1.12.2 的 % 向零截断，负数会得到负余数，
+// 那样 rand 会返回 lo 以下的数。
+#[export]
+fn rand(lo: int, hi: int) -> int {
+    let span = hi - lo + 1
+    let x = lcg_next()
+    lo + rem_euclid(x, span)
+}
+
+// 千分比判定：p / scale 的概率为真。
+#[export]
+fn chance(scale: int, p: int) -> bool {
+    rand(1, scale) <= p
+}
+
+#[export]
+fn is_happen_fix100(p: int) -> bool {
+    chance(100, p)
+}
+
+#[export]
+fn is_happen_fix1000(p: int) -> bool {
+    chance(1000, p)
+}
+
+// 整数平方根，向下取整。
+//
+// **收敛判据不能用「与上一次估计之差」。** 参考实现用的是
+//
+//     let prev = 0
+//     while abs(x - prev) >= 1 { prev = x; x = (x + n / x) / 2 }
+//
+// 它在不动点两侧**振荡**：99 会让 x 在 9 和 10 之间来回，循环一直跑到
+// #[budget] 耗尽，返回值取决于当时的奇偶 —— 实测 sqrt(99) 得 10，而 10² = 100 > 99。
+//
+// 正确的判据是「y 不再比 x 小」：牛顿法从 n 以上开始单调下降，
+// 一旦 y >= x 就到不动点了。这个形状还顺带处理了 n = 0
+// （x=0、y=0，循环不进，返回 0），所以不需要特判，也不会除零。
+//
+// 起始值写 `x / 2 + x % 2` 而不是 `(x + 1) / 2`，两者都是上取整，
+// 但后者在 x = 2147483647 时 x+1 先回绕成负数，整个迭代跑飞
+// （实测返回 2147483647 而不是 46340）。
+#[export]
+fn sqrt(n: int) -> int {
+    let x = n
+    let y = x / 2 + x % 2
+    while y < x #[budget(64)] {
+        x = y
+        y = (x + n / x) / 2
+    }
+    x
+}
+
+// 一次播种，让库开箱可用。调用方也可以自己调 seed。
+on load {
+    SEED = 12345
+}

@@ -55,48 +55,55 @@ func run() error {
 		return fmt.Errorf("unknown target %q (only %s is implemented)", *tgtName, target.V1_12_2.Name)
 	}
 
-	failed := false
+	// Every file on the command line is one module, so a library passed
+	// alongside its caller is linked rather than compiled twice. Compiling
+	// them separately would leave the caller's cross-namespace calls
+	// unresolved, which 1.12.2 treats as a call that silently never runs.
+	var srcs []driver.Source
 	for _, in := range flag.Args() {
 		src, err := os.ReadFile(in)
 		if err != nil {
 			return err
 		}
-		out, diags := driver.Compile(string(src), in, driver.Options{
-			Target:   target.V1_12_2,
-			Level:    level,
-			Comments: *comments,
-		})
-		for _, d := range diags {
-			fmt.Fprintf(os.Stderr, "%s:%s\n", in, d.String())
-			if d.Severity == diag.Error {
-				failed = true
-			}
+		srcs = append(srcs, driver.Source{Name: in, Text: string(src)})
+	}
+
+	failed := false
+	out, diags := driver.CompileFiles(srcs, driver.Options{
+		Target:   target.V1_12_2,
+		Level:    level,
+		Comments: *comments,
+	})
+	for _, d := range diags {
+		fmt.Fprintf(os.Stderr, "%s\n", d.String())
+		if d.Severity == diag.Error {
+			failed = true
 		}
-		if *showSkip && out != nil {
-			for _, sk := range out.Skipped {
-				fmt.Printf("skipped at -O%d: %s\n", int(level), sk)
-			}
-		}
-		if *check || out == nil || failed {
-			continue
-		}
-		if err := write(out, *outDir); err != nil {
-			return err
-		}
-		if !*quiet {
-			paths := make([]string, 0, len(out.Files))
-			for p := range out.Files {
-				paths = append(paths, p)
-			}
-			sort.Strings(paths)
-			for _, p := range paths {
-				fmt.Printf("%s  (%d lines)\n", p, strings.Count(out.Files[p], "\n"))
-			}
-			fmt.Printf("total: %d files, %d lines\n", len(out.Files), out.CountLines())
+	}
+	if *showSkip && out != nil {
+		for _, sk := range out.Skipped {
+			fmt.Printf("skipped at -O%d: %s\n", int(level), sk)
 		}
 	}
 	if failed {
 		return fmt.Errorf("compilation failed")
+	}
+	if *check || out == nil {
+		return nil
+	}
+	if err := write(out, *outDir); err != nil {
+		return err
+	}
+	if !*quiet {
+		paths := make([]string, 0, len(out.Files))
+		for p := range out.Files {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			fmt.Printf("%s  (%d lines)\n", p, strings.Count(out.Files[p], "\n"))
+		}
+		fmt.Printf("total: %d files, %d lines\n", len(out.Files), out.CountLines())
 	}
 	return nil
 }

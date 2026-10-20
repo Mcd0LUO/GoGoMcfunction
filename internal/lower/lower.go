@@ -61,6 +61,17 @@ type claimed struct {
 
 // Lower compiles one parsed file.
 func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Diagnostic) {
+	return LowerWith(f, tgt, source, nil)
+}
+
+// LowerWith compiles one file in a module that also contains others.
+//
+// extra maps the fully qualified function ids declared elsewhere in the module
+// to their arity. Without it a call to a library function is indistinguishable
+// from a call to a name that does not exist, and 1.12.2 cannot tell the
+// difference either: a call to a missing function is valid syntax that simply
+// never runs.
+func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[string]int) (*Result, []diag.Diagnostic) {
 	bag := &diag.Bag{}
 	l := &Lowerer{
 		tgt:     tgt,
@@ -82,6 +93,7 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	l.prog = ir.NewProgram(f.Namespace)
 	l.funcIDs = map[string]claimed{}
 	l.claimGenerated(f.Namespace+"/init", "the compiler-generated initialiser", f.P)
+	l.claimExtra(extra)
 
 	// An entry point the module will generate owns its name, so a
 	// declaration that normalises onto it is reported rather than quietly
@@ -105,6 +117,14 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 	// After externs, so the obj/extern conflict check can see both sides.
 	l.lowerObjs(f)
 	l.lowerFields(f)
+	// Signatures from every file in the module. A library is a separate
+	// source file whose functions live in another namespace, so its
+	// signatures have to be visible before this file's calls are resolved --
+	// otherwise a call across the boundary looks like a typo and the error
+	// that exists to catch typos fires on correct code.
+	for p, n := range extra {
+		l.sigs[p] = n
+	}
 	for _, fn := range f.Funcs {
 		l.sigs[l.path(fn.Name)] = len(fn.Params)
 	}
@@ -181,6 +201,12 @@ func (l *Lowerer) reportUncalled(f *syntax.File, bodies map[string][]syntax.Stmt
 		}
 	}
 	for _, fn := range f.Funcs {
+		// An exported function is called from another file, which this
+		// traversal cannot see; warning about it would make every library
+		// noisy enough that the warning stops being read.
+		if fn.Export {
+			continue
+		}
 		path := l.path(fn.Name)
 		if !called[path] {
 			l.diags.Warn(posOf(fn.P), "W_UNREACHABLE_FN",
@@ -430,6 +456,21 @@ func (l *Lowerer) claim(id, what string, pos syntax.Pos) {
 		return
 	}
 	l.funcIDs[key] = claimed{what: what, pos: pos}
+}
+
+// claimExtra registers function ids declared by other files in the module.
+//
+// They are claimed as generated=false and owned by another file, so a
+// collision between this file's declarations and a library's is reported here
+// rather than discovered as one file overwriting the other on disk.
+func (l *Lowerer) claimExtra(extra map[string]int) {
+	for p := range extra {
+		id := strings.ToLower(p)
+		if _, taken := l.funcIDs[id]; taken {
+			continue
+		}
+		l.funcIDs[id] = claimed{what: "a function declared in another file of this module", generated: true}
+	}
 }
 
 // claimGenerated reserves an id the compiler emits rather than the author.

@@ -92,6 +92,9 @@ func (l *Lowerer) resolveFunction(ctx *fnCtx, c syntax.Call) (string, bool) {
 		return path, true
 	}
 	path := l.path(c.Name)
+	if strings.Contains(c.Name, ":") {
+		path = c.Name
+	}
 	if reservedCalls[c.Name] {
 		// These are in the language, and this build does not implement
 		// them everywhere the grammar allows. Saying "unknown function"
@@ -116,6 +119,19 @@ func (l *Lowerer) resolveFunction(ctx *fnCtx, c syntax.Call) (string, bool) {
 func (l *Lowerer) callTarget(class string, c syntax.Call) (string, bool) {
 	if _, ok := l.externs[c.Name]; ok {
 		return "", false
+	}
+	// A name that already carries its namespace is absolute: it names a
+	// function in another file of the module, which is how a library is
+	// called. Prefixing it with this file's namespace would look for
+	// `t:app/std:math/double`, which can never exist.
+	//
+	// The leading colon is what distinguishes it from an ordinary name: no
+	// local declaration may contain one, so this cannot shadow anything.
+	if strings.Contains(c.Name, ":") {
+		if l.hasSig(c.Name) {
+			return c.Name, true
+		}
+		return c.Name, false
 	}
 	if path := l.path(c.Name); l.hasSig(path) {
 		return path, true
@@ -292,6 +308,9 @@ func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst
 		return true
 	}
 	path := l.path(c.Name)
+	if strings.Contains(c.Name, ":") {
+		path = c.Name
+	}
 	if _, ok := l.sigs[path]; !ok {
 		return false
 	}

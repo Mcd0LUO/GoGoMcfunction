@@ -161,7 +161,11 @@ type FuncDecl struct {
 	RetType  string
 	Body     []Stmt
 	Wrapping bool
-	P        Pos
+	// Export marks a function a library offers to other files. Without it a
+	// library's functions look uncalled from inside the library, and
+	// W_UNREACHABLE_FN would fire on every one of them.
+	Export bool
+	P      Pos
 }
 
 // FieldDecl is a class field: an objective on @s.
