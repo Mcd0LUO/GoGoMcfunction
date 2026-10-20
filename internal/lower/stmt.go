@@ -45,7 +45,7 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 				l.diags.Error(posOf(s.P), "E_ASSIGN_TARGET", "assignment target must be a variable or self.field")
 				continue
 			}
-			l.assignInto(ctx, fb, cur, l.targetLoc(ctx, target), s.Value)
+			l.assignInto(ctx, fb, cur, l.targetLoc(ctx, target), assignValue(s))
 		case syntax.ReturnStmt:
 			if s.Value != nil {
 				l.assignInto(ctx, fb, cur, loc("return"), s.Value)
@@ -73,6 +73,43 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 }
 
 func loc(obj string) ir.Loc { return ir.Loc{Holder: "@s", Obj: obj} }
+
+// assignValue folds a compound assignment into the binary expression it
+// abbreviates, so `x += e` lowers through exactly the same path as `x = x + e`.
+//
+// The parser records the operator in AssignStmt.Op. Reading it here rather
+// than adding a second lowering path is what keeps the two spellings from
+// drifting apart: a compound assignment that took its own route could disagree
+// with the longhand it stands for, and 1.12.2 would run the wrong arithmetic
+// silently. Dropping the operator entirely is what this replaced -- every
+// compound assignment compiled to a plain overwrite.
+func assignValue(s syntax.AssignStmt) syntax.Expr {
+	if s.Op == syntax.ASSIGN {
+		return s.Value
+	}
+	op, ok := compoundOp(s.Op)
+	if !ok {
+		return s.Value
+	}
+	return syntax.Binary{Op: op, L: s.Target, R: s.Value, P: s.P}
+}
+
+// compoundOp maps `+=` to `+` and friends.
+func compoundOp(k syntax.Kind) (syntax.Kind, bool) {
+	switch k {
+	case syntax.PLUSEQ:
+		return syntax.PLUS, true
+	case syntax.MINUSEQ:
+		return syntax.MINUS, true
+	case syntax.STAREQ:
+		return syntax.STAR, true
+	case syntax.SLASHEQ:
+		return syntax.SLASH, true
+	case syntax.PERCENTEQ:
+		return syntax.PERCENT, true
+	}
+	return syntax.EOF, false
+}
 
 // targetLoc resolves a name that may be bound to an external objective.
 func (l *Lowerer) targetLoc(ctx *fnCtx, name string) ir.Loc {
