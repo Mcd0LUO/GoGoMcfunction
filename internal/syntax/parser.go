@@ -1061,7 +1061,9 @@ func (p *parser) parseOn() (*OnDecl, error) {
 		// is reported here rather than becoming an entry that never fires.
 		count := atoi(n.Text)
 		switch unit.Text {
-		case "tick", "ticks":
+		case "ticks":
+			// Plural only: `tick` is the keyword that starts `on tick`, so
+			// `on every 1tick` cannot lex as a duration.
 			d.EveryTicks = count
 		case "s", "sec", "second", "seconds":
 			d.EveryTicks = count * 20
@@ -1069,8 +1071,12 @@ func (p *parser) parseOn() (*OnDecl, error) {
 			d.EveryTicks = count * 20 * 60
 		}
 		if d.EveryTicks <= 0 {
+			// The game tick is the smallest unit 1.12.2 has, so a duration that
+			// does not land on one has no schedule. Saying so beats rounding:
+			// 120ms would silently become 3 ticks, and the period would fire on
+			// a cadence the author never asked for.
 			return nil, &Error{Pos: n.Pos, Msg: fmt.Sprintf(
-				"%q is not a duration I can schedule; use ticks, s or m with a positive count", d.Every)}
+				"%q is not a duration I can schedule; the smallest unit is one game tick, so use ticks, s or m", d.Every)}
 		}
 	default:
 		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load, tick or every after on"}

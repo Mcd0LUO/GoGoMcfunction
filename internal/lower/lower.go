@@ -159,6 +159,10 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 	// id, and the second would replace the first on disk.
 	var tickBody []syntax.Stmt
 	tickPos := syntax.Pos{}
+	// Collect every period BEFORE lowering any of them. A period's body has to
+	// name the periods it drives, and with collection interleaved the first
+	// period lowered saw only itself in the list -- so it drove nothing, and
+	// the whole chain silently became seven independent counters.
 	for _, od := range f.Ons {
 		if od.Event == "tick" {
 			tickBody = append(tickBody, od.Body...)
@@ -168,9 +172,12 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 			continue
 		}
 		if od.Event == "every" {
-			// Collected rather than lowered here: the driver lives in the tick
-			// entry, which is built after every other declaration.
 			l.periods = append(l.periods, od)
+		}
+	}
+	for _, od := range f.Ons {
+		if od.Event == "tick" {
+			continue
 		}
 		l.lowerOn(od)
 	}
@@ -390,18 +397,63 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 	for _, t := range tickers {
 		fb.Emit(end, ir.FanOut{Selector: t.selector, Path: t.path})
 	}
-	// The period counters run AFTER the user body, so a long body cannot
-	// starve them.
-	for _, od := range periods {
-		obj := periodCounter(od.Every)
-		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: "@s", Obj: obj}, Value: 1})
+	// Only the SHORTEST period is driven from here. Everything else is driven
+	// by a shorter period it is a multiple of, which is what keeps the cost at
+	// one counter per period rather than one per period per tick.
+	//
+	// The rule is the reference data pack's: period A drives period B when B
+	// is a whole multiple of A and no period between them already divides B.
+	// 0.1s drives 0.2/0.3/0.5s, 0.5s drives 1s, 1s drives 3/5s -- eight edges
+	// for seven periods, instead of twenty-one.
+	if len(periods) > 0 {
+		fastest := periods[0]
+		for _, od := range periods {
+			if od.EveryTicks < fastest.EveryTicks {
+				fastest = od
+			}
+		}
+		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: "@s", Obj: periodCounter(fastest)}, Value: 1})
 		fb.Emit(end, ir.Raw{Text: fmt.Sprintf(
 			"function %s if @s[score_%s_min=%d,score_%s=%d]",
-			l.path("every/"+od.Every), obj, od.EveryTicks, obj, od.EveryTicks)})
-		// Reset happens inside the period's own entry, so the counter only
-		// reaches the bound on the tick it fires.
+			l.path("every/"+fastest.Every), periodCounter(fastest),
+			fastest.EveryTicks, periodCounter(fastest), fastest.EveryTicks)})
 	}
 	fb.SetTerm(end, ir.Return{})
+}
+
+// downstream lists the periods this one drives.
+//
+// A period drives another when it divides it evenly and no CLOSER period also
+// divides it -- otherwise 0.1s would drive 1s directly and the 0.5s step in
+// between would advance its counter twice per second.
+//
+// The result is a chain, not a fan-out: 0.1s drives 0.2/0.3/0.5s, 0.5s drives
+// 1s, 1s drives 3s and 5s. Eight edges instead of twenty-one, and each period
+// counts only to the ratio it needs.
+func (l *Lowerer) downstream(od syntax.OnDecl) []syntax.OnDecl {
+	var out []syntax.OnDecl
+	// Only periods have a duration. `on load` and `on tick` reach this with
+	// EveryTicks == 0, and dividing by it panics at compile time.
+	if od.Event != "every" || od.EveryTicks <= 0 {
+		return nil
+	}
+	for _, cand := range l.periods {
+		if cand.EveryTicks <= od.EveryTicks || cand.EveryTicks%od.EveryTicks != 0 {
+			continue
+		}
+		closer := false
+		for _, mid := range l.periods {
+			if mid.EveryTicks > od.EveryTicks && mid.EveryTicks < cand.EveryTicks &&
+				cand.EveryTicks%mid.EveryTicks == 0 {
+				closer = true
+				break
+			}
+		}
+		if !closer {
+			out = append(out, cand)
+		}
+	}
+	return out
 }
 
 // periodCounter names the objective a period's tick counter lives on.
@@ -410,24 +462,12 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 // for any duration a program would write (`p.1200` is 6 characters), whereas
 // `p.<duration text>` could outgrow it -- and an over-long objective name is
 // truncated by 1.12.2, so two periods would silently share one counter.
-func periodCounter(every string) string {
-	n := 0
-	for i := 0; i < len(every); i++ {
-		if every[i] >= '0' && every[i] <= '9' {
-			n = n*10 + int(every[i]-'0')
-			continue
-		}
-		break
-	}
-	// The text is `<count><unit>`; convert the unit to ticks.
-	unit := every[len(fmt.Sprint(n)):]
-	switch unit {
-	case "s", "sec", "second", "seconds":
-		n *= 20
-	case "m", "min", "minute", "minutes":
-		n *= 20 * 60
-	}
-	return fmt.Sprintf("p.%d", n)
+func periodCounter(od syntax.OnDecl) string {
+	// The tick count is already on the declaration; parsing the duration text
+	// again here was a second implementation of the same rule, and the two
+	// diverged the moment one of them learned a new unit: `5s` became p.100
+	// while `100ms` also became p.100, so two periods shared one counter.
+	return fmt.Sprintf("p.%d", od.EveryTicks)
 }
 
 // classOf returns the class a method belongs to, or "" for a plain
@@ -755,12 +795,33 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	// return as noFallThrough, so the reset would silently vanish for exactly
 	// those periods whose body returns.
 	if od.Event == "every" {
-		fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: "@s", Obj: periodCounter(od.Every)}, Value: 0})
+		fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: "@s", Obj: periodCounter(od)}, Value: 0})
 	}
 	end := l.lowerSeq(ctx, fb, 0, od.Body)
-	if end != noFallThrough {
-		fb.SetTerm(end, ir.Return{})
+	if end == noFallThrough {
+		// The body already terminated (an early return), so there is no block
+		// to append the downstream drive to. The chain edge is lost for that
+		// period -- reported rather than silently dropped.
+		if len(l.downstream(od)) > 0 {
+			l.diags.Warn(posOf(od.P), "W_UNREACHABLE_FN",
+				"the body of on every %s always returns, so the periods it should drive will never advance",
+				od.Every)
+		}
+		return
 	}
+	// Drive this period's downstream: the periods it divides and no nearer
+	// period already divides. The counter advances once per firing of THIS
+	// period, so the bound is the RATIO, not the absolute period -- 0.5s
+	// driving 1s counts to 2, which is what the reference pack writes.
+	for _, down := range l.downstream(od) {
+		obj := periodCounter(down)
+		ratio := down.EveryTicks / od.EveryTicks
+		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: "@s", Obj: obj}, Value: 1})
+		fb.Emit(end, ir.Raw{Text: fmt.Sprintf(
+			"function %s if @s[score_%s_min=%d,score_%s=%d]",
+			l.path("every/"+down.Every), obj, ratio, obj, ratio)})
+	}
+	fb.SetTerm(end, ir.Return{})
 }
 
 func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {

@@ -424,3 +424,103 @@ on every 3fortnight { }
 		t.Fatalf("want a parse error for an unschedulable duration, got %v", msgs)
 	}
 }
+
+// Periods form a CHAIN, not a fan-out.
+//
+// The tick entry drives only the fastest period. Every other period is driven
+// by the closest shorter period that divides it, so each counter counts to a
+// ratio rather than to an absolute duration:
+//
+//	tick  -> 1ticks
+//	1ticks -> 2ticks(2), 3ticks(3), 5ticks(5)
+//	5ticks -> 1s(20/5=4)
+//	1s     -> 3s(3), 5s(5)
+//
+// Driving every period from the tick entry instead would cost one counter and
+// one guarded call per period per tick, which is what the chain avoids.
+func TestPeriodChainShape(t *testing.T) {
+	files := compile(t, `namespace t:c
+obj n
+on load { n = 0 }
+on tick { }
+on every 1ticks { }
+on every 2ticks { }
+on every 5ticks { }
+on every 1s { }
+on every 3s { }
+`, optimize.O2)
+
+	read := func(suffix string) string {
+		for name, b := range files {
+			if strings.HasSuffix(name, suffix) {
+				return b
+			}
+		}
+		return ""
+	}
+
+	// The tick entry drives exactly one period.
+	tick := read("/tick")
+	if got := strings.Count(tick, "function t:c/every/"); got != 1 {
+		t.Errorf("the tick entry drives %d periods, want 1:\n%s", got, tick)
+	}
+
+	// 5ticks drives 1s with ratio 4, not 20: the counter advances once per
+	// firing of 5ticks, so it only needs to reach 20/5.
+	five := read("/every/5ticks")
+	if !strings.Contains(five, "score_p.20_min=4,score_p.20=4") {
+		t.Errorf("5ticks should drive 1s at ratio 4:\n%s", five)
+	}
+	if strings.Contains(five, "score_p.20_min=20") {
+		t.Errorf("5ticks uses the absolute period instead of the ratio:\n%s", five)
+	}
+
+	// 1ticks must not drive 1s directly: 5ticks sits between them.
+	one := read("/every/1ticks")
+	if strings.Contains(one, "every/1s") {
+		t.Errorf("1ticks drives 1s directly, skipping 5ticks:\n%s", one)
+	}
+}
+
+// Counter objectives are named from the tick count, so two periods that differ
+// only in how they are spelled share ONE counter. 5s and 5ticks both once read
+// p.100, and 1s read p.20 while 100ms also read p.100.
+func TestPeriodCountersDoNotCollide(t *testing.T) {
+	files := compile(t, `namespace t:c
+obj n
+on load { n = 0 }
+on tick { }
+on every 5ticks { }
+on every 5s { }
+`, optimize.O2)
+
+	seen := map[string]string{}
+	for name, b := range files {
+		for _, line := range strings.Split(b, "\n") {
+			if !strings.Contains(line, "scoreboard players set @s p.") {
+				continue
+			}
+			f := strings.Fields(line)
+			obj := f[4]
+			if prev, dup := seen[obj]; dup {
+				t.Errorf("%s and %s share the counter %s", prev, name, obj)
+			}
+			seen[obj] = name
+		}
+	}
+	if len(seen) != 2 {
+		t.Errorf("want two distinct counters, got %v", seen)
+	}
+}
+
+// A duration below one tick has no schedule. Rounding it would fire on a
+// cadence nobody asked for, so it is rejected instead.
+func TestSubTickDurationIsRejected(t *testing.T) {
+	msgs := compileDiags(`namespace t:c
+on tick { }
+on every 100ms { }
+`)
+	if !hasCode(msgs, "E_PARSE") {
+		t.Fatalf("want a parse error for a sub-tick duration, got %v", msgs)
+	}
+}

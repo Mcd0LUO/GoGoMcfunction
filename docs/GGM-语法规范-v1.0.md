@@ -129,7 +129,7 @@ class CastTimer {
 |---|---|
 | `on load` | 生成 `luo:math/load`，由 `gameLoopFunction` 的前置或命令方块调用 |
 | `on tick` | 生成 `luo:math/tick`，挂到 `gamerule gameLoopFunction` |
-| `on every 5s` | 生成 `luo:math/every/5s`，由 `on tick` 里的计数器驱动 |
+| `on every 5s` | 生成 `luo:math/every/5s`，由周期链驱动（见下） |
 | `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` |
 | `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 |
 
@@ -141,10 +141,33 @@ class CastTimer {
 >
 > 时长支持 `ticks` / `s` / `m`，其它单位直接报错——一个排不了期的入口
 > 比没有入口更糟。
+>
+> **`ticks` 必须写复数**：`tick` 是 `on tick` 的关键字，`on every 1tick` 词法上
+> 过不去。
+>
+> **亚 tick 时长直接报错**，不四舍五入。1.12.2 的最小单位就是游戏刻，
+> 而把 `120ms` 悄悄变成 3 tick 会让周期按作者从未要求的节奏触发。
 > `on death` **有非空体时报错**——1.12.2 无法观察已经消失的实体，正确实现需要一个
 > 影子实体，假装能做到只会产出一个永不触发的处理器。空体是占位符，接受。
 > 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
 > 由 `E_FIELD_COLLISION` 报出。
+
+#### 周期链
+
+多个 `on every` 时，**只有最短的那个由 `on tick` 驱动**，其余由「最近的、
+能整除它的更短周期」驱动：
+
+```
+tick   → 1ticks
+1ticks → 2ticks(2) 3ticks(3) 5ticks(5)
+5ticks → 1s(4)
+1s     → 3s(3) 5s(5)
+```
+
+括号里是**比值**，不是绝对时长：`5ticks` 驱动 `1s` 只需数到 4（20/5），
+因为它的计数器每 5 tick 才加一次。
+
+代价是 7 个周期 8 条边，而不是 7 个周期各挂一个每 tick 计数器（21 次判断）。
 
 ### 3.4 `extern` —— 绑定已经存在的分数
 
