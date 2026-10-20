@@ -3,7 +3,7 @@ package analysis
 import (
 	"testing"
 
-	"cmcf/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
 )
 
 // A read-modify-write op must report its destination as a use as well as a

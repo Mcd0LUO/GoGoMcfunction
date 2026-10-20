@@ -3,7 +3,7 @@ package driver_test
 import (
 	"testing"
 
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 // A nested call marshals its arguments into a0..a(n-1), which are the

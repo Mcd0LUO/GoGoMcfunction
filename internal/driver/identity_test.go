@@ -3,9 +3,9 @@ package driver_test
 import (
 	"testing"
 
-	"cmcf/internal/driver"
-	"cmcf/internal/optimize"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 func diagCodes(src string) []string {

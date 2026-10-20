@@ -14,15 +14,15 @@ import (
 	"fmt"
 	"strings"
 
-	"cmcf/internal/analysis"
-	"cmcf/internal/backend/mcfunction"
-	"cmcf/internal/comptime"
-	"cmcf/internal/diag"
-	"cmcf/internal/ir"
-	"cmcf/internal/lower"
-	"cmcf/internal/optimize"
-	"cmcf/internal/syntax"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/backend/mcfunction"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/comptime"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/lower"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 // Output is a compiled module.

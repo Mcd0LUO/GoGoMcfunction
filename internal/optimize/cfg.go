@@ -1,6 +1,6 @@
 package optimize
 
-import "cmcf/internal/ir"
+import "github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
 
 // ── CFG shape optimisation ──────────────────────────────────────────────
 //

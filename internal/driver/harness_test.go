@@ -5,10 +5,10 @@ import (
 	"sort"
 	"testing"
 
-	"cmcf/internal/driver"
-	"cmcf/internal/optimize"
-	"cmcf/internal/sim"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/sim"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 // compile lowers a source string and fails the test on any error.

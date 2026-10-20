@@ -16,6 +16,18 @@ cmcf [flags] <file.cmcf> ...
   -comments    生成文件带声明位置注释（默认关闭）
 ```
 
+## 安装
+
+```
+go install github.com/Mcd0LUO/CelesteaMcfunction/cmd/cmcf@latest
+```
+
+或者从源码构建：
+
+```
+go build -o cmcf.exe ./cmd/cmcf
+```
+
 ## 状态
 
 这是第一个 baseline：生成结果已冻结并逐字比对，
@@ -67,7 +79,7 @@ cmd/cmcf -> driver -> syntax -> lower -> optimize -> backend
 
 ## 验证
 
-编译产物由 [GoMcRuntime](https://github.com/mcsim/gomc) 执行。它实现的是
+编译产物由 [GoMcRuntime](https://github.com/Mcd0LUO/gomc) 执行。它实现的是
 **经反编译和真服实测校验过的** 1.12.2 语义，不是猜测。
 
 ```sh
@@ -86,3 +98,7 @@ git diff internal/driver/testdata/golden
 ```
 
 不看就 `-update`，签入的只是「现在是这样」，而不是「我知道变成了这样」。
+
+## 许可证
+
+[MIT](LICENSE)。

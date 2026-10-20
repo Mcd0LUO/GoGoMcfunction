@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"cmcf/internal/driver"
-	"cmcf/internal/optimize"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden baseline files in testdata/golden")

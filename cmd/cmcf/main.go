@@ -9,11 +9,11 @@ import (
 	"sort"
 	"strings"
 
-	"cmcf/internal/diag"
-	"cmcf/internal/driver"
-	"cmcf/internal/optimize"
-	"cmcf/internal/target"
-	"cmcf/internal/version"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/version"
 )
 
 func main() {

@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"cmcf/internal/ir"
-	"cmcf/internal/mc"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/mc"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 // Options configures rendering.

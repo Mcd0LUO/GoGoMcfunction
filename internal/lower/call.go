@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
 )
 
 func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, s syntax.ExprStmt) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 func isqrt(n int) int {

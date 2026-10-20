@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"cmcf/internal/driver"
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 // The class is the language's answer to "state that outlives a tick",

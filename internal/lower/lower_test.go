@@ -3,10 +3,10 @@ package lower
 import (
 	"testing"
 
-	"cmcf/internal/analysis"
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 func mustLower(t *testing.T, src string) *ir.Program {

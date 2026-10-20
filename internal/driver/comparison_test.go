@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 // All six comparison operators must produce the right answer for every

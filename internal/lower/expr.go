@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 // assignInto stores the value of e into dst.

@@ -7,7 +7,7 @@
 // cycles — a `while` loop is a back edge.
 package analysis
 
-import "cmcf/internal/ir"
+import "github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
 
 // Reachable returns the set of blocks reachable from the entry block.
 func Reachable(fn *ir.Function) map[ir.BlockID]bool {

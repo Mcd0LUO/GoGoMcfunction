@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"cmcf/internal/diag"
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
 )
 
 func posOf(p syntax.Pos) diag.Pos { return diag.Pos{Line: p.Line, Col: p.Col} }

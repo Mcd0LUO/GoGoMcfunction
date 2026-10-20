@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	"cmcf/internal/diag"
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
-	"cmcf/internal/target"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
 )
 
 // Result is everything the back end needs.

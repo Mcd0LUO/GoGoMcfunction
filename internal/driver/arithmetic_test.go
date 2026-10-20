@@ -3,7 +3,7 @@ package driver_test
 import (
 	"testing"
 
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 // A scoreboard value is a signed 32-bit integer that wraps silently.

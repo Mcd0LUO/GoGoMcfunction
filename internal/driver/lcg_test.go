@@ -3,7 +3,7 @@ package driver_test
 import (
 	"testing"
 
-	"cmcf/internal/optimize"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
 )
 
 // The lcg/rand chain from the luo:math port, which is the densest

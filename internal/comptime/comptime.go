@@ -7,9 +7,9 @@ package comptime
 import (
 	"fmt"
 
-	"cmcf/internal/diag"
-	"cmcf/internal/ir"
-	"cmcf/internal/syntax"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
 )
 
 // Emitted is one constant command produced at compile time.
