@@ -104,6 +104,16 @@ type (
 		Body   []Stmt
 		P      Pos
 	}
+	// ForStmt is `for x in <source> { }`.
+	//
+	// Two sources, one statement:
+	//
+	//	for i in 0..64           a count, bounded by construction
+	//	for e in entities<@sel>  a fan-out, bounded by the selection
+	//
+	// They are the same idea -- do something once per item in a collection --
+	// so they share one spelling rather than making the author pick a keyword
+	// and then remember whether that keyword needs a bound.
 	ForStmt struct {
 		Name  string
 		Sel   Expr

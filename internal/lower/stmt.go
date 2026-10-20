@@ -280,9 +280,18 @@ func (l *Lowerer) closeLoop(ctx *fnCtx, fb *ir.FuncBuilder, body, bodyEnd, after
 }
 
 func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.ForStmt) ir.BlockID {
+	// A range is a count. It needs no budget clause: the range already says
+	// how many iterations there are. The bounds may be variables
+	// (`for i in 1..n` is the common case), so they are evaluated, not
+	// folded -- but a count is still bounded, because the bound is fixed
+	// before the first iteration.
+	if b, ok := s.Sel.(syntax.Binary); ok && b.Op == syntax.DOTDOT {
+		return l.lowerCountFor(ctx, fb, cur, s, b)
+	}
 	sel, ok := s.Sel.(syntax.Ident)
 	if !ok || !strings.HasPrefix(sel.Name, "@") {
-		l.diags.Error(posOf(s.P), "E_FOR_SELECTOR", "`for e in` needs an entities<@sel> source")
+		l.diags.Error(posOf(s.P), "E_FOR_SELECTOR",
+			"`for` needs either a range (for i in 0..64) or an entities<@sel> source")
 		return cur
 	}
 	body := fb.NewBlock()
@@ -292,6 +301,76 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
 	if bodyEnd != noFallThrough {
 		fb.SetTerm(bodyEnd, ir.Jump{Target: after})
+	}
+	return after
+}
+
+// lowerCountFor lowers `for i in lo..hi { }`.
+//
+// The counter is a loop variable in the ordinary sense: it starts at lo, the
+// body sees it, and the back edge increments and re-tests. No budget is
+// involved because the range already says how many iterations there are --
+// which is the whole reason a count and a condition are different statements.
+//
+// The bound is checked once before the body, so an empty range runs zero times
+// rather than once.
+func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.ForStmt, r syntax.Binary) ir.BlockID {
+	i := ctx.slot(fmt.Sprintf("$for%d", s.P.Line))
+	// The bound is evaluated ONCE, before the first iteration. Evaluating it
+	// per iteration would let the body change the loop's length, which no
+	// other language allows and which makes termination hard to reason about.
+	lim := ctx.slot(fmt.Sprintf("$lim%d", s.P.Line))
+
+	// Initial value: the lower bound, which may itself be an expression.
+	if lit, ok := constInt(r.L); ok {
+		fb.Emit(cur, ir.Set{Dst: loc(i), Value: lit})
+	} else {
+		src, err := l.expr(ctx, fb, cur, r.L)
+		if err != nil {
+			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
+			return cur
+		}
+		fb.Emit(cur, ir.Copy{Dst: loc(i), Src: src})
+	}
+	if lit, ok := constInt(r.R); ok {
+		fb.Emit(cur, ir.Set{Dst: loc(lim), Value: lit})
+	} else {
+		src, err := l.expr(ctx, fb, cur, r.R)
+		if err != nil {
+			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
+			return cur
+		}
+		fb.Emit(cur, ir.Copy{Dst: loc(lim), Src: src})
+	}
+
+	// The variable is an ordinary local, so the body reads it by name.
+	ctx.scope[s.Name] = i
+
+	body := fb.NewBlock()
+	after := fb.NewBlock()
+	// One comparison covers both cases: for an empty range i is already above
+	// lim on entry, so the body is skipped rather than run once.
+	//
+	// The block is a parameter: the head test belongs in the entry block and
+	// the back-edge test in the body's exit, and emitting both into one block
+	// would put the increment on the wrong side of the test.
+	// Both bounds are required. `score_d=0` alone means `d <= 0`, so an
+	// empty range -- where d is already negative -- would pass the test and
+	// the loop would run until the counter wrapped. That is the mistake this
+	// whole project exists to make impossible, so it is spelled out here:
+	// `i - lim <= 0` needs min=INT_MIN and max=0.
+	test := func(where ir.BlockID) ir.Predicate {
+		d := fb.Tmp()
+		fb.Emit(where, ir.Copy{Dst: loc(d), Src: loc(i)})
+		fb.Emit(where, ir.Arith{Dst: loc(d), Op: "-=", Src: loc(lim)})
+		return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: -2147483648, HasMax: true, Max: 0}}}}
+	}
+	fb.SetTerm(cur, ir.Branch{Cond: test(cur), Then: body, Else: after})
+
+	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
+	if bodyEnd != noFallThrough {
+		fb.Emit(bodyEnd, ir.Add{Dst: loc(i), Value: 1})
+		fb.SetTerm(bodyEnd, ir.Branch{Cond: test(bodyEnd), Then: body, Else: after})
 	}
 	return after
 }
