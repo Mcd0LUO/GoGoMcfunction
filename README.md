@@ -40,6 +40,10 @@ go build -o ggm.exe ./cmd/ggm
 语言特性见 [docs/GGM-语法规范-v1.0.md](docs/GGM-语法规范-v1.0.md)，
 被砍掉的东西和复活条件见 [docs/roadmap.md](docs/roadmap.md)。
 
+**接手这个项目先读 [docs/HANDOVER.md](docs/HANDOVER.md)**——
+它记着 1.12.2 的事实（哪些会静默出错）、踩过的坑及其根因、以及怎么验证。
+当前待拍板的设计在 [docs/DESIGN-v0.7.md](docs/DESIGN-v0.7.md)。
+
 ## 为什么值得存在
 
 1.12.2 的选择器条件是**区间**不是相等：`score_x=N` 意为 `x <= N`。
