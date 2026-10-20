@@ -102,26 +102,66 @@ const quality  = p"tag.Tags"     : enum { "残响":1, "蚀刻":2, "回响":3, "�
 | `@s.Inventory(100..103)` | 四个槽位 | 多槽位（一次清零） |
 | `@s.Item` | `{Item:{tag:{…}}}` | 物品实体 |
 
-## 3.3 decode —— NBT 谓词折叠 → 分数
+## 3.3 decode —— 只有一个原语
+
+**通用读取 = 一串「谓词 → 操作 → 值」，外加一个初值。**
+
+```ggm
+decode <objective> from <容器> {
+    init 0
+    <NBT 谓词> add <v>
+    <NBT 谓词> set <v>
+}
+```
+
+发射：`set @s <obj> <init>`，然后每条 case 一条命令
+（`add` → `scoreboard players add … {谓词}`，`set` → `scoreboard players set … {谓词}`）。
+
+**位梯子、枚举、标签、哨兵，全部是这一个原语的缩写：**
+
+| 想要 | 通用写法 | 缩写 |
+|---|---|---|
+| 位折叠 | `{init 0; n"{…{0:1b}}" add 1; n"{…{1:1b}}" add 2; …}` | `[atk_base]`，字段已声明 `bits 11` |
+| 恒等枚举 | `{init 0; n"{…spec:1b}" set 1; … }` | `[spec]`，字段已声明 `enum 1..4` |
+| 标签枚举 | `{init 0; n"{tag:{Tags:[\"残响\"]}}" set 1; …}` | `[quality]`，字段已声明 `enum {…}` |
+| **哨兵位** | `{init 0; …位梯子…; n"{…lv:{max:1b}}" set -1}` | **作者自己加一条 case** |
+
+所以常用写法是短的：
 
 ```ggm
 on load {
     decode wp.damage1 from @s.Inventory(0)[atk_base]
     decode wp.damage2 from @s.Inventory(1)[atk_base]
-    decode wp.damage3 from @s.Inventory(2)[atk_base]
-
-    decode return from @s.SelectedItem[money]      // 手持金钱
-
     decode Eq.Defence from @s.Inventory(100..103)[defence]   // 一次清零，44 条 add
-
-    decode wp.passiveId1:1 from @s.Inventory(0)[passive0]
-    decode wp.type1        from @s.Inventory(0)[spec]
-    decode temp3           from @s.SelectedItem[quality]
-    decode temp2           from @s.Item[bind]      // 物品实体
+    decode return from @s.SelectedItem[money]
+    decode temp2  from @s.Item[bind]
 }
 ```
 
-成本 `1 + 宽度`，**不需要在语法里写**——宽度已经在字段里，没有第二个决定。
+需要作者自己放东西时，就用**同一个原语的块形式**——注意 `[lv]` 先展开位梯子，
+块里的 case 追加在后面：
+
+```ggm
+on load {
+    decode temp2 from @s.SelectedItem[lv] {
+        n"{tag:{dat:{lv:{max:1b}}}}" set -1
+    }
+}
+```
+
+生成的命令与手写文件**逐条同序**：
+
+```mcfunction
+scoreboard players set @s temp2 0
+scoreboard players add @s temp2 1 {SelectedItem:{tag:{dat:{lv:{0:1b}}}}}
+scoreboard players add @s temp2 2 {SelectedItem:{tag:{dat:{lv:{1:1b}}}}}
+scoreboard players add @s temp2 4 {SelectedItem:{tag:{dat:{lv:{2:1b}}}}}
+scoreboard players set @s temp2 -1 {SelectedItem:{tag:{dat:{lv:{max:1b}}}}}
+```
+
+> `add` 与 `set` 的区别就是 1.12.2 的 `scoreboard players add` / `set`。
+> 哨兵位在原文件里用的是 `set`（覆盖），不是 `add`——通用原语必须能表达这个区别，
+> 否则抄不对。
 
 ## 3.4 encode —— 分数 → NBT 值分派
 
@@ -177,8 +217,7 @@ NBT 值用 `n"…"` 字面量，成本恒为 1 条。
    若写成 `over full` 就是 `0..2^bits-1`（14 位 = 16384 条，危险）。
    我倾向**不允许 `full`**，强制写数字。
 
-4. **哨兵位**（`{lv:{max:1b}}` → `-1`）仍然不在模型里。用普通代码：
-   ```ggm
-   decode temp2 from @s.SelectedItem[lv]
-   if @s.SelectedItem has n"{tag:{dat:{lv:{max:1b}}}}" { temp2 = -1 }
-   ```
+4. ~~哨兵位不在模型里~~ —— **已解决**：哨兵位由作者自己放，
+   用 3.3 的通用原语块形式追加一条 `set` case。不需要专门的语法。
+
+5. **`bits` 已定**（`: bits 11`）。
