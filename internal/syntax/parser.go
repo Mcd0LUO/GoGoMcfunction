@@ -92,6 +92,15 @@ func (p *parser) expectNameLike() (Token, error) {
 	return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected identifier, got %s", p.cur().Kind)}
 }
 
+// expectComma consumes a comma, which is also what ends a loop's condition.
+func (p *parser) expectComma() error {
+	if p.cur().Kind != COMMA {
+		return &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected \",\", got %s", p.cur().Kind)}
+	}
+	p.next()
+	return nil
+}
+
 // expectWord consumes a token by text. Used for words that read better as
 // punctuation than as keywords, so they stay usable as identifiers.
 func (p *parser) expectWord(w string) error {
@@ -1127,7 +1136,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		budget, err := p.parseCap()
+		budget, err := p.parseBudget()
 		if err != nil {
 			return nil, err
 		}
@@ -1168,7 +1177,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		budget, err := p.parseCap()
+		budget, err := p.parseBudget()
 		if err != nil {
 			return nil, err
 		}
@@ -1271,31 +1280,37 @@ func (p *parser) parseSelectorLiteral() (Expr, error) {
 
 func (p *parser) parseExpr() (Expr, error) { return p.parseBinary(0) }
 
-// parseCap reads the mandatory `cap <n>` bound of a loop.
+// parseBudget reads the mandatory `<cond>, budget <n>` bound of a loop.
 //
-// It is written as a word beside the condition rather than as `#[budget(N)]`
-// because it is an operand, not a decoration: a loop without it is rejected
-// (E_NO_BUDGET). The attribute spelling implied it was optional, and a
-// mandatory thing dressed as an optional one is a trap for the reader.
+// The comma is what separates the two things a loop header says: what to test,
+// and how long it may run. Without it the bound reads as a continuation of the
+// condition, which is exactly the ambiguity `while i < n budget 64` would have.
 //
-// `cap` stays an ordinary identifier, so a program may still name a variable
-// after it.
-func (p *parser) parseCap() (int, error) {
+// It is a clause rather than `#[budget(N)]` because it is an operand, not a
+// decoration: a loop without it is a parse error. The attribute spelling
+// implied it was optional, and a mandatory thing dressed as an optional one is
+// a trap for the reader.
+func (p *parser) parseBudget() (int, error) {
 	if p.cur().Kind == HASH {
 		// The one thing an author migrating from the old spelling will have
 		// written here. Naming the replacement beats repeating the general
 		// message at a position that looks like an attribute.
-		return 0, &Error{Pos: p.cur().Pos, Msg: "the loop bound is now written \"cap <n>\"; #[budget(N)] was removed"}
+		return 0, &Error{Pos: p.cur().Pos, Msg: "the loop bound is now written \", budget <n>\"; #[budget(N)] was removed"}
 	}
-	if p.cur().Kind != IDENT || p.cur().Text != "cap" {
-		return 0, &Error{Pos: p.cur().Pos, Msg: "a loop needs an iteration bound: end the header with \"cap <n>\""}
+	if err := p.expectComma(); err != nil {
+		return 0, &Error{Pos: p.cur().Pos, Msg: "a loop needs an iteration bound: while <cond>, budget <n> { ... }"}
 	}
-	p.next()
+	if _, err := p.expect(BUDGET); err != nil {
+		return 0, &Error{Pos: p.cur().Pos, Msg: "expected \"budget <n>\" after the comma"}
+	}
 	n, err := p.expect(INT)
 	if err != nil {
 		return 0, err
 	}
-	return atoi(n.Text), nil
+	if v := atoi(n.Text); v > 0 {
+		return v, nil
+	}
+	return 0, &Error{Pos: n.Pos, Msg: "the iteration bound must be at least 1"}
 }
 
 // parseCond reads a condition: an expression optionally followed by

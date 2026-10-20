@@ -203,7 +203,7 @@ func (l *Lowerer) lowerIf(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s synt
 // test block.
 func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.WhileStmt) ir.BlockID {
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "while needs an iteration bound: while <cond> cap <n> { ... }")
+		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "while needs an iteration bound: while <cond>, budget <n> { ... }")
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
@@ -239,7 +239,7 @@ func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s s
 // and an iteration is one file rather than two.
 func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.LoopStmt) ir.BlockID {
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "loop needs an iteration bound: loop <cond> cap <n> { ... }")
+		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "loop needs an iteration bound: loop <cond>, budget <n> { ... }")
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))

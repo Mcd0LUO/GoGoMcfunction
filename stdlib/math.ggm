@@ -97,7 +97,7 @@ fn is_happen_fix1000(p: int) -> bool {
 fn sqrt(n: int) -> int {
     let x = n
     let y = x / 2 + x % 2
-    while y < x cap 64 {
+    while y < x, budget 64 {
         x = y
         y = (x + n / x) / 2
     }

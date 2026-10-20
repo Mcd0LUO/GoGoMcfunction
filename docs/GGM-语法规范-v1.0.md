@@ -190,7 +190,7 @@ scoreboard objectives add <名字> <criteria> [<display>]
 let x = 5                      // 临时 objective，编译器按活跃区间分配
 x = x + 1                      // = += -= *= /= %=
 if cond { } else { }
-while cond cap 32 { }          // 必须给上界
+while cond, budget 32 { }      // 上界必填
 for e in entities<@a[tag=x]> { }                 // 扇出
 @a[tag=math.sort] sort.diff = self.sort.key - lo // 广播写
 decode wp.damage1 from @s.Inventory(0)[atk_base] // NBT → 分数
@@ -202,8 +202,8 @@ encode @s.Item[money] = return over 1..10        // 分数 → NBT
 ### 4.0 两种循环
 
 ```ggm
-while i < n cap 64 { }     // 先判后做
-loop  i > 0 cap 32 { }     // 先做一次，再判
+while i < n, budget 64 { }     // 先判后做
+loop  i > 0, budget 32 { }     // 先做一次，再判
 ```
 
 1.12.2 **没有循环**。两者都降级成一个**调用自己**的函数：
@@ -214,14 +214,15 @@ loop  i > 0 cap 32 { }     // 先做一次，再判
 | `while` | 循环体**之前** | `if cond { loop cond { body } }` |
 | `loop` | 循环体**之后** | 循环体至少执行一次 |
 
-**`cap <n>` 是必填的**，漏了报 `E_NO_BUDGET`。1.12.2 的 `function` 是入队展开，
-没有这个闸，一个写错的条件就是无限递归——它不会报错，只会卡死服务器。
+**`, budget <n>` 是必填的**，漏了直接是解析错误。1.12.2 的 `function` 是入队展开，
+没有这个上界，一个写错的条件就是无限递归——它不会报错，只会卡死服务器。
 
-写成 `cap` 而不是 `#[budget(N)]`：它是循环的**操作数**，不是可选修饰，
-而 `#[…]` 在 GGM 里是属性语法（`#[wrapping]`）。必填的东西打扮成可选的，
-读者会以为可以省。
+**逗号是这句语法的要点**：它把循环头说的两件事分开——**测什么**，和**最多跑多久**。
+写成 `while i < n budget 64` 就没有这个分界，上界会被读成条件的延续。
 
-### 4.1 条件
+为什么不写 `#[budget(N)]`：它是循环的**操作数**，不是可选修饰，而 `#[…]` 在 GGM 里
+是属性语法（`#[wrapping]`）。必填的东西打扮成可选的，读者会以为可以省。
+
 
 条件只能是**单比较**：`< <= > >= == !=`，或一个 `bool` 变量。
 `&&` 降级为嵌套 `execute`；`||` 语义上无法短路，含副作用时报错。
@@ -519,7 +520,7 @@ fn sqrt(n: int) -> int {
     if n < 4 { return 1 }
     let x = n / 4
     let prev = 0
-    while y < x cap 64 {
+    while y < x, budget 64 {
         prev = x
         x = (x + n / x) / 2
     }
@@ -529,7 +530,7 @@ fn sqrt(n: int) -> int {
 fn sort_asc() {
     tag_add(@a, "math.sort")
     let rank = 0
-    while any<@a[tag=math.sort]> cap 64 {
+    while any<@a[tag=math.sort]>, budget 64 {
         let lo = reduce<min>(@a[tag=math.sort], sort.key)
         @a[tag=math.sort] sort.diff = self.sort.key - lo
         rank += 1
