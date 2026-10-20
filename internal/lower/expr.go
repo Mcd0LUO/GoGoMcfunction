@@ -388,8 +388,10 @@ func comparisonText(k syntax.Kind) string {
 	return ""
 }
 
+// externLoc resolves a bound score. The holder is @s unless the declaration
+// named a fake player, which is how a global is spelled.
 func externLoc(d syntax.ExternDecl) ir.Loc {
-	if d.Kind == "global" && d.Holder != "" {
+	if d.Holder != "" && d.Holder != "@s" {
 		return ir.Loc{Holder: d.Holder, Obj: d.Objective}
 	}
 	if d.Objective != "" {

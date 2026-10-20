@@ -16,6 +16,40 @@
 
 ---
 
+## [0.10.0] - 2026-10-20
+
+### 破坏性：`extern` 换成 `持有者.objective`
+
+```ggm
+// 旧
+extern var    arg1: int @ "arg1"
+extern global SEED: int @ "math" @holder "seed"
+
+// 新
+extern arg1: int = @s.arg1
+extern SEED: int = seed.math
+```
+
+旧写法有三个问题：
+
+1. **`@` 一行里干两件不同的事**——`@ "math"` 引出 objective，`@holder "seed"` 引出持有者。
+2. **`@holder` 冒充选择器**：GGM 里 `@` 后面永远跟 `s`/`a`/`e`/`r`/`p`，
+   没有 `@holder` 这个东西。
+3. **`global` 与 `@holder` 冗余**：`global` 的全部含义就是「持有者不是 `@s`」。
+
+新写法把持有者写在前面，和 1.12.2 自己的
+`scoreboard players set <持有者> <objective>` 一致，而且和编解码的
+`@s.Item` / `@s.slot(0)` 是同一个形状。`extern var` / `extern global`
+两个关键字随之删除——它们的全部信息就是持有者。
+
+**golden 未变**：这是纯语法糖，生成结果一字未动。这正是它该有的验证。
+
+### 测试 87 → 87
+
+9 个测试文件、规范、两个示例、标准库同步移植。
+
+---
+
 ## [0.9.0] - 2026-10-20
 
 ### 新增：跨文件模块与 `stdlib/math.ggm`

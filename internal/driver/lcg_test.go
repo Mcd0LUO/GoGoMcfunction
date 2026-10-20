@@ -18,9 +18,9 @@ import (
 // Each of those was a separate silent miscompile, and each is invisible
 // in isolation.
 const randSrc = `namespace t:r
-extern var a0: int @ "a0"
-extern var a1: int @ "a1"
-extern global SEED: int @ "math" @holder "seed"
+extern a0: int = @s.a0
+extern a1: int = @s.a1
+extern SEED: int = seed.math
 
 const LCG_A = 1103515245
 const LCG_C = 1234

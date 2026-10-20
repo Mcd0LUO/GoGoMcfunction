@@ -66,7 +66,7 @@ func countCode(ds []diag, code string) int {
 // reader looking for a declaration that is not supposed to exist.
 func TestUnimplementedBuiltinSaysSo(t *testing.T) {
 	for _, call := range []string{"abs(x)", "clamp(x, 1, 2)", "count<@e>"} {
-		src := "namespace t:c\nextern var a0: int @ \"a0\"\nfn f(x: int) -> int {\n  " + call + "\n}\n"
+		src := "namespace t:c\nextern a0: int = @s.a0\nfn f(x: int) -> int {\n  " + call + "\n}\n"
 		ds := diagsOf(src, driver.Options{})
 		if !hasDiag(ds, "E_BUILTIN_UNIMPLEMENTED") {
 			t.Errorf("%s: got %v, want E_BUILTIN_UNIMPLEMENTED", call, ds)
@@ -78,7 +78,7 @@ func TestUnimplementedBuiltinSaysSo(t *testing.T) {
 // rewritten algebraically and never becomes a call. Reporting it there
 // would be a false positive on the most common use.
 func TestAbsInComparisonIsNotReported(t *testing.T) {
-	src := "namespace t:c\nextern var a0: int @ \"a0\"\nfn f(n: int) -> int {\n  if abs(n - a0) >= 1 { return 1 }\n  0\n}\n"
+	src := "namespace t:c\nextern a0: int = @s.a0\nfn f(n: int) -> int {\n  if abs(n - a0) >= 1 { return 1 }\n  0\n}\n"
 	ds := diagsOf(src, driver.Options{})
 	if hasDiag(ds, "E_BUILTIN_UNIMPLEMENTED") || hasDiag(ds, "E_UNKNOWN_CALLEE") {
 		t.Fatalf("false positive on abs in a comparison: %v", ds)

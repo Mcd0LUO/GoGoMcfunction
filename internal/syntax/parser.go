@@ -880,21 +880,19 @@ func (p *parser) parseExtern() (ExternDecl, error) {
 		return ExternDecl{}, err
 	}
 	d := ExternDecl{P: t.Pos}
-	switch p.cur().Kind {
-	case VAR:
-		p.next()
-		d.Kind = "var"
-	case GLOBAL:
-		p.next()
-		if p.cur().Kind == VAR {
-			p.next()
-		}
-		d.Kind = "global"
-	case FN:
+	if p.cur().Kind == FN {
 		p.next()
 		d.Kind = "fn"
-	default:
-		return d, &Error{Pos: p.cur().Pos, Msg: "expected var, global or fn after extern"}
+	} else {
+		// extern <name>: <type> = <holder>.<objective>
+		//
+		// The holder is written first because 1.12.2 writes it first
+		// (`scoreboard players set <holder> <objective>`), and it is spelled
+		// as a dotted name so that `@s.arg1` and `seed.math` are the same
+		// shape as the codec's `@s.Item`. An earlier spelling stacked two
+		// `@` clauses and a `global` keyword whose only content was the
+		// holder it then repeated.
+		d.Kind = "var"
 	}
 	if d.Kind == "fn" {
 		name, err := p.parsePath()
@@ -979,28 +977,37 @@ func (p *parser) parseExtern() (ExternDecl, error) {
 		}
 		d.Type = t.Text
 	}
+	if _, err := p.expect(ASSIGN); err != nil {
+		return d, err
+	}
+	// <holder>.<objective>. The holder is either a selector (@s) or the name
+	// of a fake player, and everything after the first dot is the objective,
+	// because objective names contain dots themselves (wp.damage1).
 	if p.cur().Kind == AT {
-		p.next()
-		s, err := p.expect(STRING)
+		sel, err := p.parseSelectorLiteral()
 		if err != nil {
 			return d, err
 		}
-		d.Objective = s.Text
-	}
-	if p.cur().Kind == AT {
-		p.next()
+		id, ok := sel.(Ident)
+		if !ok {
+			return d, &Error{Pos: p.cur().Pos, Msg: "expected a selector as the score holder"}
+		}
+		d.Holder = id.Name
+	} else {
 		h, err := p.expectName()
 		if err != nil {
 			return d, err
 		}
-		// @holder "name" binds a specific score holder on an external objective
-		if h.Text == "holder" && p.cur().Kind == STRING {
-			s := p.next()
-			d.Holder = s.Text
-		} else {
-			d.Holder = h.Text
-		}
+		d.Holder = h.Text
 	}
+	if _, err := p.expect(DOT); err != nil {
+		return d, err
+	}
+	obj, err := p.parseDottedName()
+	if err != nil {
+		return d, err
+	}
+	d.Objective = obj
 	return d, nil
 }
 

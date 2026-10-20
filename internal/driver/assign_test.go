@@ -16,7 +16,7 @@ import (
 // `y += 3` left 3 in y instead of adding 3 to it -- a silent wrong answer,
 // not an error, which is the failure mode this compiler exists to prevent.
 const compoundSrc = `namespace t:as
-extern var a0: int @ "a0"
+extern a0: int = @s.a0
 
 fn add(x: int) -> int {
   let y = x
@@ -119,7 +119,7 @@ func TestCompoundAssignmentMatchesLonghand(t *testing.T) {
 		for _, level := range []optimize.Level{optimize.O0, optimize.O1, optimize.O2, optimize.O3} {
 			t.Run(p.name+"/"+level.String(), func(t *testing.T) {
 				mk := func(stmt string) string {
-					return "namespace t:as\nextern var a0: int @ \"a0\"\n\nfn f(x: int) -> int {\n  let y = x\n  " +
+					return "namespace t:as\nextern a0: int = @s.a0\n\nfn f(x: int) -> int {\n  let y = x\n  " +
 						stmt + "\n  y\n}\n"
 				}
 				got := compile(t, mk(p.compound), level)

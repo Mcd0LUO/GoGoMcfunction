@@ -14,7 +14,7 @@ import (
 // The LCG is the case that exposes the difference: A*s alone exceeds
 // int32, so the order of the wrap and the modulo decides the result.
 const lcgSrc = `namespace t:r
-extern var a0: int @ "a0"
+extern a0: int = @s.a0
 
 const LCG_A = 1103515245
 const LCG_C = 1234

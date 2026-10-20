@@ -6,12 +6,12 @@ comptime {
     for n in [1, 2, 4, 100, 1000, 2147483647, -1] { emit("#math." + str(n), "math", n) }
 }
 
-extern var arg1: int @ "arg1"
-extern var arg2: int @ "arg2"
-extern var arg3: int @ "arg3"
-extern var return: int @ "return"
-extern var temp1: int @ "temp1"
-extern global SEED: int @ "math" @holder "seed"
+extern arg1: int = @s.arg1
+extern arg2: int = @s.arg2
+extern arg3: int = @s.arg3
+extern return: int = @s.return
+extern temp1: int = @s.temp1
+extern SEED: int = seed.math
 
 const LCG_A = 1103515245
 const LCG_C = 1234

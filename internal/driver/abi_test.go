@@ -15,9 +15,9 @@ import (
 // a1 = scale, and the comparison then read a1 back as p -- answering
 // rand <= scale.
 const abiSrc = `namespace t:p
-extern var a0: int @ "a0"
-extern var a1: int @ "a1"
-extern var a2: int @ "a2"
+extern a0: int = @s.a0
+extern a1: int = @s.a1
+extern a2: int = @s.a2
 
 fn add3(x: int, y: int, z: int) -> int {
   x + y + z

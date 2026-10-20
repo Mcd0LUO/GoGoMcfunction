@@ -16,8 +16,8 @@ import (
 // slot had already claimed the difference slot's objective. In the
 // shipped luo:math example that turned "rand <= p" into "always true".
 const compareSrc = `namespace t:v
-extern var a0: int @ "a0"
-extern var a1: int @ "a1"
+extern a0: int = @s.a0
+extern a1: int = @s.a1
 
 fn pick(lo: int, hi: int) -> int {
   hi - lo

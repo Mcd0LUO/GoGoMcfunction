@@ -93,13 +93,13 @@ on load { counter = 1 }
 	}
 }
 
-// `obj` says the compiler creates it; `extern var` says it already exists.
+// `obj` says the compiler creates it; `extern` says it already exists.
 // Declaring both means the author holds two contradictory beliefs about the
 // same objective, and only one of them can be true.
 func TestObjAndExternConflict(t *testing.T) {
 	msgs := compileDiags(`namespace t:o
 obj arg1
-extern var arg1: int @ "arg1"
+extern arg1: int = @s.arg1
 on load { arg1 = 1 }
 `)
 	if !hasCode(msgs, "E_OBJECTIVE_CONFLICT") {

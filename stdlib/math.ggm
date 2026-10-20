@@ -20,7 +20,7 @@ namespace std:math
 // 随机数状态。整数种子存在 math 的 seed 假玩家上，
 // 所以它跨 tick、跨存档存在，不需要每 tick 重新播种。
 obj math "ggm math"
-extern global SEED: int @ "math" @holder "seed"
+extern SEED: int = seed.math
 
 // 1.12.2 的计分板算术是 int32 回绕，LCG 的设计就是要回绕。
 const LCG_A = 1103515245

@@ -12,8 +12,8 @@ import (
 // build with "unsupported comparison" the moment anyone used it, because
 // target.CondFor could only return ONE Condition and != needs two.
 const opsSrc = `namespace t:o
-extern var a0: int @ "a0"
-extern var a1: int @ "a1"
+extern a0: int = @s.a0
+extern a1: int = @s.a1
 
 fn lt(x: int, y: int) -> int { if x < y { return 1 } 0 }
 fn le(x: int, y: int) -> int { if x <= y { return 1 } 0 }

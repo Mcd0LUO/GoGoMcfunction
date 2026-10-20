@@ -60,8 +60,8 @@ comptime { ... }                          // 编译期求值，产出常量命�
 
 const LCG_A = 1103515245                  // 编译期常量
 
-extern var arg1: int @ "arg1"             // 绑定既有 objective
-extern global SEED: int @ "math" @holder "seed"
+extern arg1: int = @s.arg1               // 绑定既有 objective（实体自己）
+extern SEED: int = seed.math             // 绑定假玩家 seed 的 math
 extern fn luo:math/sqrt(n: int) -> int { in n => arg1, out return }
 
 fn rand(lo: int, hi: int) -> int { ... }  // 普通函数，同 tick 内完成
@@ -132,7 +132,29 @@ class CastTimer {
 > 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
 > 由 `E_FIELD_COLLISION` 报出。
 
-### 3.4 `obj` —— 声明一个 objective
+### 3.4 `extern` —— 绑定已经存在的分数
+
+```ggm
+extern arg1: int = @s.arg1        // 执行者自己的 arg1
+extern SEED: int = seed.math      // 假玩家 seed 的 math
+extern fn luo:math/sqrt(n: int) -> int { in n => arg1, out return }
+```
+
+`外部的分数 = <持有者>.<objective>`，**持有者在前**——和 1.12.2 自己的写法
+`scoreboard players set <持有者> <objective>` 一致。
+
+- 持有者是 `@s` 时就是普通的 `@s` 分数；写成名字（`seed`）就是**假玩家**，
+  也就是全局变量：跨 tick、跨实体、存进存档。
+- 第一个点号分隔持有者与 objective，之后全归 objective——因为 objective 名
+  自己带点号（`wp.damage1`）。
+- `extern` **不发射任何命令**。它声明「这东西已经在存档里了」，编译器只负责引用。
+  要让它存在，用 `obj`（3.5）。
+
+> 旧写法 `extern var x: int @ "obj"` 与 `extern global X: int @ "obj" @holder "名字"`
+> 已删除。两个关键字的全部信息就是持有者，而持有者现在写在明面上了；
+> `@holder` 还和选择器的 `@` 撞形状。
+
+### 3.5 `obj` —— 声明一个 objective
 
 ```ggm
 obj wp.damage1
@@ -154,8 +176,8 @@ scoreboard objectives add <名字> <criteria> [<display>]
 
 - 省略 criteria 时是 `dummy`。其它 criteria 全放行（`health` `food` `air`
   `deathCount` `playerKillCount` `totalKillCount` `teamkill.<color>` `stat.*` `trigger`）。
-- **`obj` 和 `extern var` 的分工**：`obj` 由编译器发射 `objectives add`；
-  `extern var` 只绑定、不发射。两者同名报 `E_OBJECTIVE_CONFLICT`。
+- **`obj` 和 `extern` 的分工**：`obj` 由编译器发射 `objectives add`；
+  `extern` 只绑定、不发射。两者同名报 `E_OBJECTIVE_CONFLICT`。
 
 **为什么必须有这个声明**：1.12.2 里写一个不存在的 objective **不报错、也不生效**，
 分数永远是 0。不声明就写等于静默丢掉结果——和选择器区间那条是同一类失败。
@@ -401,10 +423,10 @@ comptime {
 
 | 代码 | 检查 | 缺什么才能做 |
 |---|---|---|
-| `E_OBJECTIVE_CONFLICT` | `obj` 与 `extern var` 绑定了同一个 objective | 无，可直接实现 |
+| `E_OBJECTIVE_CONFLICT` | `obj` 与 `extern` 绑定了同一个 objective | 无，可直接实现 |
 | `E_OBJECTIVE_NAME` | objective 名超过 16 字符（1.12.2 会截断，截断后静默撞车） | 无，可直接实现 |
 | `E_OBJECTIVE_DUP` | 同一个 `obj` 声明了两次 | 无，可直接实现 |
-| `E_OBJECTIVE_UNDECLARED` | `decode` 的目标没被 `obj` 或 `extern var` 声明过 | 无，可直接实现 |
+| `E_OBJECTIVE_UNDECLARED` | `decode` 的目标没被 `obj` 或 `extern` 声明过 | 无，可直接实现 |
 | `E_NBT_PARSE` | `n"…"` / `p"…"` 不是合法 SNBT | 无，可直接实现 |
 | `E_NBT_TYPE` | 字面量的类型与使用点要求不符 | 无，可直接实现 |
 | `E_FIELD_BITS` | `bits` 不在 1..30（`bits=32` 时最高位 `2^31` 超出 int32） | 无，可直接实现 |
@@ -453,9 +475,9 @@ comptime {
     for n in [120, 200, 1000, 2000, 20000] { emit scoreboard.set("#math." + str(n), "math", n) }
 }
 
-extern var arg1:   int @ "arg1"
-extern var return: int @ "return"
-extern global SEED: int @ "math" @holder "seed"
+extern arg1:   int = @s.arg1
+extern return: int = @s.return
+extern SEED:   int = seed.math
 
 const LCG_A = 1103515245
 const LCG_C = 1234

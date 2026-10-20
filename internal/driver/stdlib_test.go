@@ -71,7 +71,7 @@ func TestStdlibSqrtOnRealRuntime(t *testing.T) {
 	files := compileModule(t, []driver.Source{
 		{Name: "app.ggm", Text: `namespace t:app
 
-extern var a0: int @ "a0"
+extern a0: int = @s.a0
 
 fn run() -> int {
   std:math/sqrt(a0)
@@ -98,8 +98,8 @@ func TestStdlibRandOnRealRuntime(t *testing.T) {
 	files := compileModule(t, []driver.Source{
 		{Name: "app.ggm", Text: `namespace t:app
 
-extern var a0: int @ "a0"
-extern var a1: int @ "a1"
+extern a0: int = @s.a0
+extern a1: int = @s.a1
 
 fn run() -> int {
   std:math/rand(a0, a1)
