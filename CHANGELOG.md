@@ -16,6 +16,75 @@
 
 ---
 
+## [0.12.0] - 2026-10-20
+
+### 修复：读一个 `obj` 声明的 objective 会分配新的局部
+
+```ggm
+obj ticks
+on tick { ticks = ticks + 1 }
+```
+
+生成的是：
+
+```mcfunction
+scoreboard players operation @s ticks = @s l0      ← 读的是 l0，不是 ticks
+scoreboard players operation @s ticks += #1 ggm.c
+```
+
+**写路径改了、读路径漏了。** `targetLoc` 会认 `obj` 声明，`expr` 的标识符分支
+只看 extern、常量、类字段——于是读 `ticks` 落到了 `ctx.slot()`，分配一个
+从没人写过的 `l0`。计数器永远停在 1。
+
+真机步进抓到的，不是代码审查。
+
+### 修复：`seed.t = 0` 静默写到局部
+
+`lvalueName` 只接受 `x` 和 `self.x`，所以 `holder.objective` 形式的赋值目标
+**解析通过、静默落到局部**。现在 `a.b` 形式原样交给 `targetLoc`，生成
+`scoreboard players set seed t 0`。
+
+这和 `extern SEED: int = seed.math` 是同一个形状——绑定和赋值用同一套写法。
+
+### 规范：修正 6 处与实现不符之处
+
+自查时逐行读出来的：
+
+| 位置 | 问题 |
+|---|---|
+| 公理 3 | 还写着「带 `cap` 的有界自递归」 |
+| 公理 2 | 说「三种『多』语法」但只列了两种 |
+| 词法 | `p"..."` 还写着「从实体根起算」 |
+| 关键字表 | 缺 `obj` `nbt` `bits` `enum` `decode` `encode` `over` `budget`，多出 `cap` |
+| 语句清单 | 缺 `for i in 0..64`；「没有」那句把 `return` 列进了没有的清单 |
+| 3.1 / 3.2 | 代码块用单反引号而不是三反引号 |
+
+### 规范：`on every N` 的相位门从未实现
+
+规范 3.3 声称「相位分配 + 编译器生成归零，整除 20 检查」。
+`lowerOn` 对 `every` **没有任何特殊处理**——它就是个普通函数，调用几次跑几次。
+
+没有实现它，因为**至今零用例**：示例里没有，参考数据包里也搜不到对应的节拍代码。
+按「不为还没写过的项目设计语法」的原则，改规范而不是补实现，并把它列进
+`docs/roadmap.md`，复活条件是「出现第一个真实用例」。
+
+测试 `TestOnEveryFiresOncePerCall` **钉住当前的真实行为**（21 次调用触发 21 次），
+这样规范和实现不会再无声地分叉。
+
+### 新增：真机步进测试（2 条）
+
+| 测试 | 验证 |
+|---|---|
+| `TestOnTickCounterAdvancesOnRealRuntime` | 在同一个世界里连调三次 `tick`，读回 1 / 2 / 3 |
+| `TestOnEveryFiresOncePerCall` | 钉住 `on every` 当前无相位门的行为 |
+
+写第一条时踩了一个语言事实：**函数必须经由执行者进入**。每个表达式的临时槽都在
+`@s` 上，所以即使只读写假玩家全局的函数，没有 `@s` 也会静默不动。
+
+### 测试 89 → 91。golden 未变。
+
+---
+
 ## [0.11.0] - 2026-10-20
 
 ### 破坏性：`#[budget(N)]` 换成 `, budget <n>`

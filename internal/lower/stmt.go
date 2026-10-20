@@ -129,6 +129,10 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string) ir.Loc {
 	if ctx.isField(name) {
 		return loc(ctx.fieldLoc(name))
 	}
+	// `holder.objective`, the same shape extern binds with.
+	if i := strings.Index(name, "."); i > 0 {
+		return ir.Loc{Holder: name[:i], Obj: name[i+1:]}
+	}
 	return loc(ctx.slot(name))
 }
 
@@ -393,6 +397,18 @@ func (l *Lowerer) lowerBroadcast(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID,
 	fb.Emit(cur, ir.Copy{Dst: ir.Loc{Holder: sel.Name, Obj: s.Field}, Src: op})
 }
 
+// lvalueName renders an assignment target as the name targetLoc expects.
+//
+// Three shapes reach here:
+//
+//	x          a local, a declared objective, or an extern binding
+//	self.x     a field of the enclosing class
+//	holder.x   a score on a named holder, written the same way extern binds it
+//
+// The third shape was missing. `seed.t = 0` parsed, then fell through to a
+// fresh local, so the assignment wrote l0 and the objective named in the
+// source was never touched -- a silent no-op of exactly the kind obj exists to
+// prevent.
 func lvalueName(e syntax.Expr) (string, bool) {
 	switch x := e.(type) {
 	case syntax.Ident:
@@ -400,6 +416,9 @@ func lvalueName(e syntax.Expr) (string, bool) {
 	case syntax.Field:
 		if _, ok := x.X.(syntax.SelfExpr); ok {
 			return x.Name, true
+		}
+		if base, ok := x.X.(syntax.Ident); ok && !strings.HasPrefix(base.Name, "@") {
+			return base.Name + "." + x.Name, true
 		}
 	}
 	return "", false

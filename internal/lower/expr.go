@@ -144,6 +144,14 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		if ctx.isField(x.Name) {
 			return loc(ctx.fieldLoc(x.Name)), nil
 		}
+		// A declared objective reads by its own name. Missing this while the
+		// WRITE path had it made `ticks = ticks + 1` compile to
+		// `ticks = l0 + 1` -- the target landed on the right objective but
+		// the value came from a fresh local that nothing ever wrote, so the
+		// counter was stuck at 1 forever.
+		if l.objs[x.Name] {
+			return loc(x.Name), nil
+		}
 		return loc(ctx.slot(x.Name)), nil
 	case syntax.Call:
 		return l.call(ctx, fb, block, x)

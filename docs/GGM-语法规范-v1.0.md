@@ -10,9 +10,12 @@
 ## 0. 公理
 
 1. **`@s` 是唯一执行主体。** 没有 `@s` 的地方（`on load`）不能调用需要 `@s` 的函数——编译错误。
-2. **三种「多」语法可区分**：扇出 `for e in entities<sel>`、广播写 `@sel f = v`。成本差一个数量级。
-3. **没有栈。** 递归只有一种：带 `cap` 的有界自递归。
-4. **预算是语义。** `maxCommandChainLength` 超限后**静默丢弃**，所以必须静态标注。
+2. **「多」有两条路，成本差一个数量级**：扇出 `for e in entities<sel>` 是 N 次调用，
+   广播写 `@sel f = v` 是一条命令写 N 个实体。字面可辨。
+3. **没有栈。** 递归只有一种：有界自递归。每个循环都必须写 `budget <n>` 或
+   用范围 `for i in lo..hi`，编译器无法证明的循环不收。
+4. **预算是语义。** `maxCommandChainLength` 超限后**静默丢弃**，所以循环的上界
+   必须是语法的一部分，不能靠运行期判断。
 5. **选择器是区间不是相等。** 用户写 `==`，编译器发射 `_min=N,=N`。
 
 ---
@@ -26,19 +29,23 @@
 整数      [0-9]+                               // 不支持小数
 字符串    "..."  '...'
 NBT 值    n"..."                               // SNBT，编译期解析
-NBT 路径  p"..."                               // 从实体根起算的键路径
+NBT 路径  p"..."                               // 从物品根起算的键路径
 换行      语句分隔符（与分号等价）
 ```
 
-关键字（共 19 个）：
+关键字：
 
 ```
-namespace comptime const extern
+namespace comptime const extern obj nbt
 fn class selector on
-let if else while for in step
+let if else while for loop in step
 return self true false none
-entities where cap wrapping
+entities where budget wrapping
+bits enum decode encode over
 ```
+
+另有五个词是**普通标识符**，只在特定位置当关键字用，所以拿它们当变量名也可以在
+别处用：`add` / `set`（在 `decode` 块里）、`matches`（在条件里）、`from`（在 `decode` 里）。
 
 ---
 
@@ -78,16 +85,16 @@ obj wp.damage1                            // 声明一个 objective，编译器�
 
 ### 3.1 `fn`
 
-`
+```
 fn name(p1: int, p2: int) -> int { body }
-`
+```
 
 无 `pure` / `task` / 效果标注。**一个 `fn` 只有一种：同 tick 内跑完。**
 跨 tick 靠 `class` + `@tick`（见 3.2），不靠 `wait`。
 
 ### 3.2 `class`
 
-`
+```
 [selector(@e[type=zombie,tag=mob.monster])]
 class Monster {
     var hp: int = 40                 // 必须有初始化器
@@ -99,13 +106,13 @@ class Monster {
     @tick fn tick() { ... }          // 由调度器扇出
     fn deal(dmg: int) { hp -= dmg }
 }
-`
+```
 
 - `selector` 是这个类的**成员判定谓词**。`Monster` 与 `@e[type=zombie,tag=mob.monster]` 是同一件事的两面。
 - 字段 = `@s` 上的 objective，默认前缀 `M.`（`M.hp`）。
 - **跨 tick 的唯一写法**：一个类实例就是一个协程的状态。`spawn CastTimer()` = `summon` 一个带 tag 的实体。
 
-`
+```
 // 「20 tick 后执行」——不需要 wait
 class CastTimer {
     var timer: int = 0
@@ -114,7 +121,7 @@ class CastTimer {
         if timer >= 20 { fire(); kill(self) }
     }
 }
-`
+```
 
 ### 3.3 入口
 
@@ -122,11 +129,16 @@ class CastTimer {
 |---|---|
 | `on load` | 生成 `luo:math/load`，由 `gameLoopFunction` 的前置或命令方块调用 |
 | `on tick` | 生成 `luo:math/tick`，挂到 `gamerule gameLoopFunction` |
-| `on every 5s` | 相位分配 + **编译器生成归零**，整除 20 检查 |
+| `on every 5s` | 生成 `luo:math/every/5s`，**与其它入口一样是普通函数** |
 | `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` |
 | `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 |
 
-> **实现状态（0.3.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
+> **实现状态（0.11.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
+>
+> `on every N` **只生成函数，不含相位门**——调用它几次就跑几次，与 `on tick` 一样。
+> 真要做到「每 N 秒一次」，需要一个每 tick 递增的计数器加整除检查，而
+> `gameLoopFunction` 每 tick 调一次正好提供这个节拍。**未实现**，因为至今没有
+> 真实用例（示例与参考数据包里零使用）。见 `docs/roadmap.md`。
 > `on death` **有非空体时报错**——1.12.2 无法观察已经消失的实体，正确实现需要一个
 > 影子实体，假装能做到只会产出一个永不触发的处理器。空体是占位符，接受。
 > 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
@@ -191,13 +203,16 @@ let x = 5                      // 临时 objective，编译器按活跃区间分
 x = x + 1                      // = += -= *= /= %=
 if cond { } else { }
 while cond, budget 32 { }      // 上界必填
-for e in entities<@a[tag=x]> { }                 // 扇出
+for i in 0..64 { }               // 计数循环
+for e in entities<@a[tag=x]> { }  // 扇出
 @a[tag=math.sort] sort.diff = self.sort.key - lo // 广播写
 decode wp.damage1 from @s.Inventory(0)[atk_base] // NBT → 分数
 encode @s.Item[money] = return over 1..10        // 分数 → NBT
+loop cond, budget 32 { }        // 后测循环
 ```
 
-**没有**：`match` `enum` `repeat` `break` `continue` `goto` `return` 之外的控制流。
+**没有**：`match` `switch` `repeat` `break` `continue` `goto`。
+跳出循环靠 `return`（整个函数返回）或自递归 + 标志位。
 
 ### 4.1 循环：一个 `for`，两个 `while`
 
@@ -254,10 +269,10 @@ loop  i > 0, budget 32 { }     // 先做一次，再判
 
 ### 4.3 广播写 vs 扇出
 
-`
+```
 @a[tag=math.sort] temp1 = #m - self.math    // 1 条命令写 N 个实体
 for p in entities<@a[tag=math.sort]> { p.temp1 = ... }   // N 次调用
-`
+```
 
 选择器在行首 `@` 开头 = 广播写；`p.field` 形式 = 扇出。字面可辨。
 
