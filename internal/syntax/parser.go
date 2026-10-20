@@ -647,6 +647,17 @@ func (p *parser) parseDottedName() (string, error) {
 		return "", err
 	}
 	s := t.Text
+	// A namespace-style colon is part of many existing objective names:
+	// `EasyCoord:x`, `sk.hpRestore`, `wp.passiveId1:1`. 1.12.2 allows it,
+	// and a library that could not spell such a name could not replace one.
+	if p.cur().Kind == COLON {
+		p.next()
+		seg, err := p.expectName()
+		if err != nil {
+			return "", err
+		}
+		s += ":" + seg.Text
+	}
 	for p.cur().Kind == DOT {
 		p.next()
 		seg, err := p.expectIdent()

@@ -12,8 +12,21 @@ import (
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 )
 
-// Emitted is one constant command produced at compile time.
+// Emitted is one command produced at compile time.
+//
+// Two shapes, because a compile-time generator has two jobs:
+//
+//   - a constant score (`emit("#seed", "math", 12345)`), which is what the
+//     constant pool is built from;
+//   - an arbitrary command (`emit_line("tp @s ~" + d + " ~ ~")`), which is what
+//     makes a loop over bit widths possible. Without it a library like the
+//     coordinate probe has to spell out every rung by hand, and a generator
+//     that can only emit one command kind is not a generator.
 type Emitted struct {
+	// Raw is the whole command line when non-empty; the other fields are then
+	// unused.
+	Raw string
+	// Holder, Objective and Value describe a constant score.
 	Holder    string
 	Objective string
 	Value     int
@@ -36,6 +49,21 @@ func Eval(blocks []syntax.ComptimeBlock, bag *diag.Bag) []Emitted {
 func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 	switch s := st.(type) {
 	case syntax.ExprStmt:
+		// emit_line takes one string and emits it verbatim.
+		//
+		// This is what makes a table generatable: 88 `tp` rungs whose offsets
+		// are decimal text cannot come out of `emit`, which only writes a
+		// constant score. Hand-expanding them is not a language feature, it is
+		// the absence of one.
+		if call, ok := s.X.(syntax.Call); ok && call.Name == "emit_line" {
+			text, ok := Str(call.Args[0])
+			if !ok || len(call.Args) != 1 {
+				bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",
+					"emit_line takes one compile-time string")
+				return nil
+			}
+			return []Emitted{{Raw: text, P: diag.Pos{Line: call.P.Line, Col: call.P.Col}}}
+		}
 		if call, ok := s.X.(syntax.Call); ok && call.Name == "emit" {
 			if e, ok := evalEmit(call); ok {
 				e.P = diag.Pos{Line: call.P.Line, Col: call.P.Col}
@@ -77,7 +105,33 @@ func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 		}
 		return out
 	}
+	// Anything else is rejected rather than ignored.
+	//
+	// `if` inside comptime used to fall through this switch and vanish: the
+	// body simply did not run, no diagnostic was produced, and the generated
+	// table came out short by however many rows the branch guarded. A silent
+	// no-op in a generator is worse than a missing feature -- the output looks
+	// complete.
+	bag.Error(diag.Pos{Line: stmtPos(st).Line, Col: stmtPos(st).Col}, "E_COMPTIME_STMT",
+		"comptime supports only `for`, `emit` and `emit_line`; this statement would be ignored")
 	return nil
+}
+
+// stmtPos digs the source position out of a statement for a diagnostic.
+func stmtPos(st syntax.Stmt) syntax.Pos {
+	switch s := st.(type) {
+	case syntax.IfStmt:
+		return s.P
+	case syntax.LetStmt:
+		return s.P
+	case syntax.ExprStmt:
+		return s.P
+	case syntax.ForStmt:
+		return s.P
+	case syntax.AssignStmt:
+		return s.P
+	}
+	return syntax.Pos{}
 }
 
 func evalEmit(call syntax.Call) (Emitted, bool) {
@@ -146,6 +200,29 @@ func Int(e syntax.Expr) (int, bool) {
 	return 0, false
 }
 
+// fmtDec renders n/scale as a decimal literal with exactly enough fractional
+// digits to name the scale: fmtDec(2147483648, 1000) is "2147483.648".
+//
+// Hand-rolled rather than fmt.Sprintf("%f") because the width is a property of
+// the scale, not of the value: 1000 always means three digits, including for
+// 0.001 and 0.010.
+func fmtDec(n, scale int64) string {
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	whole, frac := n/scale, n%scale
+	width := 0
+	for s := scale; s > 1; s /= 10 {
+		width++
+	}
+	s := fmt.Sprintf("%d.%0*d", whole, width, frac)
+	if neg {
+		return "-" + s
+	}
+	return s
+}
+
 // Str folds an expression to a constant string, including the `str(int)`
 // builtin and `+` concatenation.
 func Str(e syntax.Expr) (string, bool) {
@@ -153,6 +230,39 @@ func Str(e syntax.Expr) (string, bool) {
 	case syntax.StringLit:
 		return x.Value, true
 	case syntax.Call:
+		// strdec(n, scale) renders n thousandths as a decimal literal:
+		// strdec(2147483648, 1000) is "2147483.648".
+		//
+		// strdec2(bit, scale) is the same for 2^bit, which is what a bit-width
+		// table needs. A generator that cannot raise two to a loop variable
+		// forces the author to write the table out by hand, and a hand-written
+		// table of 88 rungs is not a generated one.
+		// strpow2(bit) renders 2^bit as an integer literal. A bit-weight
+		// table needs both forms: the offset is 2^bit / 1000 (strdec2) and the
+		// weight added back is 2^bit itself (strpow2).
+		if x.Name == "strpow2" && len(x.Args) == 1 {
+			bit, ok := Int(x.Args[0])
+			if !ok || bit < 0 || bit > 30 {
+				return "", false
+			}
+			return fmt.Sprint(int64(1) << uint(bit)), true
+		}
+		if x.Name == "strdec2" && len(x.Args) == 2 {
+			bit, ok1 := Int(x.Args[0])
+			scale, ok2 := Int(x.Args[1])
+			if !ok1 || !ok2 || scale == 0 || bit < 0 || bit > 62 {
+				return "", false
+			}
+			return fmtDec(int64(1)<<uint(bit), int64(scale)), true
+		}
+		if x.Name == "strdec" && len(x.Args) == 2 {
+			n, ok1 := Int(x.Args[0])
+			scale, ok2 := Int(x.Args[1])
+			if !ok1 || !ok2 || scale == 0 {
+				return "", false
+			}
+			return fmtDec(int64(n), int64(scale)), true
+		}
 		if x.Name == "str" && len(x.Args) == 1 {
 			if n, ok := Int(x.Args[0]); ok {
 				return fmt.Sprint(n), true
@@ -219,6 +329,10 @@ func SubstExpr(e syntax.Expr, name string, v int) syntax.Expr {
 func ToIR(items []Emitted) []ir.Op {
 	var out []ir.Op
 	for _, e := range items {
+		if e.Raw != "" {
+			out = append(out, ir.Raw{Text: e.Raw})
+			continue
+		}
 		out = append(out, ir.Set{Dst: ir.Loc{Holder: e.Holder, Obj: e.Objective}, Value: e.Value})
 	}
 	return out

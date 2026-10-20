@@ -1,0 +1,56 @@
+// std:coord —— 把实体坐标读成 int32 定点数（1 = 0.001 格）
+//
+// **未在 runtime 上验证，且已实测跑不对。** 算法依赖真 1.12.2 的两件事：
+//
+//   1. 传送到超出世界边界的坐标时，实体停在边界上（坐标钳制）
+//   2. stats 把命令的成功数写进分数
+//
+// GoMcRuntime 两者都没有：实测 tp 到 1e30 照常落在请求坐标，
+// stats 绑定之后分数保持 0。所以在这里跑只会得到错值。
+//
+// 保留是因为生成方式本身有价值：整个二分表由 comptime 展开。
+namespace std:coord
+
+obj EasyCoord:x "x"
+obj EasyCoord:y "y"
+obj EasyCoord:z "z"
+obj temp4 "coord probe"
+
+// 每个轴逐位二分：往负方向推 2^bit 个定点单位（1 单位 = 0.001 格），
+// 推成功说明这一位是 1，把权重加回去。
+//
+// 最高位特殊：2^31 = 2147483648 超出 int32，权重写不进分数。
+// 但 int32 最小值恰好是 -2147483648 = -2^31，所以「从最小值起步、只对低位
+// 累加」就把最高位处理掉了——这正是参考实现 `set temp1 0` 的含义。
+//
+// 三个轴分开写，因为 comptime 没有 `if`：y 轴只有 22 位（世界高度 0..255），
+// 不能和 x/z 的 31 位共用一个循环。
+comptime {
+    // x 轴与 z 轴：31 位
+    for bit in 0..30 {
+        emit_line("tp @s ~-" + strdec2(30 - bit, 1000) + " ~ ~")
+        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:x " + strpow2(30 - bit))
+        emit_line("tp @s ~ ~ ~-" + strdec2(30 - bit, 1000))
+        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:z " + strpow2(30 - bit))
+    }
+    // y 轴：22 位
+    for bit in 0..21 {
+        emit_line("tp @s ~ ~-" + strdec2(21 - bit, 1000) + " ~")
+        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:y " + strpow2(21 - bit))
+    }
+}
+
+on load {
+}
+
+#[export]
+fn read() {
+    // 每次探测前清零：上一次的成功数会污染这一次。
+    temp4 = 0
+    stats(@s, "SuccessCount", temp4)
+
+    // 三个累加器从 int32 最小值起步（见上方注释）。
+    EasyCoord:x = -2147483648
+    EasyCoord:y = -2147483648
+    EasyCoord:z = -2147483648
+}

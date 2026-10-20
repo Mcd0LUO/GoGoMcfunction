@@ -262,3 +262,78 @@ fn run() -> int {
 		t.Errorf("the fan-out body was pruned; files: %v", keysOf(files))
 	}
 }
+
+// A compile-time generator has to be able to emit arbitrary commands.
+//
+// `emit` writes a constant score, which is all the constant pool needs. A bit
+// table needs more: 88 `tp` rungs whose offsets are decimal text. Without
+// emit_line those rungs have to be written out by hand, and a hand-written
+// table is not a generated one.
+func TestComptimeEmitLine(t *testing.T) {
+	files := compile(t, `namespace t:g
+comptime {
+  for bit in 0..2 {
+    emit_line("say bit " + str(bit))
+  }
+}
+on load { }
+`, optimize.O0)
+
+	var body string
+	for name, b := range files {
+		if strings.HasSuffix(name, "/comptime") {
+			body = b
+		}
+	}
+	for _, want := range []string{"say bit 0", "say bit 1", "say bit 2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+// strdec2 renders 2^bit/1000 as the decimal literal a coordinate offset needs,
+// and strpow2 renders 2^bit for the weight added back.
+func TestComptimeDecimals(t *testing.T) {
+	files := compile(t, `namespace t:g
+comptime {
+  emit_line("a " + strdec2(31, 1000))
+  emit_line("b " + strdec2(0, 1000))
+  emit_line("c " + strpow2(10))
+}
+on load { }
+`, optimize.O0)
+
+	var body string
+	for name, b := range files {
+		if strings.HasSuffix(name, "/comptime") {
+			body = b
+		}
+	}
+	for _, want := range []string{"a 2147483.648", "b 0.001", "c 1024"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+// A statement comptime does not understand must be REJECTED, not skipped.
+//
+// `if` inside a comptime block used to fall through and vanish: the guarded
+// rows were never generated, nothing was reported, and the output looked
+// complete while being short by however many rows the branch covered.
+func TestComptimeRejectsUnsupportedStatements(t *testing.T) {
+	msgs := compileDiags(`namespace t:g
+comptime {
+  for bit in 0..2 {
+    if bit > 0 {
+      emit_line("say hi")
+    }
+  }
+}
+on load { }
+`)
+	if !hasCode(msgs, "E_COMPTIME_STMT") {
+		t.Fatalf("want E_COMPTIME_STMT, got %v", msgs)
+	}
+}

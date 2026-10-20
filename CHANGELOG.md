@@ -16,6 +16,77 @@
 
 ---
 
+## [0.15.0] - 2026-10-21
+
+### 新增：`comptime` 能生成任意命令
+
+```ggm
+comptime {
+    for bit in 0..30 {
+        emit_line("tp @s ~-" + strdec2(30 - bit, 1000) + " ~ ~")
+        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:x " + strpow2(30 - bit))
+    }
+}
+```
+
+此前 `comptime` 只能 `emit` 一条 `scoreboard players set`（常量池用）。
+生成一张命令表——比如坐标二分的 88 条 `tp`——只能手写。
+
+三个新能力：
+
+| 新增 | 用途 |
+|---|---|
+| `emit_line(text)` | 发射一整条命令，原样 |
+| `strpow2(bit)` | `2^bit` 的整数字面量 |
+| `strdec2(bit, scale)` | `2^bit / scale` 的定点小数，如 `strdec2(31, 1000)` = `"2147483.648"` |
+
+`Emitted` 结构加了 `Raw` 字段，`ToIR` 相应地输出 `ir.Raw`。
+
+### 修复：`comptime` 里的 `if` 被静默丢弃
+
+`if` 掉进 `evalStmt` 的 switch default 直接消失——被它包住的行一条都没生成，
+**没有任何提示**，而输出看起来是完整的。
+
+实测：写了 `if bit < 22 { … }` 的 y 轴，生成结果里 `EasyCoord:y` 的行数是 **0**。
+
+现在不支持的语句报 `E_COMPTIME_STMT`。生成器里的静默 no-op 比缺功能更糟：
+缺功能会被发现，静默 no-op 不会。
+
+需要按条件生成时把范围拆成多个循环，而不是写 `if`。
+
+### 新增：`tp` 与 `stats` 内置
+
+```ggm
+tp(@s, "1.5", "0", "0")            // 相对传送，偏移是命令文本（GGM 没有浮点）
+stats(@s, "SuccessCount", temp4)   // 把下一条命令的成功数写进分数
+```
+
+### 新增：objective 名可以含冒号
+
+`EasyCoord:x`、`wp.passiveId1:1` 这类名字在 1.12.2 里合法且常见。
+不能拼出来的库，替换不了现有的手写文件。
+
+### 新增：`stdlib/coord.ggm`（**未验证，已知跑不对**）
+
+把实体坐标读成 int32 定点数（1 = 0.001 格）。整个二分表由 `comptime` 展开：
+x/z 各 31 位、y 22 位，共 84 条 `tp` 加 84 条权重累加。
+
+**在 GoMcRuntime 上跑不对，已实测确认，不是推测：**
+
+| 依赖 | runtime 的实际行为 |
+|---|---|
+| 传送超出世界边界时坐标被钳制 | 不钳制：`tp` 到 `1e30` 照常落在请求坐标 |
+| `stats` 把成功数写进分数 | 不写：绑定后分数保持 0 |
+
+两个机制都不成立，算法没有信息源。保留这份实现是因为**生成方式**有价值——
+等 runtime 补上这两件事，它应当直接可用。
+
+### 测试 99 → 102
+
+`TestComptimeEmitLine` / `TestComptimeDecimals` / `TestComptimeRejectsUnsupportedStatements`。
+
+---
+
 ## [0.14.0] - 2026-10-20
 
 ### 修复：`for` 的循环体被当成调用者的一个块

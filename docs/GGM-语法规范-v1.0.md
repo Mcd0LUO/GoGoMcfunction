@@ -431,15 +431,46 @@ reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 
 ## 6. `comptime`
 
-```
+```ggm
 comptime {
     for n in -1..100 {
-        emit scoreboard.set("#math." + str(n), "math", n)
+        emit("#math." + str(n), "math", n)
     }
 }
 ```
 
-块内用 Go 的 `int64` 求值，`emit` 输出常量命令。不可调用 `fn`。
+块内用 Go 的 `int64` 求值。不可调用 `fn`。
+
+### 6.1 两种输出
+
+| 调用 | 产出 |
+|---|---|
+| `emit(holder, objective, value)` | `scoreboard players set <holder> <objective> <value>` |
+| `emit_line(text)` | 一整条命令，原样 |
+
+`emit` 建常量池；`emit_line` 用来**生成命令表**。两者缺一不可——
+一张 88 行的二分表里全是 `tp`，它不是常量分数，`emit` 写不出来。
+
+### 6.2 字符串化
+
+| 调用 | 例 |
+|---|---|
+| `str(n)` | `str(42)` → `"42"` |
+| `strpow2(bit)` | `strpow2(10)` → `"1024"` |
+| `strdec2(bit, scale)` | `strdec2(31, 1000)` → `"2147483.648"` |
+
+后两个是**位宽表**的必需品：偏移是 `2^bit / 1000`，权重是 `2^bit`。
+没有它们，作者只能把表手写出来——而手写的表不是生成的表。
+
+### 6.3 只支持三种语句
+
+`for` / `emit` / `emit_line`。**别的语句会报 `E_COMPTIME_STMT`，不会被静默跳过。**
+
+这条是硬约束而不是限制：`if` 曾经掉进 switch 的 default 直接消失——被它包住的
+那些行一条都没生成，没有任何提示，而输出看起来是完整的。**生成器里的静默
+no-op 比缺功能更糟。**
+
+需要按条件生成时，把范围拆成多个循环（`0..30` 和 `0..21`），而不是写 `if`。
 
 ---
 

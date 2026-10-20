@@ -33,6 +33,37 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	case "kill":
 		fb.Emit(block, ir.Raw{Text: "kill " + l.targetArg(call, 0)})
 		return
+	case "tp":
+		// tp(<target>, "<relative dx>", "<dy>", "<dz>") -- the offsets are raw
+		// command text because they are decimals, and GGM has no float type.
+		// The values are relative (`~-2147483.648`), which is what the
+		// coordinate probe needs: an absolute teleport would discard the
+		// entity's own position.
+		if len(call.Args) != 4 {
+			l.diags.Error(posOf(call.P), "E_ARG", "tp needs (target, dx, dy, dz)")
+			return
+		}
+		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("tp %s ~%s ~%s ~%s",
+			l.targetArg(call, 0), l.rawString(call, 1), l.rawString(call, 2), l.rawString(call, 3))})
+		return
+	case "stats":
+		// stats(<target>, "<stat>", <objective holder name>) binds a command's
+		// result count to a score. 1.12.2 writes the count AFTER the command
+		// runs, so the score must be read on the next command -- that is what
+		// makes the coordinate probe's binary search work.
+		if len(call.Args) != 3 {
+			l.diags.Error(posOf(call.P), "E_ARG", "stats needs (target, \"stat\", objective)")
+			return
+		}
+		obj, ok := call.Args[2].(syntax.Ident)
+		if !ok {
+			l.diags.Error(posOf(call.P), "E_ARG", "stats needs an objective name as argument 3")
+			return
+		}
+		target := l.targetArg(call, 0)
+		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s set %s %s %s",
+			target, l.rawString(call, 1), target, obj.Name)})
+		return
 	case "say":
 		fb.Emit(block, ir.Raw{Text: "say " + l.rawString(call, 0)})
 		return
