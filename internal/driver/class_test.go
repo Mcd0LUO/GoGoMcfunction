@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 )
 
 // The class is the language's answer to "state that outlives a tick",
@@ -118,7 +118,7 @@ func TestClassSpawnRunsOnce(t *testing.T) {
 	if got, want := st.Get("C.hp", "R"), 40; got != want {
 		t.Fatalf("hp after three spawn passes = %d, want %d", got, want)
 	}
-	if !strings.Contains(strings.Join(st.Output, "\n"), "cmcf.spawn.C") {
+	if !strings.Contains(strings.Join(st.Output, "\n"), "ggm.spawn.C") {
 		t.Logf("no marker tag in output; state: %v", st.Keys())
 	}
 }

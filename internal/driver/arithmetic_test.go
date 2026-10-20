@@ -3,7 +3,7 @@ package driver_test
 import (
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 )
 
 // A scoreboard value is a signed 32-bit integer that wraps silently.
@@ -51,7 +51,7 @@ func TestWrapArithmeticMatchesInt32(t *testing.T) {
 
 // 1.12.2's % truncates toward zero, so a modulus can return a negative
 // value. That is why the hand-written luo:math library negates the
-// result by hand before mapping it into a range, and why CMCF's rand
+// result by hand before mapping it into a range, and why GGM's rand
 // uses rem_euclid instead of %.
 //
 // Without this, a test that only ever saw non-negative results would

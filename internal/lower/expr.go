@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // assignInto stores the value of e into dst.

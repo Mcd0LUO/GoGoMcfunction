@@ -10,7 +10,7 @@
 
 ```mcfunction
 scoreboard players operation @s t0 = @s a0
-scoreboard players operation @s t0 -= #4 cmcf.c
+scoreboard players operation @s t0 -= #4 ggm.c
 execute @s[score_t0=-1] ~ ~ ~ scoreboard players set @s return 1
 scoreboard players operation @s return = @s l0
 ```

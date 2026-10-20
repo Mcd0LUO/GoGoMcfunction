@@ -7,9 +7,9 @@ package comptime
 import (
 	"fmt"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 )
 
 // Emitted is one constant command produced at compile time.

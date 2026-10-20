@@ -1,6 +1,6 @@
 package optimize
 
-import "github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+import "github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 
 // ── CFG shape optimisation ──────────────────────────────────────────────
 //

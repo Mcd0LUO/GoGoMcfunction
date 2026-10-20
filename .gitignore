@@ -1,8 +1,8 @@
 # build output
-cmcf.exe
+ggm.exe
 *.exe
 
-# generated output trees (regenerate with `cmcf -out DIR`)
+# generated output trees (regenerate with `ggm -out DIR`)
 /out/
 /lv*/
 /w*/

@@ -3,8 +3,8 @@ package optimize
 import (
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
 
 // The shape a comparison-as-value lowers to: a difference slot, then a

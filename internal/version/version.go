@@ -21,7 +21,7 @@ package version
 // change in incompatible ways between minor releases; that is the point
 // of staying below 1.0. Every released version is a baseline: a git tag,
 // a golden output tree under testdata/golden, and a CHANGELOG entry.
-const Version = "0.5.0"
+const Version = "0.6.0"
 
 // SpecVersion is the language specification this build targets.
 const SpecVersion = "1.0"
@@ -31,5 +31,5 @@ const Target = "1.12.2"
 
 // String renders the release identity in one line.
 func String() string {
-	return "cmcf " + Version + " (language spec " + SpecVersion + ", target " + Target + ")"
+	return "ggm " + Version + " (language spec " + SpecVersion + ", target " + Target + ")"
 }

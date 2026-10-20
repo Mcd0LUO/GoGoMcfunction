@@ -105,7 +105,7 @@ func Catalog() []PassInfo {
 		{
 			// NOTE: this is NOT an optimisation. Emitting the constant pool is
 			// required for the program to work at all: a literal such as `#4`
-			// is a fake player on objective cmcf.c, and if nothing initialises
+			// is a fake player on objective ggm.c, and if nothing initialises
 			// it the scoreboard reads 0. It runs at every level, including O0.
 			Pass:     CollectConsts{},
 			MinLevel: O0,

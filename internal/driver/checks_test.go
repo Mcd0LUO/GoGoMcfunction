@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 type diag struct {
@@ -21,7 +21,7 @@ func diagsOf(src string, opt driver.Options) []diag {
 	if opt.Level == 0 {
 		opt.Level = optimize.O1
 	}
-	_, ds := driver.Compile(src, "test.cmcf", opt)
+	_, ds := driver.Compile(src, "test.ggm", opt)
 	var out []diag
 	for _, d := range ds {
 		out = append(out, diag{code: d.Code, warning: d.Severity != 0})
@@ -125,13 +125,13 @@ func TestEntryPointsAreNotReportedAsUncalled(t *testing.T) {
 // commands, and a header per file is noise until you are looking for one.
 func TestCommentsAreOffByDefaultAndOptIn(t *testing.T) {
 	src := "namespace t:c\nfn f() -> int { 1 }\n"
-	plain, _ := driver.Compile(src, "test.cmcf", driver.Options{Target: target.V1_12_2, Level: optimize.O1})
+	plain, _ := driver.Compile(src, "test.ggm", driver.Options{Target: target.V1_12_2, Level: optimize.O1})
 	if strings.Contains(plain.Files["t:c/f"], "#") {
 		t.Fatalf("a header appeared without -comments:\n%s", plain.Files["t:c/f"])
 	}
-	annotated, _ := driver.Compile(src, "test.cmcf", driver.Options{Target: target.V1_12_2, Level: optimize.O1, Comments: true})
+	annotated, _ := driver.Compile(src, "test.ggm", driver.Options{Target: target.V1_12_2, Level: optimize.O1, Comments: true})
 	body := annotated.Files["t:c/f"]
-	if !strings.Contains(body, "# t:c/f") || !strings.Contains(body, "test.cmcf:2") {
+	if !strings.Contains(body, "# t:c/f") || !strings.Contains(body, "test.ggm:2") {
 		t.Fatalf("header missing or wrong:\n%s", body)
 	}
 	// The commands themselves must be untouched.

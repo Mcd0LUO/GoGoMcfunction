@@ -3,7 +3,7 @@ package analysis
 import (
 	"fmt"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
 
 // Violation is a broken IR invariant.

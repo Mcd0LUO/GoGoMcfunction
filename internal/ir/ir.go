@@ -217,7 +217,7 @@ type ExistTest struct {
 func (p Predicate) IsAlways() bool { return p.Exist == nil && len(p.Alts) == 0 }
 
 // ConstObjective is the objective every literal lives on.
-const ConstObjective = "cmcf.c"
+const ConstObjective = "ggm.c"
 
 // ConstName is the canonical fake-player name for a literal.
 // Negative values use an 'n' instead of '-' for portability across versions.

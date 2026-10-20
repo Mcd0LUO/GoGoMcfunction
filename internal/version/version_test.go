@@ -56,7 +56,7 @@ func TestBaselineNamesThisVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read baseline: %v", err)
 	}
-	if !strings.Contains(string(body), "cmcf "+Version) {
-		t.Fatalf("docs/BASELINE.md does not mention %q", "cmcf "+Version)
+	if !strings.Contains(string(body), "ggm "+Version) {
+		t.Fatalf("docs/BASELINE.md does not mention %q", "ggm "+Version)
 	}
 }

@@ -16,6 +16,41 @@
 
 ---
 
+## [0.6.0] - 2026-10-20
+
+### 改名：CMCF → GGM，项目名 GoGoMcfunction
+
+从语言名到生成结果里的标识符，整套统一。
+
+| 层 | 旧 | 新 |
+|---|---|---|
+| 仓库 / Go 模块 | `CelesteaMcfunction` | `GoGoMcfunction` |
+| 语言 | CMCF | **GGM** |
+| 源文件扩展名 | `.cmcf` | **`.ggm`** |
+| 命令 | `cmcf` | `ggm` |
+| 常量池 objective | `cmcf.c` | **`ggm.c`** |
+| spawn 标记标签 | `cmcf.spawn.<类>` | **`ggm.spawn.<类>`** |
+| 覆盖运行时的环境变量 | `CMCF_GOMC` | `GGM_GOMC` |
+| 规范文档 | `CMCF-语法规范-v1.0.md` | `GGM-语法规范-v1.0.md` |
+
+### 破坏性：已有存档里的状态会失效
+
+`cmcf.c` → `ggm.c` 和 `cmcf.spawn.*` → `ggm.spawn.*` 是**写进存档的数据**：
+
+- 常量池换了 objective，旧世界里 `#<常量>` 假玩家的分数读不到，第一次运行会重新初始化；
+- 实体上的 spawn 标记换了标签名，**所有已存在的实体会被当成没 spawn 过**，
+  `on spawn` 会对它们再跑一次。
+
+升级后需要重跑一次 `<ns>/init`，并清理旧标签（或换一个干净世界）。
+0.x 期间的破坏性改名正是次版本号的用途。
+
+### 未受影响
+
+**生成结果的结构一条都没变。** golden 的 diff 只有标识符替换，
+命令数、文件数、优化行为全部一致（`-O2` 仍是 15 文件 124 条命令）。
+
+---
+
 ## [0.5.0] - 2026-10-20
 
 ### 新增：选择器参数白名单进入编译期自检
@@ -79,7 +114,7 @@ function b4 if @s[score_t_min=0,score_t=0]
 纯渲染层改写，语义不变：`unless @s[c]` 就是「c 不成立」，而且在当前执行上下文里跑，
 和守卫调用解析到的 `@s` 是同一个实体。
 
-`examples/luo-math-full.cmcf`：`-O0` 130→129，`-O1` 128→127，`-O2/O3` 125→124。
+`examples/luo-math-full.ggm`：`-O0` 130→129，`-O1` 128→127，`-O2/O3` 125→124。
 
 ### 测试
 
@@ -220,7 +255,7 @@ diff 里显形。详见 [docs/BASELINE.md](docs/BASELINE.md)。
 
 ### 实测
 
-`examples/luo-math-full.cmcf`，静态 `-O2` 15 文件 / 125 条命令
+`examples/luo-math-full.ggm`，静态 `-O2` 15 文件 / 125 条命令
 （原手写库 17 文件 / 247 条）。动态执行 `sqrt(40000) = 200`：
 
 | | 动态命令 | 失败守卫 |

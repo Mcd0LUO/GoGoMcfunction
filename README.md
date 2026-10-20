@@ -1,11 +1,11 @@
-# CMCF
+# GGM
 
-把 CMCF 编译成 Minecraft Java **1.12.2** 的 `.mcfunction`。
+把 GGM 编译成 Minecraft Java **1.12.2** 的 `.mcfunction`。
 
-**cmcf 0.5.0** · 语言规范 1.0 · 目标 1.12.2
+**ggm 0.6.0** · 语言规范 1.0 · 目标 1.12.2
 
 ```
-cmcf [flags] <file.cmcf> ...
+ggm [flags] <file.ggm> ...
 
   -out DIR     输出目录（默认 data/functions）
   -O N         优化级别 0..3（默认 2）
@@ -19,13 +19,13 @@ cmcf [flags] <file.cmcf> ...
 ## 安装
 
 ```
-go install github.com/Mcd0LUO/CelesteaMcfunction/cmd/cmcf@latest
+go install github.com/Mcd0LUO/GoGoMcfunction/cmd/ggm@latest
 ```
 
 或者从源码构建：
 
 ```
-go build -o cmcf.exe ./cmd/cmcf
+go build -o ggm.exe ./cmd/ggm
 ```
 
 ## 状态
@@ -34,10 +34,10 @@ go build -o cmcf.exe ./cmd/cmcf
 见 [docs/BASELINE.md](docs/BASELINE.md) 与 [CHANGELOG.md](CHANGELOG.md)。
 
 **编译器版本和语言规范版本不是同一个。** 编译器实现的是规范的一个子集——
-规范第 7 节的检查清单里有一整张「计划中」的表。两者都印在 `cmcf -version` 里，
+规范第 7 节的检查清单里有一整张「计划中」的表。两者都印在 `ggm -version` 里，
 是唯一不需要加脚注就能说清这件事的方式。
 
-语言特性见 [docs/CMCF-语法规范-v1.0.md](docs/CMCF-语法规范-v1.0.md)，
+语言特性见 [docs/GGM-语法规范-v1.0.md](docs/GGM-语法规范-v1.0.md)，
 被砍掉的东西和复活条件见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 为什么值得存在
@@ -56,7 +56,7 @@ go build -o cmcf.exe ./cmd/cmcf
 ## 架构
 
 ```
-cmd/cmcf -> driver -> syntax -> lower -> optimize -> backend
+cmd/ggm -> driver -> syntax -> lower -> optimize -> backend
                         ir / analysis / target / mc / diag
 ```
 
@@ -74,7 +74,7 @@ cmd/cmcf -> driver -> syntax -> lower -> optimize -> backend
 | [VERIFICATION](docs/VERIFICATION.md) | 为什么要真跑、抓到的静默错误 |
 | [BASELINE](docs/BASELINE.md) | 0.1.0 冻结了什么、怎么验证、不保证什么 |
 | [CHANGELOG](CHANGELOG.md) | 每个版本改了什么 |
-| [语法规范 v1.0](docs/CMCF-语法规范-v1.0.md) | 完整语法与降级规则 |
+| [语法规范 v1.0](docs/GGM-语法规范-v1.0.md) | 完整语法与降级规则 |
 | [roadmap](docs/roadmap.md) | 砍掉的特性与复活条件 |
 
 ## 验证
@@ -87,7 +87,7 @@ go test ./...                                    # 63 条，语义测试跑在�
 go test ./internal/driver -run GoldenBaseline    # 逐字：与签入的输出比对
 ```
 
-运行时通过 `CMCF_GOMC` 环境变量定位，默认查找 `D:\code\go\GoMcRuntime\gomc.exe`。
+运行时通过 `GGM_GOMC` 环境变量定位，默认查找 `D:\code\go\GoMcRuntime\gomc.exe`。
 找不到时语义测试会 skip，而不是失败。
 
 Golden 比对失败时**先读 diff 再决定**：

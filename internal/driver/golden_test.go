@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden baseline files in testdata/golden")
@@ -28,14 +28,14 @@ var updateGolden = flag.Bool("update", false, "rewrite the golden baseline files
 // and then READ the diff. A baseline refreshed without being read is
 // not a baseline.
 func TestGoldenBaseline(t *testing.T) {
-	examples, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.cmcf"))
+	examples, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.ggm"))
 	if err != nil || len(examples) == 0 {
 		t.Skipf("no examples found: %v", err)
 	}
 	sort.Strings(examples)
 
 	for _, src := range examples {
-		name := strings.TrimSuffix(filepath.Base(src), ".cmcf")
+		name := strings.TrimSuffix(filepath.Base(src), ".ggm")
 		body, err := os.ReadFile(src)
 		if err != nil {
 			t.Fatalf("read %s: %v", src, err)

@@ -1,4 +1,4 @@
-// luo:math —— 原库 309 行 / 17 文件的 CMCF 移植
+// luo:math —— 原库 309 行 / 17 文件的 GGM 移植
 namespace luo:math
 
 comptime {

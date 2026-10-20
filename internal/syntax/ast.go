@@ -1,6 +1,6 @@
 package syntax
 
-// Expr is a CMCF expression.
+// Expr is a GGM expression.
 type Expr interface{ exprNode() }
 
 type (
@@ -64,7 +64,7 @@ func (Field) exprNode()     {}
 func (Index) exprNode()     {}
 func (ListLit) exprNode()   {}
 
-// Stmt is a CMCF statement.
+// Stmt is a GGM statement.
 type Stmt interface{ stmtNode() }
 
 type (

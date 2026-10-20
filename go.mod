@@ -1,3 +1,3 @@
-module github.com/Mcd0LUO/CelesteaMcfunction
+module github.com/Mcd0LUO/GoGoMcfunction
 
 go 1.24

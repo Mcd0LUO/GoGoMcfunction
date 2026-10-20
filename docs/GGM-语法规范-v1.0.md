@@ -1,4 +1,4 @@
-# CMCF 语法规范 v1.0（削减版）
+# GGM 语法规范 v1.0（削减版）
 
 > 目标：编译到 Minecraft Java 1.12.2 的 `.mcfunction`。
 > **设计原则：不为还没写过的项目设计语法。** v0.1 有 12 种声明、7 种类型、3 档效果、17 种语句；
@@ -180,7 +180,7 @@ min(a,b)  max(a,b)  abs(a)  clamp(a,lo,hi)  rem_euclid(a,m)
 reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 ```
 
-**字面量作 `operation` 操作数时自动物化**为 `#cmcf.const.<值>` 常量
+**字面量作 `operation` 操作数时自动物化**为 `#ggm.const.<值>` 常量
 （1.12.2 的 `operation` 右操作数必须是记分板名字，不能是字面量）。
 
 `#[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。

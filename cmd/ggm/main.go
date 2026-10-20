@@ -1,4 +1,4 @@
-// Command cmcf compiles CMCF source to Minecraft 1.12.2 mcfunction files.
+// Command ggm compiles GGM source to Minecraft 1.12.2 mcfunction files.
 package main
 
 import (
@@ -9,16 +9,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/version"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/version"
 )
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "cmcf: "+err.Error())
+		fmt.Fprintln(os.Stderr, "ggm: "+err.Error())
 		os.Exit(1)
 	}
 }
@@ -35,7 +35,7 @@ func run() error {
 		comments = flag.Bool("comments", false, "put a header naming each generated file's declaration")
 	)
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cmcf [flags] <file.cmcf> ...")
+		fmt.Fprintln(os.Stderr, "usage: ggm [flags] <file.ggm> ...")
 		flag.PrintDefaults()
 	}
 	flag.Parse()

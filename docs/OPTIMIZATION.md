@@ -11,7 +11,7 @@
 
 ```
 C++ 的 -O 级别 = 打开了哪些优化
-CMCF 的 -O 级别 = 每个优化被允许依赖多强的证明
+GGM 的 -O 级别 = 每个优化被允许依赖多强的证明
 ```
 
 之所以这样定，是因为在 1.12.2 上「优化错误」的代价是**静默的**：命令语法合法、
@@ -31,7 +31,7 @@ CMCF 的 -O 级别 = 每个优化被允许依赖多强的证明
 
 这一条值得单独说，因为它是从 bug 里学到的。
 
-字面量 `4` 降级成 `#4 cmcf.c`，它是一个 fake player。如果没人初始化它，
+字面量 `4` 降级成 `#4 ggm.c`，它是一个 fake player。如果没人初始化它，
 计分板读出来是 **0**。最初我把「生成常量池」归到 O2，结果 `-O1` 的产物里
 `x -= #4` 实际减的是 0，程序全错，而且没有任何报错。
 
@@ -40,7 +40,7 @@ CMCF 的 -O 级别 = 每个优化被允许依赖多强的证明
 ### 查看某个级别跳过了什么
 
 ```
-$ cmcf -O1 -v foo.cmcf
+$ ggm -O1 -v foo.ggm
 skipped at -O1: dead-store (needs O2: whole-function liveness fixed point; deleting a live write changes behaviour)
 skipped at -O1: coalesce-temps (needs O2: interference graph built from liveness; ...)
 ```
@@ -111,7 +111,7 @@ execute @s[score_t1_min=0] ~ ~ ~ function t:l/fl$b3               # 判据为假
 
 ## 3. 实测效果
 
-对象是 `examples/luo-math-full.cmcf`（原库 309 行 / 17 文件 / 247 条命令）：
+对象是 `examples/luo-math-full.ggm`（原库 309 行 / 17 文件 / 247 条命令）：
 
 ```
 -O0: files=16  commands=129  objectives=30  consts=9  （无优化，调试用）
@@ -208,7 +208,7 @@ function t:e/ne$b2 if @s[score_t_min=0,score_t=0]
 1. 在 `analysis/` 写它需要的分析，单独测试
 2. 在 `optimize/` 写 pass，测试**断言 IR 结构**而不是输出字符串
 3. 在 `Catalog()` 注册，写清 `Requires`——即**它为什么是正确的**
-4. 用真实代码验证：至少跑一遍 `examples/luo-math-full.cmcf`
+4. 用真实代码验证：至少跑一遍 `examples/luo-math-full.ggm`
 
 第 3 步不是形式主义。本文第 1 节的常量池 bug 就发生在「没想清楚这个 pass 依赖什么」上。
 

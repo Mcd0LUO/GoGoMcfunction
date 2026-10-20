@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // Result is everything the back end needs.
@@ -248,7 +248,7 @@ func (l *Lowerer) entryEvents(f *syntax.File) []string {
 // appears" is built the way the hand-written libraries build it: a tag
 // recording what has already been handled, and a per-tick pass over the
 // entities that do not carry it yet.
-func spawnTag(class string) string { return "cmcf.spawn." + class }
+func spawnTag(class string) string { return "ggm.spawn." + class }
 
 // withSelectorArg appends a raw argument to a selector's condition list.
 func withSelectorArg(sel, arg string) string {

@@ -1,7 +1,7 @@
 // Package mcfunction renders IR to Minecraft 1.12.2 mcfunction text.
 //
 // The back end knows commands and the target's condition semantics; it knows
-// nothing about CMCF syntax. Each IR block becomes one .mcfunction file, which
+// nothing about GGM syntax. Each IR block becomes one .mcfunction file, which
 // is forced by 1.12.2 having no intra-file labels.
 package mcfunction
 
@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/mc"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/mc"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // Options configures rendering.
@@ -59,13 +59,13 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 	// correctness requirement, not a nicety.
 	if objs := usedObjectives(prog); len(objs) > 0 {
 		for _, o := range objs {
-			add(prog.Namespace+"/init", mc.ObjectiveAdd{Name: o, Display: "cmcf"})
+			add(prog.Namespace+"/init", mc.ObjectiveAdd{Name: o, Display: "ggm"})
 		}
 	}
 
 	// Constant pool.
 	//
-	// These are fake players on objective cmcf.c. They persist in the save, so
+	// These are fake players on objective ggm.c. They persist in the save, so
 	// they only need initialising once — but they DO need initialising, or every
 	// literal reads as 0. An earlier revision emitted the pool as a normal
 	// function with no caller, so `t0 -= #100` silently subtracted zero.
@@ -76,7 +76,7 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 	// The CLI prints a note telling the user to call <ns>/consts on world load.
 	if len(prog.Consts) > 0 {
 		// The constant objective must exist before any literal is written.
-		add(prog.Namespace+"/init", mc.ObjectiveAdd{Name: ir.ConstObjective, Display: "cmcf"})
+		add(prog.Namespace+"/init", mc.ObjectiveAdd{Name: ir.ConstObjective, Display: "ggm"})
 		for _, v := range dedupe(prog.Consts) {
 			add(prog.Namespace+"/init", mc.ScoreboardSet{
 				Target:    ir.ConstName(v),

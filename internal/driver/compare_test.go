@@ -3,7 +3,7 @@ package driver_test
 import (
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 )
 
 // A comparison used as a value is materialised as: compute the

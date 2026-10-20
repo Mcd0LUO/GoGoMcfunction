@@ -1,4 +1,4 @@
-# CMCF 语法规范 v0.1
+# GGM 语法规范 v0.1
 
 > 目标：编译到 Minecraft Java 1.12.2 的 `.mcfunction`。
 > 设计约束来自 `luo/math` 库的真实用法（309 行 / 17 文件）与本项目知识库。
@@ -574,7 +574,7 @@ let v = pool_sample_unique(dice, math) using team dice.sampled
 
 ---
 
-## 12. 完整示例：`luo/math` 的 CMCF 版本
+## 12. 完整示例：`luo/math` 的 GGM 版本
 
 ```
 namespace luo:math

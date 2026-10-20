@@ -3,7 +3,7 @@
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
 scoreboard players operation @s l7 = @s a1
-scoreboard players operation @s a0 = #1 cmcf.c
+scoreboard players operation @s a0 = #1 ggm.c
 scoreboard players operation @s a1 = @s l6
 function luo:math/rand
 scoreboard players operation @s t3 = @s return
@@ -20,54 +20,54 @@ scoreboard players set #math.1000 math 1000
 scoreboard players set #math.2147483647 math 2147483647
 scoreboard players set #math.-1 math -1
 === luo:math/init ===
-scoreboard objectives add a0 dummy cmcf
-scoreboard objectives add a1 dummy cmcf
-scoreboard objectives add l10 dummy cmcf
-scoreboard objectives add l11 dummy cmcf
-scoreboard objectives add l12 dummy cmcf
-scoreboard objectives add l13 dummy cmcf
-scoreboard objectives add l14 dummy cmcf
-scoreboard objectives add l15 dummy cmcf
-scoreboard objectives add l2 dummy cmcf
-scoreboard objectives add l3 dummy cmcf
-scoreboard objectives add l4 dummy cmcf
-scoreboard objectives add l5 dummy cmcf
-scoreboard objectives add l6 dummy cmcf
-scoreboard objectives add l7 dummy cmcf
-scoreboard objectives add l8 dummy cmcf
-scoreboard objectives add l9 dummy cmcf
-scoreboard objectives add math dummy cmcf
-scoreboard objectives add return dummy cmcf
-scoreboard objectives add t0 dummy cmcf
-scoreboard objectives add t1 dummy cmcf
-scoreboard objectives add t11 dummy cmcf
-scoreboard objectives add t12 dummy cmcf
-scoreboard objectives add t2 dummy cmcf
-scoreboard objectives add t3 dummy cmcf
-scoreboard objectives add t4 dummy cmcf
-scoreboard objectives add t5 dummy cmcf
-scoreboard objectives add t7 dummy cmcf
-scoreboard objectives add t8 dummy cmcf
-scoreboard objectives add t9 dummy cmcf
-scoreboard objectives add temp1 dummy cmcf
-scoreboard objectives add cmcf.c dummy cmcf
-scoreboard players set #1 cmcf.c 1
-scoreboard players set #2 cmcf.c 2
-scoreboard players set #4 cmcf.c 4
-scoreboard players set #100 cmcf.c 100
-scoreboard players set #1000 cmcf.c 1000
-scoreboard players set #1234 cmcf.c 1234
-scoreboard players set #67108864 cmcf.c 67108864
-scoreboard players set #1103515245 cmcf.c 1103515245
-scoreboard players set #2147483647 cmcf.c 2147483647
+scoreboard objectives add a0 dummy ggm
+scoreboard objectives add a1 dummy ggm
+scoreboard objectives add l10 dummy ggm
+scoreboard objectives add l11 dummy ggm
+scoreboard objectives add l12 dummy ggm
+scoreboard objectives add l13 dummy ggm
+scoreboard objectives add l14 dummy ggm
+scoreboard objectives add l15 dummy ggm
+scoreboard objectives add l2 dummy ggm
+scoreboard objectives add l3 dummy ggm
+scoreboard objectives add l4 dummy ggm
+scoreboard objectives add l5 dummy ggm
+scoreboard objectives add l6 dummy ggm
+scoreboard objectives add l7 dummy ggm
+scoreboard objectives add l8 dummy ggm
+scoreboard objectives add l9 dummy ggm
+scoreboard objectives add math dummy ggm
+scoreboard objectives add return dummy ggm
+scoreboard objectives add t0 dummy ggm
+scoreboard objectives add t1 dummy ggm
+scoreboard objectives add t11 dummy ggm
+scoreboard objectives add t12 dummy ggm
+scoreboard objectives add t2 dummy ggm
+scoreboard objectives add t3 dummy ggm
+scoreboard objectives add t4 dummy ggm
+scoreboard objectives add t5 dummy ggm
+scoreboard objectives add t7 dummy ggm
+scoreboard objectives add t8 dummy ggm
+scoreboard objectives add t9 dummy ggm
+scoreboard objectives add temp1 dummy ggm
+scoreboard objectives add ggm.c dummy ggm
+scoreboard players set #1 ggm.c 1
+scoreboard players set #2 ggm.c 2
+scoreboard players set #4 ggm.c 4
+scoreboard players set #100 ggm.c 100
+scoreboard players set #1000 ggm.c 1000
+scoreboard players set #1234 ggm.c 1234
+scoreboard players set #67108864 ggm.c 67108864
+scoreboard players set #1103515245 ggm.c 1103515245
+scoreboard players set #2147483647 ggm.c 2147483647
 === luo:math/is_happen_fix100 ===
 scoreboard players operation @s l8 = @s a0
-scoreboard players operation @s a0 = #100 cmcf.c
+scoreboard players operation @s a0 = #100 ggm.c
 scoreboard players operation @s a1 = @s l8
 function luo:math/chance
 === luo:math/is_happen_fix1000 ===
 scoreboard players operation @s l9 = @s a0
-scoreboard players operation @s a0 = #1000 cmcf.c
+scoreboard players operation @s a0 = #1000 ggm.c
 scoreboard players operation @s a1 = @s l9
 function luo:math/chance
 === luo:math/lcg_next ===
@@ -75,21 +75,21 @@ scoreboard players operation @s a0 = seed math
 function luo:math/lcg_step
 scoreboard players operation @s l2 = @s return
 scoreboard players operation @s t0 = seed math
-scoreboard players operation @s t0 += #1234 cmcf.c
+scoreboard players operation @s t0 += #1234 ggm.c
 scoreboard players operation seed math = @s t0
 scoreboard players operation @s return = @s l2
 === luo:math/lcg_step ===
-scoreboard players operation @s return = #1103515245 cmcf.c
+scoreboard players operation @s return = #1103515245 ggm.c
 scoreboard players operation @s return *= @s a0
-scoreboard players operation @s return += #1234 cmcf.c
-scoreboard players operation @s return %= #67108864 cmcf.c
+scoreboard players operation @s return += #1234 ggm.c
+scoreboard players operation @s return %= #67108864 ggm.c
 === luo:math/load ===
 scoreboard players set seed math 12345
 === luo:math/rand ===
 scoreboard players operation @s l3 = @s a0
 scoreboard players operation @s l4 = @s a1
 scoreboard players operation @s l4 -= @s l3
-scoreboard players operation @s l4 += #1 cmcf.c
+scoreboard players operation @s l4 += #1 ggm.c
 function luo:math/lcg_next
 scoreboard players operation @s l5 = @s return
 scoreboard players operation @s return = @s l3
@@ -104,21 +104,21 @@ scoreboard players set @s l13 0
 scoreboard players set @s l14 64
 execute @a[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$b1
 === luo:math/sort_asc$b1 ===
-scoreboard players operation @s t12 = #2147483647 cmcf.c
+scoreboard players operation @s t12 = #2147483647 ggm.c
 scoreboard players operation @s t12 < @a[tag=math.sort] math
 scoreboard players operation @s l15 = @s t12
 scoreboard players operation @a[tag=math.sort] temp1 = @s l15
-scoreboard players operation @s l13 += #1 cmcf.c
+scoreboard players operation @s l13 += #1 ggm.c
 scoreboard players remove @s l14 1
 execute @a[tag=math.sort,score_l14_min=1] ~ ~ ~ function luo:math/sort_asc$b1
 === luo:math/sqrt ===
 scoreboard players operation @s t5 = @s a0
-scoreboard players operation @s t5 -= #4 cmcf.c
+scoreboard players operation @s t5 -= #4 ggm.c
 execute @s[score_t5=-1] ~ ~ ~ scoreboard players set @s return 1
 function luo:math/sqrt$b2 unless @s[score_t5=-1]
 === luo:math/sqrt$b2 ===
 scoreboard players operation @s l10 = @s a0
-scoreboard players operation @s l10 /= #4 cmcf.c
+scoreboard players operation @s l10 /= #4 ggm.c
 scoreboard players set @s l11 0
 scoreboard players set @s l12 32
 scoreboard players operation @s t7 = @s l10
@@ -132,7 +132,7 @@ scoreboard players operation @s t8 /= @s l10
 scoreboard players operation @s t9 = @s l10
 scoreboard players operation @s t9 += @s t8
 scoreboard players operation @s l10 = @s t9
-scoreboard players operation @s l10 /= #2 cmcf.c
+scoreboard players operation @s l10 /= #2 ggm.c
 scoreboard players operation @s t11 = @s l10
 scoreboard players operation @s t11 -= @s l11
 scoreboard players remove @s l12 1

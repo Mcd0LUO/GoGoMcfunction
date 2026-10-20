@@ -7,7 +7,7 @@ import (
 )
 
 // Lexer turns source bytes into tokens. It keeps newlines as tokens because
-// CMCF uses newline as the statement separator (semicolons are optional).
+// GGM uses newline as the statement separator (semicolons are optional).
 type Lexer struct {
 	src  []rune
 	i    int

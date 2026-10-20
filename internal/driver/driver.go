@@ -14,15 +14,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/backend/mcfunction"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/comptime"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/diag"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/lower"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/backend/mcfunction"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/comptime"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/lower"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // Output is a compiled module.

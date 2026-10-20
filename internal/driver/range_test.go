@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // compileDiags compiles and returns the diagnostics without failing.
 func compileDiags(src string) []string {
-	_, diags := driver.Compile(src, "test.cmcf", driver.Options{Target: target.V1_12_2, Level: optimize.O1})
+	_, diags := driver.Compile(src, "test.ggm", driver.Options{Target: target.V1_12_2, Level: optimize.O1})
 	var out []string
 	for _, d := range diags {
 		out = append(out, d.Code+": "+d.Msg)

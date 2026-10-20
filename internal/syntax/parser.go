@@ -15,7 +15,7 @@ type parser struct {
 	i    int
 }
 
-// Parse parses a CMCF source file.
+// Parse parses a GGM source file.
 func Parse(src string) (*File, error) {
 	toks, err := NewLexer(src).Lex()
 	if err != nil {
@@ -61,7 +61,7 @@ func (p *parser) expect(k Kind) (Token, error) {
 
 // expectName accepts an identifier or a reserved word used as a name.
 // Legacy 1.12.2 ABIs call their registers `arg1`, `return`, `in` ... which collide
-// with CMCF keywords, so extern bindings must be able to spell them.
+// with GGM keywords, so extern bindings must be able to spell them.
 func (p *parser) expectName() (Token, error) {
 	if p.cur().Kind == IDENT || p.cur().Text != "" {
 		return p.next(), nil

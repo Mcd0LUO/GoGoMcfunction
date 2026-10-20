@@ -3,10 +3,10 @@ package lower
 import (
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/syntax"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 func mustLower(t *testing.T, src string) *ir.Program {
@@ -15,7 +15,7 @@ func mustLower(t *testing.T, src string) *ir.Program {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	res, diags := Lower(f, target.V1_12_2, "test.cmcf")
+	res, diags := Lower(f, target.V1_12_2, "test.ggm")
 	for _, d := range diags {
 		if d.Severity == 0 {
 			t.Fatalf("lower: %v", d)

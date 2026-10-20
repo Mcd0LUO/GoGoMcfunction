@@ -2,7 +2,7 @@
 //
 // Why a subprocess: GoMcRuntime keeps its implementation in `internal/`,
 // which Go forbids importing across modules. Rather than restructure a
-// working project, cmcf talks to it through its CLI contract — the same
+// working project, ggm talks to it through its CLI contract — the same
 // contract its own golden tests use.
 //
 // That boundary is also an asset: the harness exercises exactly what a user
@@ -19,9 +19,9 @@ import (
 	"strings"
 )
 
-// Runtime locates the gomc binary. Set CMCF_GOMC to override.
+// Runtime locates the gomc binary. Set GGM_GOMC to override.
 func Runtime() (string, error) {
-	if p := os.Getenv("CMCF_GOMC"); p != "" {
+	if p := os.Getenv("GGM_GOMC"); p != "" {
 		return p, nil
 	}
 	candidates := []string{
@@ -39,7 +39,7 @@ func Runtime() (string, error) {
 			return c, nil
 		}
 	}
-	return "", fmt.Errorf("gomc runtime not found; set CMCF_GOMC to the gomc binary")
+	return "", fmt.Errorf("gomc runtime not found; set GGM_GOMC to the gomc binary")
 }
 
 // World is a temporary 1.12.2 save populated with generated functions.
@@ -55,7 +55,7 @@ func NewWorld(files map[string]string) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "cmcf-world-")
+	dir, err := os.MkdirTemp("", "ggm-world-")
 	if err != nil {
 		return nil, err
 	}
@@ -100,10 +100,10 @@ type State struct {
 // A case file is the runtime's own format, so this stays a supported
 // interface rather than a private one.
 func (w *World) Run(setup, run []string) (*State, error) {
-	casePath := filepath.Join(os.TempDir(), "cmcf-case-"+filepath.Base(w.Dir)+".difftest")
+	casePath := filepath.Join(os.TempDir(), "ggm-case-"+filepath.Base(w.Dir)+".difftest")
 	defer os.Remove(casePath)
 	var sb strings.Builder
-	sb.WriteString("name: cmcf\nsetup:\n")
+	sb.WriteString("name: ggm\nsetup:\n")
 	for _, c := range setup {
 		sb.WriteString("  " + c + "\n")
 	}

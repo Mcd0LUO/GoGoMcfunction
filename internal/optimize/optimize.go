@@ -8,8 +8,8 @@ package optimize
 import (
 	"sort"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/analysis"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
 
 // Pass is one IR-to-IR transformation.

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
 
 // Target describes a Minecraft version's function/command semantics.

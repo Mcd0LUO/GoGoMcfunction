@@ -1,6 +1,6 @@
 package lower
 
-import "github.com/Mcd0LUO/CelesteaMcfunction/internal/ir"
+import "github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 
 // negate returns the logical complement of a predicate.
 //

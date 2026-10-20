@@ -1,4 +1,4 @@
-# Baseline：cmcf 0.5.0
+# Baseline：ggm 0.6.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -13,11 +13,11 @@
 |---|---|---|
 | 生成结果 | `internal/driver/testdata/golden/*.txt` | `go test ./internal/driver -run GoldenBaseline` |
 | 语义行为 | `internal/*/**_test.go`（63 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
-| 版本标识 | `internal/version/version.go` | `cmcf -version` |
+| 版本标识 | `internal/version/version.go` | `ggm -version` |
 | 全局检查 | 见下节 | `go test ./internal/driver -run 'Callee\|Uncalled\|Builtin'` |
 | 类语义 | `internal/driver/class_test.go`（7 条，含真机执行） | `go test ./internal/driver -run 'Class\|Tick\|Spawn'` |
 
-`testdata/golden/` 里是 `examples/*.cmcf` 在 `-O0`..`-O3` 下**完整**的输出，
+`testdata/golden/` 里是 `examples/*.ggm` 在 `-O0`..`-O3` 下**完整**的输出，
 按函数名排序、以 `=== <函数 id> ===` 分节。文件头一行是
 `# files=N commands=M`。
 
@@ -64,14 +64,14 @@ git diff internal/driver/testdata/golden
 execute @e[type=zombie,tag=mob.monster] ~ ~ ~ function t:k/Monster/tick
 
 # <ns>/spawn  —— @s 先打标记，函数体里的 return 就跳不过它
-execute @e[type=zombie,tag=mob.monster,tag=!cmcf.spawn.Monster] ~ ~ ~ function t:k/Monster/spawn
+execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:k/Monster/spawn
 ```
 
 ---
 
 ## 这个 baseline 的数字
 
-`examples/luo-math-full.cmcf`（原手写库：17 文件 / 247 条命令）：
+`examples/luo-math-full.ggm`（原手写库：17 文件 / 247 条命令）：
 
 | 级别 | 文件 | 命令 |
 |---|---|---|

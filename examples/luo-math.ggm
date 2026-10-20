@@ -1,4 +1,4 @@
-// luo:math —— 原来 309 行手写 mcfunction 的 CMCF 版本
+// luo:math —— 原来 309 行手写 mcfunction 的 GGM 版本
 namespace luo:math
 
 comptime {

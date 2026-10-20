@@ -5,16 +5,16 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/driver"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/optimize"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/sim"
-	"github.com/Mcd0LUO/CelesteaMcfunction/internal/target"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/sim"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
 
 // compile lowers a source string and fails the test on any error.
 func compile(t *testing.T, src string, level optimize.Level) map[string]string {
 	t.Helper()
-	out, diags := driver.Compile(src, "test.cmcf", driver.Options{Target: target.V1_12_2, Level: level})
+	out, diags := driver.Compile(src, "test.ggm", driver.Options{Target: target.V1_12_2, Level: level})
 	for _, d := range diags {
 		if d.Severity == 0 {
 			t.Fatalf("compile: %v", d)
@@ -28,7 +28,7 @@ func compile(t *testing.T, src string, level optimize.Level) map[string]string {
 
 // harness runs generated functions on a real 1.12.2 engine.
 //
-// Every function cmcf emits reads and writes through @s, and 1.12.2
+// Every function ggm emits reads and writes through @s, and 1.12.2
 // gives @s no value unless the caller supplies an executor. A test that
 // calls a function straight from the console therefore observes nothing
 // at all, so the harness summons a marker armor stand and enters the
@@ -41,7 +41,7 @@ type harness struct {
 	tag string
 }
 
-const markerTag = "CMCF"
+const markerTag = "GGM"
 
 func newHarness(t *testing.T, ns string, files map[string]string) *harness {
 	t.Helper()
