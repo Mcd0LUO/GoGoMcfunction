@@ -38,7 +38,7 @@ fn f(a: int, b: int) -> int {
 }`,
 		`namespace ns
 fn f(a: int, b: int) -> int {
-  while a < b #[budget(4)] { a = a + 1 }
+  while a < b cap 4 { a = a + 1 }
   a
 }`,
 		`namespace ns
@@ -159,7 +159,7 @@ func isTemp(obj string) bool {
 func TestAbsComparisonAvoidsMaterialisation(t *testing.T) {
 	prog := mustLower(t, `namespace ns
 fn f(a: int, b: int) -> int {
-  while abs(a - b) >= 1 #[budget(4)] { a = a + 1 }
+  while abs(a - b) >= 1 cap 4 { a = a + 1 }
   a
 }`)
 	for _, fn := range prog.Funcs {

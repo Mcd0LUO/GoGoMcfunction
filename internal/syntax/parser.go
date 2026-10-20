@@ -1127,30 +1127,9 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		budget := 0
-		// #[budget(N)] may appear before or after the condition
-		if p.cur().Kind == HASH {
-			p.next()
-			if _, err := p.expect(LBRACK); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(BUDGET); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(LPAREN); err != nil {
-				return nil, err
-			}
-			n, err := p.expect(INT)
-			if err != nil {
-				return nil, err
-			}
-			budget = atoi(n.Text)
-			if _, err := p.expect(RPAREN); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(RBRACK); err != nil {
-				return nil, err
-			}
+		budget, err := p.parseCap()
+		if err != nil {
+			return nil, err
 		}
 		body, err := p.parseBlock()
 		if err != nil {
@@ -1189,29 +1168,9 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		budget := 0
-		if p.cur().Kind == HASH {
-			p.next()
-			if _, err := p.expect(LBRACK); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(BUDGET); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(LPAREN); err != nil {
-				return nil, err
-			}
-			n, err := p.expect(INT)
-			if err != nil {
-				return nil, err
-			}
-			budget = atoi(n.Text)
-			if _, err := p.expect(RPAREN); err != nil {
-				return nil, err
-			}
-			if _, err := p.expect(RBRACK); err != nil {
-				return nil, err
-			}
+		budget, err := p.parseCap()
+		if err != nil {
+			return nil, err
 		}
 		body, err := p.parseBlock()
 		if err != nil {
@@ -1311,6 +1270,33 @@ func (p *parser) parseSelectorLiteral() (Expr, error) {
 }
 
 func (p *parser) parseExpr() (Expr, error) { return p.parseBinary(0) }
+
+// parseCap reads the mandatory `cap <n>` bound of a loop.
+//
+// It is written as a word beside the condition rather than as `#[budget(N)]`
+// because it is an operand, not a decoration: a loop without it is rejected
+// (E_NO_BUDGET). The attribute spelling implied it was optional, and a
+// mandatory thing dressed as an optional one is a trap for the reader.
+//
+// `cap` stays an ordinary identifier, so a program may still name a variable
+// after it.
+func (p *parser) parseCap() (int, error) {
+	if p.cur().Kind == HASH {
+		// The one thing an author migrating from the old spelling will have
+		// written here. Naming the replacement beats repeating the general
+		// message at a position that looks like an attribute.
+		return 0, &Error{Pos: p.cur().Pos, Msg: "the loop bound is now written \"cap <n>\"; #[budget(N)] was removed"}
+	}
+	if p.cur().Kind != IDENT || p.cur().Text != "cap" {
+		return 0, &Error{Pos: p.cur().Pos, Msg: "a loop needs an iteration bound: end the header with \"cap <n>\""}
+	}
+	p.next()
+	n, err := p.expect(INT)
+	if err != nil {
+		return 0, err
+	}
+	return atoi(n.Text), nil
+}
 
 // parseCond reads a condition: an expression optionally followed by
 // `matches n"..."`.

@@ -11,7 +11,7 @@
 
 1. **`@s` 是唯一执行主体。** 没有 `@s` 的地方（`on load`）不能调用需要 `@s` 的函数——编译错误。
 2. **三种「多」语法可区分**：扇出 `for e in entities<sel>`、广播写 `@sel f = v`。成本差一个数量级。
-3. **没有栈。** 递归只有一种：带 `#[budget]` 的有界自递归。
+3. **没有栈。** 递归只有一种：带 `cap` 的有界自递归。
 4. **预算是语义。** `maxCommandChainLength` 超限后**静默丢弃**，所以必须静态标注。
 5. **选择器是区间不是相等。** 用户写 `==`，编译器发射 `_min=N,=N`。
 
@@ -37,7 +37,7 @@ namespace comptime const extern
 fn class selector on
 let if else while for in step
 return self true false none
-entities where budget wrapping
+entities where cap wrapping
 ```
 
 ---
@@ -190,7 +190,7 @@ scoreboard objectives add <名字> <criteria> [<display>]
 let x = 5                      // 临时 objective，编译器按活跃区间分配
 x = x + 1                      // = += -= *= /= %=
 if cond { } else { }
-while cond #[budget(32)] { }   // 必须带预算
+while cond cap 32 { }          // 必须给上界
 for e in entities<@a[tag=x]> { }                 // 扇出
 @a[tag=math.sort] sort.diff = self.sort.key - lo // 广播写
 decode wp.damage1 from @s.Inventory(0)[atk_base] // NBT → 分数
@@ -198,6 +198,28 @@ encode @s.Item[money] = return over 1..10        // 分数 → NBT
 ```
 
 **没有**：`match` `enum` `repeat` `break` `continue` `goto` `return` 之外的控制流。
+
+### 4.0 两种循环
+
+```ggm
+while i < n cap 64 { }     // 先判后做
+loop  i > 0 cap 32 { }     // 先做一次，再判
+```
+
+1.12.2 **没有循环**。两者都降级成一个**调用自己**的函数：
+一个计数器加条件，两者一起挂在 `if` 上，预算耗尽自然停下。
+
+| | 判断位置 | 降级 |
+|---|---|---|
+| `while` | 循环体**之前** | `if cond { loop cond { body } }` |
+| `loop` | 循环体**之后** | 循环体至少执行一次 |
+
+**`cap <n>` 是必填的**，漏了报 `E_NO_BUDGET`。1.12.2 的 `function` 是入队展开，
+没有这个闸，一个写错的条件就是无限递归——它不会报错，只会卡死服务器。
+
+写成 `cap` 而不是 `#[budget(N)]`：它是循环的**操作数**，不是可选修饰，
+而 `#[…]` 在 GGM 里是属性语法（`#[wrapping]`）。必填的东西打扮成可选的，
+读者会以为可以省。
 
 ### 4.1 条件
 
@@ -407,7 +429,7 @@ comptime {
 | `E_HOOK_UNSUPPORTED` | `on death` 有非空函数体（需要影子实体） |
 | `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
 | `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
-| `E_NO_BUDGET` | `while` / `loop` 没有 `#[budget(N)]` |
+| `E_NO_BUDGET` | `while` / `loop` 没有 `cap <n>` 上界 |
 | `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
 | `E_ARITY` | 调用实参个数与声明不符 |
 | `E_ASSIGN_TARGET` | 赋值目标不是可写位置 |
@@ -497,7 +519,7 @@ fn sqrt(n: int) -> int {
     if n < 4 { return 1 }
     let x = n / 4
     let prev = 0
-    while abs(x - prev) >= 1 #[budget(32)] {
+    while y < x cap 64 {
         prev = x
         x = (x + n / x) / 2
     }
@@ -507,7 +529,7 @@ fn sqrt(n: int) -> int {
 fn sort_asc() {
     tag_add(@a, "math.sort")
     let rank = 0
-    while any<@a[tag=math.sort]> #[budget(64)] {
+    while any<@a[tag=math.sort]> cap 64 {
         let lo = reduce<min>(@a[tag=math.sort], sort.key)
         @a[tag=math.sort] sort.diff = self.sort.key - lo
         rank += 1

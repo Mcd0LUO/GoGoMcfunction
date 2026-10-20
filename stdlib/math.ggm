@@ -84,7 +84,7 @@ fn is_happen_fix1000(p: int) -> bool {
 //     while abs(x - prev) >= 1 { prev = x; x = (x + n / x) / 2 }
 //
 // 它在不动点两侧**振荡**：99 会让 x 在 9 和 10 之间来回，循环一直跑到
-// #[budget] 耗尽，返回值取决于当时的奇偶 —— 实测 sqrt(99) 得 10，而 10² = 100 > 99。
+// cap 耗尽，返回值取决于当时的奇偶 —— 实测 sqrt(99) 得 10，而 10² = 100 > 99。
 //
 // 正确的判据是「y 不再比 x 小」：牛顿法从 n 以上开始单调下降，
 // 一旦 y >= x 就到不动点了。这个形状还顺带处理了 n = 0
@@ -97,7 +97,7 @@ fn is_happen_fix1000(p: int) -> bool {
 fn sqrt(n: int) -> int {
     let x = n
     let y = x / 2 + x % 2
-    while y < x #[budget(64)] {
+    while y < x cap 64 {
         x = y
         y = (x + n / x) / 2
     }

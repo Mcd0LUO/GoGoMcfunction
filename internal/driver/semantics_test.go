@@ -23,7 +23,7 @@ fn sqrt(n: int) -> int {
   if n < 2 { return n }
   let x = n
   let y = (x + 1) / 2
-  while y < x #[budget(64)] {
+  while y < x cap 64 {
     x = y
     y = (x + n / x) / 2
   }

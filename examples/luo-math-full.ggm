@@ -51,7 +51,7 @@ fn is_happen_fix1000(p: int) -> bool {
 fn sqrt(n: int) -> int {
     let x = n
     let y = x / 2 + x % 2
-    while y < x #[budget(64)] {
+    while y < x cap 64 {
         x = y
         y = (x + n / x) / 2
     }
@@ -60,7 +60,7 @@ fn sqrt(n: int) -> int {
 
 fn sort_asc() {
     let rank = 0
-    while any<@a[tag=math.sort]> #[budget(64)] {
+    while any<@a[tag=math.sort]> cap 64 {
         let lo = reduce<min>(@a[tag=math.sort], math)
         @a[tag=math.sort] temp1 = lo
         rank = rank + 1
