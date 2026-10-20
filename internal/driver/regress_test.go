@@ -6,6 +6,7 @@ import (
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/sim"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 )
 
 // The five fixes below all come from running generated code on the engine
@@ -522,5 +523,57 @@ on every 100ms { }
 `)
 	if !hasCode(msgs, "E_PARSE") {
 		t.Fatalf("want a parse error for a sub-tick duration, got %v", msgs)
+	}
+}
+
+// A duration is ONE token, so its unit may be a keyword.
+//
+// `tick` starts `on tick`, and with durations lexed as INT + identifier the
+// parser could not glue them: `on every 1tick` was unwritable, and the
+// workaround was to make the plural carry the meaning (`1ticks`). A duration
+// is a literal, like a hex integer, so the lexer owns it.
+func TestDurationIsOneToken(t *testing.T) {
+	for _, tc := range []struct {
+		text  string
+		ticks int
+	}{
+		{"1tick", 1},
+		{"1ticks", 1},
+		{"5s", 100},
+		{"5sec", 100},
+		{"5seconds", 100},
+		{"2m", 2400},
+		{"2min", 2400},
+	} {
+		got, ok := syntax.ParseDuration(tc.text)
+		if !ok || got != tc.ticks {
+			t.Errorf("ParseDuration(%q) = %d, %v; want %d", tc.text, got, ok, tc.ticks)
+		}
+	}
+	// A unit the target cannot schedule is rejected rather than rounded.
+	for _, bad := range []string{"100ms", "0s", "5", "s", "5x"} {
+		if _, ok := syntax.ParseDuration(bad); ok {
+			t.Errorf("ParseDuration(%q) was accepted", bad)
+		}
+	}
+}
+
+// The singular `tick` must work in source, which is what the single token buys.
+func TestOnEveryAcceptsSingularTick(t *testing.T) {
+	files := compile(t, `namespace t:d
+obj n
+on load { n = 0 }
+on tick { }
+on every 1tick { }
+`, optimize.O2)
+
+	var entry string
+	for name, b := range files {
+		if strings.HasSuffix(name, "/every/1tick") {
+			entry = b
+		}
+	}
+	if !strings.Contains(entry, "scoreboard players set @s p.1 0") {
+		t.Errorf("on every 1tick did not produce a one-tick period:\n%s", entry)
 	}
 }

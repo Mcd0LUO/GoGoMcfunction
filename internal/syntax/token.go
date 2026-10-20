@@ -19,6 +19,13 @@ const (
 	IDENT
 	INT
 	STRING
+	// DURATION is `<digits><unit>`, e.g. 5s or 1tick.
+	//
+	// One token rather than INT followed by an identifier, because the unit
+	// includes the keyword `tick`: gluing two tokens in the parser made
+	// `on every 1tick` unwritable, and the workaround was to make the plural
+	// carry the meaning. A duration is a literal, so the lexer owns it.
+	DURATION
 	// NBT is `n"..."`: an NBT value in SNBT form.
 	NBT
 	// NBTPATH is `p"..."`: a key path from the entity root.
@@ -125,7 +132,7 @@ func (k Kind) String() string {
 
 var kindNames = map[Kind]string{
 	EOF: "end of file", NEWLINE: "newline", IDENT: "identifier",
-	INT: "integer", STRING: "string literal",
+	INT: "integer", STRING: "string literal", DURATION: "duration",
 	NBT: "NBT value", NBTPATH: "NBT path",
 	NAMESPACE: "namespace", COMPTIME: "comptime", CONST: "const",
 	EXTERN: "extern", FN: "fn", CLASS: "class", SELECTOR: "selector",

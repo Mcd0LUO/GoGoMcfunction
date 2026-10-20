@@ -1046,38 +1046,24 @@ func (p *parser) parseOn() (*OnDecl, error) {
 		d.Event = "tick"
 	case EVERY:
 		p.next()
-		n, err := p.expect(INT)
+		// One DURATION token, so the unit may be a keyword (`tick`) without
+		// the parser having to glue tokens together.
+		tok, err := p.expect(DURATION)
 		if err != nil {
-			return nil, err
-		}
-		unit, err := p.expectIdent()
-		if err != nil {
-			return nil, err
+			return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf(
+				"on every needs a duration literal like 5s, 10ticks or 1m; got %s. The game tick is the smallest unit this targets", p.cur().Kind)}
 		}
 		d.Event = "every"
-		d.Every = n.Text + unit.Text
+		d.Every = tok.Text
 		// 1.12.2 runs 20 game ticks per second, and a tick is the only unit
 		// the engine has. Anything else parses but cannot be scheduled, so it
 		// is reported here rather than becoming an entry that never fires.
-		count := atoi(n.Text)
-		switch unit.Text {
-		case "ticks":
-			// Plural only: `tick` is the keyword that starts `on tick`, so
-			// `on every 1tick` cannot lex as a duration.
-			d.EveryTicks = count
-		case "s", "sec", "second", "seconds":
-			d.EveryTicks = count * 20
-		case "m", "min", "minute", "minutes":
-			d.EveryTicks = count * 20 * 60
+		ticks, ok := ParseDuration(d.Every)
+		if !ok {
+			return nil, &Error{Pos: tok.Pos, Msg: fmt.Sprintf(
+				"%q is not a duration I can schedule; the smallest unit is one game tick, so use tick(s), s or m", d.Every)}
 		}
-		if d.EveryTicks <= 0 {
-			// The game tick is the smallest unit 1.12.2 has, so a duration that
-			// does not land on one has no schedule. Saying so beats rounding:
-			// 120ms would silently become 3 ticks, and the period would fire on
-			// a cadence the author never asked for.
-			return nil, &Error{Pos: n.Pos, Msg: fmt.Sprintf(
-				"%q is not a duration I can schedule; the smallest unit is one game tick, so use ticks, s or m", d.Every)}
-		}
+		d.EveryTicks = ticks
 	default:
 		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load, tick or every after on"}
 	}
@@ -1087,6 +1073,34 @@ func (p *parser) parseOn() (*OnDecl, error) {
 	}
 	d.Body = body
 	return d, nil
+}
+
+// ParseDuration converts a duration literal into game ticks.
+//
+// The game tick is the smallest unit 1.12.2 has, so this is the ONE place that
+// knows the conversion. A separate parser elsewhere made `5s` and `100ms`
+// both become p.100, and two periods shared a counter.
+func ParseDuration(text string) (int, bool) {
+	i := 0
+	for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+		i++
+	}
+	if i == 0 || i == len(text) {
+		return 0, false
+	}
+	count := 0
+	for _, c := range text[:i] {
+		count = count*10 + int(c-'0')
+	}
+	switch text[i:] {
+	case "tick", "ticks":
+		return count, count > 0
+	case "s", "sec", "secs", "second", "seconds":
+		return count * 20, count > 0
+	case "m", "min", "mins", "minute", "minutes":
+		return count * 20 * 60, count > 0
+	}
+	return 0, false
 }
 
 func (p *parser) parseBlock() ([]Stmt, error) {
