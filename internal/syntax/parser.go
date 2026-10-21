@@ -80,11 +80,33 @@ func (p *parser) expect(k Kind) (Token, error) {
 // expectName accepts an identifier or a reserved word used as a name.
 // Legacy 1.12.2 ABIs call their registers `arg1`, `return`, `in` ... which collide
 // with GGM keywords, so extern bindings must be able to spell them.
+//
+// The test used to be `Text != ""`, which is nearly every token: it accepted
+// `@s`, `into`, `from` and any operator that carries text. `decode x into …`
+// then swallowed `into` as part of the objective name and reported a missing
+// `from` three tokens later, which is a confusing way to say "that word is
+// reserved here".
+//
+// A name is a word: letters, digits and underscore, lexed as IDENT or as a
+// keyword. Anything else is not a name no matter what text it carries.
 func (p *parser) expectName() (Token, error) {
-	if p.cur().Kind == IDENT || p.cur().Text != "" {
+	if p.cur().Kind == IDENT || isKeyword(p.cur().Kind) {
 		return p.next(), nil
 	}
 	return Token{}, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("expected a name, got %s", p.cur().Kind)}
+}
+
+// isKeyword reports whether a kind is one of the language's reserved words.
+//
+// It is derived from the keyword table rather than a second list, so a new
+// keyword cannot be usable as a name until somebody decides it should be.
+func isKeyword(k Kind) bool {
+	for _, v := range keywords {
+		if v == k {
+			return true
+		}
+	}
+	return false
 }
 
 // nameable reports whether a keyword may also serve as a name.

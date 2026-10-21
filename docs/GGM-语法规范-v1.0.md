@@ -690,6 +690,25 @@ tp(self, "100", "64", "-20")  // 绝对：到那个方块
 写不出来。让波浪号可见，每个轴多一个字符，两种形式就都能说清自己是什么——
 而且这正是 1.12.2 自己的区分方式，中间不再有可错的翻译。
 
+#### `decode … into`：多处累加到一个 objective
+
+普通 `decode` **先清零**。一个值分散在多个槽位、由多条语句分别读取时，这就不够
+用了：每条都清零，只有最后一条的贡献留下，而结果看起来「有值」。
+
+```ggm
+// 数据包的做法：reset 一次，18 个文件各自累加
+[export]
+fn reset() { legacy.AtkBase = 0 }
+
+[export]
+fn slot9()  { decode legacy.AtkBase from @s.Inventory(9..9)[AtkBase] into }
+[export]
+fn slot10() { decode legacy.AtkBase from @s.Inventory(10..10)[AtkBase] into }
+```
+
+`into` 放在**句尾**，因为它描述的是这个 decode 怎么写入，而不是写入什么。
+`decode a into b from c` 读起来像 `into` 引出了容器；
+`decode <什么> from <哪里> into <怎么写>` 每个部分都在它该在的位置。
 #### `detect`：探测方块
 
 ```ggm

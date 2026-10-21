@@ -16,6 +16,57 @@
 
 ---
 
+## [0.22.0] - 2026-10-21
+
+### 新增 `decode … into`：多处累加
+
+移植 `rpg/api/ApLoader/legacy` 时发现 `decode` 有个真实缺口。数据包的做法是：
+
+```mcfunction
+// reset 一次
+scoreboard players reset @s legacy.AtkBase
+// 然后 18 个文件各自累加
+scoreboard players add @s legacy.AtkBase 1 {…Slot:9b…}
+scoreboard players add @s legacy.AtkBase 2 {…Slot:9b…}
+```
+
+而每个 `decode` **都先清零**。三个槽位写成三条 `decode`，只有最后一条的贡献留下，
+结果看起来「有值」——一个不报错、不崩溃、答案错误的 bug。
+
+```ggm
+[export]
+fn reset() { legacy.AtkBase = 0 }
+
+[export]
+fn slot9()  { decode legacy.AtkBase from @s.Inventory(9..9)[AtkBase] into }
+[export]
+fn slot10() { decode legacy.AtkBase from @s.Inventory(10..10)[AtkBase] into }
+```
+
+`into` 在**句尾**。`decode a into b from c` 读起来像 `into` 引出了容器；
+`decode <什么> from <哪里> into <怎么写>` 每个部分都在它该在的位置。
+
+### 顺带修掉 `expectName` 的过度匹配
+
+它的条件原本是 `Text != ""`，几乎接受任何 token——`@s`、`into`、`from`、任何
+带文本的运算符。于是 `decode x into …` 把 `into` 当成 objective 名的一部分吞掉，
+然后在三个 token 之后报「缺少 from」。
+
+现在只接受 IDENT 或关键字，且关键字表是**遍历**出来的，不是第二份列表。
+
+### 移植结果
+
+`rpg/api/ApLoader/legacy`：数据包 19 个文件 126 行 → GGM 源 47 行 → 生成 119 行。
+
+顺带发现数据包里 `Atkbase_9` 与 `AtkBase_9` 只差一个字母大小写，1.12.2 会把
+函数名归一化成小写，所以它们是**同一个函数**；两个文件内容完全相同，也就是说
+其中一个从未被调用过。这正是 `E_FN_COLLISION` 要抓的东西，手写时没人会发现。
+
+### 实测
+
+单槽位：`reset` + `load_slot9` 得到 3（位 0 + 位 1），正确。
+多条目 Inventory：GoMcRuntime 的 NBT 匹配失效（`dataTag does not match`），
+这是 runtime 的限制——同一条命令单独执行、或 Inventory 只有一个条目时都正常。
 ## [0.21.0] - 2026-10-21
 
 ### 新增 `detect` 和 `enable`

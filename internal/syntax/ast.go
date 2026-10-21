@@ -306,7 +306,15 @@ type DecodeStmt struct {
 	Container Container
 	Field     string
 	Cases     []DecodeCase
-	P         Pos
+	// Into is set by `decode … into …`, which accumulates instead of
+	// resetting first.
+	//
+	// Without it a value spread over several statements is impossible to
+	// express: each decode resets the objective, so only the last one's
+	// contribution survives and the answer is quietly wrong. The reference
+	// data pack resets once and adds from eighteen files.
+	Into bool
+	P    Pos
 }
 
 // DecodeCase is one author-written `<nbt> add|set <v>` inside a decode block.

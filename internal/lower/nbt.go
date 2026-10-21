@@ -95,7 +95,15 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 	// One reset for the whole statement, then every slot's rungs. Resetting per
 	// slot would leave only the last slot's contribution, which is exactly what
 	// the hand-written defence file avoids by resetting once for all four.
-	fb.Emit(cur, ir.Set{Dst: dst, Value: 0})
+	//
+	// `decode … into` skips the reset so that SEVERAL statements can add to one
+	// objective. The reference data pack needs that: it resets five objectives
+	// once in legacy/reset, then eighteen files each add one slot's worth. Three
+	// ordinary decodes cannot express it -- each resets, so only the last
+	// survives, and the value is silently the third slot's alone.
+	if !s.Into {
+		fb.Emit(cur, ir.Set{Dst: dst, Value: 0})
+	}
 
 	slots := []int{0}
 	if s.Container.IsSlot {

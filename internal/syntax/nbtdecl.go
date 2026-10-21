@@ -88,6 +88,16 @@ func (p *parser) parseDecode() (Stmt, error) {
 	} else {
 		return nil, &Error{Pos: p.cur().Pos, Msg: "decode needs a field: decode <objective> from <container>[<field>]"}
 	}
+	// `into` trails the statement, where it reads as what it does: this decode
+	// adds into an objective instead of resetting it first.
+	//
+	// Trailing rather than leading because `decode a into b from c` reads as
+	// though `into` introduced the container. In `decode <what> from <where>
+	// into <how>` every part keeps the position its meaning suggests.
+	if p.cur().Text == "into" {
+		p.next()
+		s.Into = true
+	}
 	// Optional author-written cases, appended after the field's own.
 	if p.cur().Kind == LBRACE {
 		p.next()
