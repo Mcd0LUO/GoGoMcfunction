@@ -18,7 +18,7 @@ const nbtRoundTripSrc = `namespace t:n
 obj money
 nbt money = p"tag.dat.money" : bits 9
 
-on load {
+fn read1() {
   decode money from @s.SelectedItem[money]
 }
 
@@ -88,7 +88,7 @@ func TestNBTEncodeRangeIsChecked(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 obj money
 nbt money = p"tag.dat.money" : bits 9
-on load {
+fn read2() {
   money = 1
   encode @s.SelectedItem[money] = money over 0..600
 }
@@ -103,7 +103,7 @@ on load {
 func TestNBTDecodeIntoUndeclaredObjective(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 nbt money = p"tag.dat.money" : bits 9
-on load {
+fn read3() {
   decode undeclared from @s.SelectedItem[money]
 }
 `)
@@ -115,7 +115,7 @@ on load {
 func TestNBTUnknownField(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 obj money
-on load {
+fn read4() {
   decode money from @s.SelectedItem[nosuch]
 }
 `)
@@ -130,7 +130,9 @@ func TestNBTBitWidthIsChecked(t *testing.T) {
 	msgs := compileDiags(`namespace t:n
 obj money
 nbt money = p"tag.dat.money" : bits 31
-on load { decode money from @s.SelectedItem[money] }
+fn read5() {
+  decode money from @s.SelectedItem[money]
+}
 `)
 	if !hasCode(msgs, "E_FIELD_BITS") {
 		t.Fatalf("want E_FIELD_BITS, got %v", msgs)
@@ -143,7 +145,7 @@ func TestNBTSentinelCaseUsesSet(t *testing.T) {
 	files := compile(t, `namespace t:n
 obj lv
 nbt lv = p"dat.lv" : bits 3
-on load {
+fn read6() {
   decode lv from @s.SelectedItem[lv] {
     n"{SelectedItem:{tag:{dat:{lv:{max:1b}}}}}" set -1
   }
@@ -177,7 +179,7 @@ func TestNBTCodecRoundTripsOnRealRuntime(t *testing.T) {
 obj money
 nbt money = p"tag.dat.money" : bits 9
 
-on load {
+fn read7() {
   decode money from @s.Item[money]
 }
 
@@ -205,7 +207,7 @@ fn enc() -> int {
 			// Clear it, so a decode that never matches cannot pass by leaving
 			// the seeded value in place.
 			"scoreboard players set @e[type=item] money 0",
-			"execute @e[type=item] ~ ~ ~ function t:n/load",
+			"execute @e[type=item] ~ ~ ~ function t:n/read7",
 			"scoreboard players operation R money = @e[type=item] money",
 		})
 		if err != nil {
@@ -231,7 +233,7 @@ obj spec
 obj quality
 nbt spec    = p"tag.dat.spec" : enum 1..4
 nbt quality = p"tag.Tags"     : enum { "残响":1, "蚀刻":2, "回响":3 }
-on load {
+fn read8() {
   decode spec from @s.SelectedItem[spec]
   decode quality from @s.SelectedItem[quality]
 }
@@ -239,7 +241,7 @@ on load {
 
 	var body []string
 	for name, b := range files {
-		if strings.HasSuffix(name, "/load") {
+		if strings.HasSuffix(name, "/read8") {
 			for _, line := range strings.Split(b, "\n") {
 				// A rendered body ends with a newline; the empty tail is not a
 				// command and would shift every index if left in.
@@ -281,7 +283,7 @@ obj quality
 nbt spec    = p"tag.dat.spec" : enum 1..4
 nbt quality = p"tag.Tags"     : enum { "残响":1, "蚀刻":2 }
 
-on load {
+fn read9() {
   decode spec from @s.Item[spec]
   decode quality from @s.Item[quality]
 }
@@ -311,7 +313,7 @@ on load {
 			"kill @e[type=item]",
 			"summon item 0 4 0 " + tc.nbt,
 		}, []string{
-			"execute @e[type=item] ~ ~ ~ function t:n/load",
+			"execute @e[type=item] ~ ~ ~ function t:n/read9",
 			"scoreboard players operation R spec = @e[type=item] spec",
 			"scoreboard players operation R2 quality = @e[type=item] quality",
 		})
@@ -340,7 +342,7 @@ func TestNBTMatchOnRealRuntime(t *testing.T) {
 
 obj out
 
-on load {
+fn read10() {
   out = 0
   if @s.Item matches n"{Item:{tag:{dat:{qlt:0b}}}}" {
     out = 1
@@ -377,7 +379,7 @@ on load {
 			"kill @e[type=item]",
 			"summon item 0 4 0 " + tc.nbt,
 		}, []string{
-			"execute @e[type=item] ~ ~ ~ function t:n/load",
+			"execute @e[type=item] ~ ~ ~ function t:n/read10",
 			"scoreboard players operation R out = @e[type=item] out",
 		})
 		if err != nil {
@@ -395,7 +397,7 @@ on load {
 func TestNBTMatchProbesAreDistinct(t *testing.T) {
 	files := compile(t, `namespace t:n
 obj out
-on load {
+fn read11() {
   out = 0
   if @s.Item matches n"{Item:{tag:{dat:{a:1b}}}}" { out = 1 }
   if @s.Item matches n"{Item:{tag:{dat:{b:1b}}}}" { out = 2 }

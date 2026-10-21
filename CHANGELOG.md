@@ -16,6 +16,125 @@
 
 ---
 
+## [0.17.0] - 2026-10-21
+
+### 破坏性：入口函数没有执行者，`on tick` 被删除
+
+```ggm
+on tick { counter = counter + 1 }
+```
+
+编译成：
+
+```mcfunction
+scoreboard players operation @s counter += #1 ggm.c
+```
+
+而 `gameLoopFunction` 调用函数时**没有执行实体**，`@s` 什么都不指。1.12.2 对此
+不报错、不警告：命令语法合法，直接丢弃。跑 3 tick，`counter` 根本不存在。
+
+这不是一处笔误，是整片失效。同一轮实测里：
+
+| 写法 | 生成 | 结果 |
+|---|---|---|
+| `on load { counter = 7 }` | `set @s counter 7` | 静默丢弃 |
+| `on every 5s { }` | `function … if @s[score_p.100=100]` | 周期永不触发 |
+| `on every 1tick { if A < B { HIT = 1 } }` | `function … if @s[score_t0=-1]` | **分支永不进入** |
+| `extern SEED = seed.ticks` + `SEED = SEED + 1` | `@s t0 = seed ticks` | 全局变量也归零 |
+
+根因是 `ir/builder.go` 的 `TmpLoc()` 与 `lower/stmt.go` 的 `loc()` 都把
+`Holder` 写死成 `@s`。**IR 的每一处临时值都假定执行者存在。**
+
+### 现在：`cycle` 是唯一入口，`@s` 由时钟实体提供
+
+```ggm
+on every 1tick { counter = counter + 1 }
+```
+
+生成三件套：
+
+```mcfunction
+# <ns>/cycle —— gameLoopFunction 指向这里。@s 空，只做两件事
+function <ns>/make_clock unless @e[tag=ggm.clock]
+execute @e[tag=ggm.clock,c=1] ~ ~ ~ function <ns>/on_cycle
+
+# <ns>/make_clock
+summon armor_stand ~ ~ ~ {Tags:["ggm.clock"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}
+
+# <ns>/on_cycle —— @s = 时钟实体，正常代码在这里
+scoreboard players add @s p.1 1
+function <ns>/every/1tick if @s[score_p.1_min=1,score_p.1=1]
+```
+
+时钟实体就是参考包里的 `TickTimer`，不是新发明。
+
+### `on tick` 删除
+
+它不是改名。`on tick` 看起来像「有执行者」，实际是「没有」——这个错觉正是它
+必须消失的原因。报错信息直接给出替代写法：
+
+```
+on tick was removed: it ran with no executor, so every @s write in it was
+discarded. Write on every 1tick, which runs inside the clock's fan-out and
+has an executor
+```
+
+### `on load` 里的实体分数是编译错误
+
+```ggm
+on load { counter = 7 }          // E_NO_SELF_CONTEXT
+```
+
+```ggm
+extern SEED: int = seed.ticks
+on load { SEED = 12345 }         // 可以：假玩家在任何上下文都存在
+```
+
+编译器自己的寄存器（`t0`、`l0`）搬到假玩家 `#ggm.reg` 上，所以入口里仍能
+做算术——只是**作者的**数据不能假装在实体上。
+
+### 新增 `boot`：模块级加载入口
+
+```ggm
+# app.ggm
+on load { seed.app = 1 }
+# stdlib/math.ggm
+on load { seed.math = 0 }
+```
+
+生成：
+
+```mcfunction
+# t:app/boot
+function t:app/comptime
+function t:app/load
+function std:math/comptime
+function std:math/load
+```
+
+此前每个文件各生成一个 `<ns>/load`，而用户只会挂自己那一个——**库的初始化
+永远不会跑**，且没有任何提示。`boot` 是唯一需要接线的地方。
+
+### 顺带修复：常量池从未被调用
+
+`NeedsConstInit` 在 `driver.go` 赋值后没有任何代码读它，golden 里
+`function <ns>/comptime` 出现 0 次。`init.mcfunction` 里的
+`scoreboard players set #1234 ggm.c 1234` 从来没执行过，**所有常量读出来都是 0**。
+这个 bug 一直被 `@s` 那个 bug 掩盖着。现在 `boot` 是它的调用点。
+
+### 实测
+
+```
+scores:
+  app/#app.1 = 1        ← comptime 常量池跑过了
+  counter/R1 = 3        ← on every 1tick 跑了 3 次
+  tick/seed = 100       ← on load 写假玩家成功
+  p.20/… = 3            ← 周期链计数正确
+entities:
+  entity-1 armor_stand … tags=ggm.clock
+```
+
+---
 ## [0.16.0] - 2026-10-21
 
 ### 修复：`on every N` 没有相位门（规范已声称有）

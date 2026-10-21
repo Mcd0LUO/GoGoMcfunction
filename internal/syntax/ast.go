@@ -240,7 +240,7 @@ type ExternDecl struct {
 
 // OnDecl is an entry point.
 type OnDecl struct {
-	Event string // load | tick | every
+	Event string // load | every
 	Every string // duration text, when Event == "every", e.g. "5s"
 	// EveryTicks is that duration in game ticks (20 per second), or 0 when the
 	// unit is not one the compiler knows. The lowerer drives the entry from

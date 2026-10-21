@@ -31,9 +31,16 @@ type Output struct {
 	Order []string
 	// Skipped names the optimisations the requested level left out.
 	Skipped []string
-	// NeedsConstInit is the function that must run once on world load to
-	// initialise the constant pool. 1.12.2 has no automatic load hook.
+	// NeedsConstInit is the function that must run once on world load.
+	// 1.12.2 has no automatic load hook, so the user wires this to a command
+	// block or to their own first-tick guard. It runs every file's on-load
+	// body and every file's constant pool, in command-line order.
 	NeedsConstInit string
+	// NeedsCycle is the function gameLoopFunction should name. Empty when
+	// the module has no per-tick work at all.
+	NeedsCycle string
+	// HasCycle reports whether NeedsCycle was actually generated.
+	HasCycle bool
 }
 
 // Options configures a compilation.
@@ -104,6 +111,13 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		perFile = append(perFile, own)
 	}
 
+	// Every file contributes its on-load bodies and its constant pool to ONE
+	// module-level boot function. Per-file entries cannot work: the user
+	// wires a single function to the world, and nothing would call a
+	// library's <lib>/load. The library's initialisation would simply never
+	// run, silently -- which is the same failure as an undeclared objective.
+	type bootPart struct{ path, what string }
+	var bootParts []bootPart
 	var prog *ir.Program
 	for i, file := range srcFiles {
 		checkLiterals(file, opt.Target, bag)
@@ -148,6 +162,15 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 				fb := res.Program.NewFunc(file.Namespace + "/comptime")
 				fb.Func().Exported = true
 				fb.Emit(0, comptime.ToIR(consts)...)
+				bootParts = append(bootParts, bootPart{file.Namespace + "/comptime", "the constant pool"})
+			}
+		}
+		// A file's on-load body is an ordinary function, so boot can call it
+		// by name. Its own name stays <ns>/load, which is what the source
+		// said; boot is the new, module-wide entry.
+		for _, od := range file.Ons {
+			if od.Event == "load" {
+				bootParts = append(bootParts, bootPart{file.Namespace + "/load", "on load"})
 			}
 		}
 
@@ -160,6 +183,26 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		// objectives that must stay apart.
 		prog.Funcs = append(prog.Funcs, res.Program.Funcs...)
 		prog.Consts = append(prog.Consts, res.Program.Consts...)
+	}
+
+	// The module-wide boot: the ONE function to run when the world loads.
+	//
+	// 1.12.2 has no load event, so somebody has to call something. Making
+	// that one function the compiler's job rather than the author's is what
+	// makes a library usable: the caller wires <ns>/boot and gets every
+	// file's initialisation, including files it did not write.
+	if len(bootParts) > 0 {
+		bootID := bootPath(srcFiles[0].Namespace)
+		if prog.Lookup(bootID) != nil {
+			bag.Error(diag.Pos{}, "E_FN_RESERVED",
+				"the compiler-generated boot entry needs the name %q, which a declaration already uses", bootID)
+		} else {
+			fb := prog.NewFunc(bootID)
+			fb.Func().Exported = true
+			for _, p := range bootParts {
+				fb.Emit(0, ir.Call{Path: p.path})
+			}
+		}
 	}
 
 	prog = optimize.Run(prog, opt.Level)
@@ -179,10 +222,21 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		}
 	}
 	out := &Output{Files: files, Order: order, Skipped: optimize.Skipped(opt.Level)}
-	out.NeedsConstInit = srcFiles[0].Namespace + "/init"
+	out.NeedsConstInit = bootPath(srcFiles[0].Namespace)
+	out.NeedsCycle = cyclePath(srcFiles[0].Namespace)
+	out.HasCycle = prog.Lookup(out.NeedsCycle) != nil
 	return out, bag.Sorted()
 }
 
+
+// bootPath is the module-wide load entry.
+//
+// Named after the first file's namespace because a module has one entry
+// point: the user wires ONE function, not one per file.
+func bootPath(ns string) string { return ns + "/boot" }
+
+// cyclePath is the module-wide tick entry, the one gameLoopFunction names.
+func cyclePath(ns string) string { return ns + "/cycle" }
 // collectSigs records every function a file declares, qualified the way the
 // lowerer names them.
 func collectSigs(f *syntax.File, out map[string]int) {

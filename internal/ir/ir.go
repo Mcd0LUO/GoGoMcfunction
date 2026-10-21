@@ -50,6 +50,19 @@ type Function struct {
 	Blocks []*Block
 	// Exported marks an entry point that must survive pruning.
 	Exported bool
+	// RegHolder is the score holder this function's registers live on.
+	//
+	// It is "@s" for anything reached from an entity -- a normal function, a
+	// class method, a fan-out body, an `on every` period. It is a fake player
+	// for an entry with no executor (`on load`, boot), because @s is undefined
+	// there and 1.12.2 DISCARDS a command that names it: the arithmetic
+	// computes nothing and nothing reports it.
+	RegHolder string
+	// NoSelf marks a function entered WITHOUT an executor. Its own registers
+	// are fine (they are on a fake player), but anything that genuinely needs
+	// an entity -- a class field, a selector fan-out, a decode from @s -- has
+	// no meaning here and must be reported rather than emitted.
+	NoSelf bool
 	// Origin is where the declaration was written, as "file:line", or ""
 	// for a function the compiler generated.
 	//
@@ -229,6 +242,14 @@ type ExistTest struct {
 
 // IsAlways reports whether the predicate imposes no condition.
 func (p Predicate) IsAlways() bool { return p.Exist == nil && len(p.Alts) == 0 }
+
+// SelfHolder is the executor selector, the default register file.
+const SelfHolder = "@s"
+
+// NoSelfHolder is the fake player a function without an executor uses for
+// its registers. A fake player is a legal score holder in 1.12.2, so the
+// same scoreboard arithmetic works -- it just does not belong to an entity.
+const NoSelfHolder = "#ggm.reg"
 
 // ConstObjective is the objective every literal lives on.
 const ConstObjective = "ggm.c"

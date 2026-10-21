@@ -1,5 +1,8 @@
-# files=15 commands=126
+# files=16 commands=128
 
+=== luo:math/boot ===
+function luo:math/comptime
+function luo:math/load
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
 scoreboard players operation @s l7 = @s a1

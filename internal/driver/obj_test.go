@@ -30,7 +30,7 @@ func TestObjDeclarationControlsTheGeneratedCommand(t *testing.T) {
 obj counter "计数"
 obj post_damage stat.damageDealt "造成伤害"
 
-on load {
+on every 1tick {
   counter = 1
   post_damage = 2
 }
@@ -54,7 +54,7 @@ on load {
 func TestAssignmentToADeclaredObjectiveUsesItsName(t *testing.T) {
 	files := compile(t, `namespace t:o
 obj counter "计数"
-on load { counter = 7 }
+on every 1tick { counter = 7 }
 `, optimize.O2)
 
 	for name, body := range files {
@@ -75,7 +75,7 @@ on load { counter = 7 }
 func TestObjNameOverTheLimitIsAnError(t *testing.T) {
 	msgs := compileDiags(`namespace t:o
 obj this_name_is_way_too_long
-on load { this_name_is_way_too_long = 1 }
+on every 1tick { this_name_is_way_too_long = 1 }
 `)
 	if !hasCode(msgs, "E_OBJECTIVE_NAME") {
 		t.Fatalf("want E_OBJECTIVE_NAME, got %v", msgs)
@@ -86,7 +86,7 @@ func TestObjDeclaredTwiceIsAnError(t *testing.T) {
 	msgs := compileDiags(`namespace t:o
 obj counter
 obj counter
-on load { counter = 1 }
+on every 1tick { counter = 1 }
 `)
 	if !hasCode(msgs, "E_OBJECTIVE_DUP") {
 		t.Fatalf("want E_OBJECTIVE_DUP, got %v", msgs)
@@ -100,7 +100,7 @@ func TestObjAndExternConflict(t *testing.T) {
 	msgs := compileDiags(`namespace t:o
 obj arg1
 extern arg1: int = @s.arg1
-on load { arg1 = 1 }
+on every 1tick { arg1 = 1 }
 `)
 	if !hasCode(msgs, "E_OBJECTIVE_CONFLICT") {
 		t.Fatalf("want E_OBJECTIVE_CONFLICT, got %v", msgs)

@@ -1042,8 +1042,15 @@ func (p *parser) parseOn() (*OnDecl, error) {
 		p.next()
 		d.Event = "load"
 	case TICK:
-		p.next()
-		d.Event = "tick"
+		// `on tick` was removed. It ran with no executor, so every @s write
+		// in its body was silently discarded -- and it was the one entry the
+		// game actually drives, so the mistake was invisible: the program
+		// loaded, the function ran, and nothing happened.
+		//
+		// The replacement is `on every 1tick`, which runs inside the clock
+		// entity's fan-out and therefore HAS an executor. It is not a rename:
+		// the two differ in whether @s exists.
+		return nil, &Error{Pos: t.Pos, Msg: "on tick was removed: it ran with no executor, so every @s write in it was discarded. Write on every 1tick, which runs inside the clock's fan-out and has an executor"}
 	case EVERY:
 		p.next()
 		// One DURATION token, so the unit may be a keyword (`tick`) without
@@ -1065,7 +1072,7 @@ func (p *parser) parseOn() (*OnDecl, error) {
 		}
 		d.EveryTicks = ticks
 	default:
-		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load, tick or every after on"}
+		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load or every after on"}
 	}
 	body, err := p.parseBlock()
 	if err != nil {

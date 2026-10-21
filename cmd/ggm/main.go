@@ -104,6 +104,15 @@ func run() error {
 			fmt.Printf("%s  (%d lines)\n", p, strings.Count(out.Files[p], "\n"))
 		}
 		fmt.Printf("total: %d files, %d lines\n", len(out.Files), out.CountLines())
+		// 1.12.2 has no load event and no automatic tick hook, so somebody has
+		// to wire the two entries by hand. Saying which ones is the difference
+		// between a working data pack and one where the constant pool never
+		// ran and nothing says so.
+		fmt.Printf("\nwire these:\n")
+		fmt.Printf("  %s   on world load, from a command block\n", out.NeedsConstInit)
+		if out.HasCycle {
+			fmt.Printf("  %s   gamerule gameLoopFunction\n", out.NeedsCycle)
+		}
 	}
 	return nil
 }

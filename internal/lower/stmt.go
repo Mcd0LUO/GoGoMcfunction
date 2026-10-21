@@ -30,7 +30,7 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 		if i == len(body)-1 {
 			if es, ok := st.(syntax.ExprStmt); ok {
 				if _, isCall := es.X.(syntax.Call); !isCall {
-					l.assignInto(ctx, fb, cur, loc("return"), es.X)
+					l.assignInto(ctx, fb, cur, ctx.loc("return"), es.X)
 					fb.SetTerm(cur, ir.Return{})
 					return noFallThrough
 				}
@@ -38,17 +38,17 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 		}
 		switch s := st.(type) {
 		case syntax.LetStmt:
-			l.assignInto(ctx, fb, cur, loc(ctx.slot(s.Name)), s.Value)
+			l.assignInto(ctx, fb, cur, ctx.loc(ctx.slot(s.Name)), s.Value)
 		case syntax.AssignStmt:
 			target, ok := lvalueName(s.Target)
 			if !ok {
 				l.diags.Error(posOf(s.P), "E_ASSIGN_TARGET", "assignment target must be a variable or self.field")
 				continue
 			}
-			l.assignInto(ctx, fb, cur, l.targetLoc(ctx, target), assignValue(s))
+			l.assignInto(ctx, fb, cur, l.targetLoc(ctx, target, s.P), assignValue(s))
 		case syntax.ReturnStmt:
 			if s.Value != nil {
-				l.assignInto(ctx, fb, cur, loc("return"), s.Value)
+				l.assignInto(ctx, fb, cur, ctx.loc("return"), s.Value)
 			}
 			fb.SetTerm(cur, ir.Return{})
 			return noFallThrough
@@ -76,7 +76,12 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 	return cur
 }
 
-func loc(obj string) ir.Loc { return ir.Loc{Holder: "@s", Obj: obj} }
+// loc is a register in the CURRENT body's register file.
+//
+// It used to be unconditionally @s, which is what made `on load { counter =
+// counter + 1 }` compile to a command that 1.12.2 silently discards: there
+// is no executor in an on-load entry, so @s names nothing.
+func (c *fnCtx) loc(obj string) ir.Loc { return ir.Loc{Holder: c.selfHolder(), Obj: obj} }
 
 // assignValue folds a compound assignment into the binary expression it
 // abbreviates, so `x += e` lowers through exactly the same path as `x = x + e`.
@@ -116,26 +121,58 @@ func compoundOp(k syntax.Kind) (syntax.Kind, bool) {
 }
 
 // targetLoc resolves a name that may be bound to an external objective.
-func (l *Lowerer) targetLoc(ctx *fnCtx, name string) ir.Loc {
+func (l *Lowerer) targetLoc(ctx *fnCtx, name string, p syntax.Pos) ir.Loc {
 	if xd, ok := l.externs[name]; ok && (xd.Kind == "var" || xd.Kind == "global") {
-		return externLoc(xd)
+		return l.externTarget(ctx, xd, p)
 	}
 	// A declared objective keeps its own name. Falling through to slot() would
 	// allocate l0 for it, and the declaration would then create an objective
 	// that nothing writes -- the exact silent-no-op obj exists to prevent.
 	if l.objs[name] {
-		return loc(name)
+		return l.entityScore(ctx, name, p)
 	}
 	if ctx.isField(name) {
-		return loc(ctx.fieldLoc(name))
+		return l.entityScore(ctx, ctx.fieldLoc(name), p)
 	}
 	// `holder.objective`, the same shape extern binds with.
 	if i := strings.Index(name, "."); i > 0 {
 		return ir.Loc{Holder: name[:i], Obj: name[i+1:]}
 	}
-	return loc(ctx.slot(name))
+	return ctx.loc(ctx.slot(name))
 }
 
+// entityScore names a score that belongs to the executing entity.
+//
+// An objective declared with `obj`, a class field and an `extern x = @s.x`
+// all mean "this entity's score". In a body with no executor there is no
+// such entity, and 1.12.2 discards the command without an error -- so the
+// access is refused here instead of being quietly redirected to the fake
+// player the compiler uses for its OWN registers.
+//
+// The distinction is the whole design: `t0` and `l0` are the compiler's
+// scratch and can live anywhere; `counter` is the author's data and belongs
+// to an entity that has to exist.
+func (l *Lowerer) entityScore(ctx *fnCtx, obj string, p syntax.Pos) ir.Loc {
+	if ctx.noSelf {
+		l.diags.Error(posOf(p), "E_NO_SELF_CONTEXT",
+			"%q is a score on the executing entity, but this body has no executor: 1.12.2 has no load event, so the world-load function runs from a command block, where @s names nothing and the command is discarded. Use a fake player (extern G: int = seed.%s) or move the work into on every",
+			obj, obj)
+	}
+	return ir.Loc{Holder: ir.SelfHolder, Obj: obj}
+}
+
+// externTarget resolves an extern binding in a body that may have no executor.
+func (l *Lowerer) externTarget(ctx *fnCtx, d syntax.ExternDecl, p syntax.Pos) ir.Loc {
+	if d.Holder != "" && d.Holder != ir.SelfHolder {
+		// A fake player is a real holder in every context.
+		return ir.Loc{Holder: d.Holder, Obj: d.Objective}
+	}
+	obj := d.Objective
+	if obj == "" {
+		obj = d.Name
+	}
+	return l.entityScore(ctx, obj, p)
+}
 // lowerIf emits a branch, both arms, and a join holding the remainder.
 //
 // The remainder is lowered EXACTLY ONCE, into the join block. Passing it down
@@ -211,7 +248,7 @@ func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s s
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
-	fb.Emit(cur, ir.Set{Dst: loc(budget), Value: s.Budget})
+	fb.Emit(cur, ir.Set{Dst: ctx.loc(budget), Value: s.Budget})
 
 	body := fb.NewBlock()
 	after := fb.NewBlock()
@@ -247,7 +284,7 @@ func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s sy
 		return cur
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
-	fb.Emit(cur, ir.Set{Dst: loc(budget), Value: s.Budget})
+	fb.Emit(cur, ir.Set{Dst: ctx.loc(budget), Value: s.Budget})
 
 	body := fb.NewBlock()
 	after := fb.NewBlock()
@@ -279,7 +316,7 @@ func (l *Lowerer) closeLoop(ctx *fnCtx, fb *ir.FuncBuilder, body, bodyEnd, after
 		fb.SetTerm(bodyEnd, ir.Jump{Target: after})
 		return
 	}
-	fb.Emit(bodyEnd, ir.Remove{Dst: loc(budget), Value: 1})
+	fb.Emit(bodyEnd, ir.Remove{Dst: ctx.loc(budget), Value: 1})
 	fb.SetTerm(bodyEnd, ir.Branch{Cond: withBudget(p, budget), Then: body, Else: after})
 }
 
@@ -337,24 +374,24 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 
 	// Initial value: the lower bound, which may itself be an expression.
 	if lit, ok := constInt(r.L); ok {
-		fb.Emit(cur, ir.Set{Dst: loc(i), Value: lit})
+		fb.Emit(cur, ir.Set{Dst: ctx.loc(i), Value: lit})
 	} else {
 		src, err := l.expr(ctx, fb, cur, r.L)
 		if err != nil {
 			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
 			return cur
 		}
-		fb.Emit(cur, ir.Copy{Dst: loc(i), Src: src})
+		fb.Emit(cur, ir.Copy{Dst: ctx.loc(i), Src: src})
 	}
 	if lit, ok := constInt(r.R); ok {
-		fb.Emit(cur, ir.Set{Dst: loc(lim), Value: lit})
+		fb.Emit(cur, ir.Set{Dst: ctx.loc(lim), Value: lit})
 	} else {
 		src, err := l.expr(ctx, fb, cur, r.R)
 		if err != nil {
 			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
 			return cur
 		}
-		fb.Emit(cur, ir.Copy{Dst: loc(lim), Src: src})
+		fb.Emit(cur, ir.Copy{Dst: ctx.loc(lim), Src: src})
 	}
 
 	// The variable is an ordinary local, so the body reads it by name.
@@ -375,15 +412,15 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 	// `i - lim <= 0` needs min=INT_MIN and max=0.
 	test := func(where ir.BlockID) ir.Predicate {
 		d := fb.Tmp()
-		fb.Emit(where, ir.Copy{Dst: loc(d), Src: loc(i)})
-		fb.Emit(where, ir.Arith{Dst: loc(d), Op: "-=", Src: loc(lim)})
+		fb.Emit(where, ir.Copy{Dst: ctx.loc(d), Src: ctx.loc(i)})
+		fb.Emit(where, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: ctx.loc(lim)})
 		return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: -2147483648, HasMax: true, Max: 0}}}}
 	}
 	fb.SetTerm(cur, ir.Branch{Cond: test(cur), Then: body, Else: after})
 
 	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
 	if bodyEnd != noFallThrough {
-		fb.Emit(bodyEnd, ir.Add{Dst: loc(i), Value: 1})
+		fb.Emit(bodyEnd, ir.Add{Dst: ctx.loc(i), Value: 1})
 		fb.SetTerm(bodyEnd, ir.Branch{Cond: test(bodyEnd), Then: body, Else: after})
 	}
 	return after

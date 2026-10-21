@@ -9,7 +9,11 @@
 
 ## 0. 公理
 
-1. **`@s` 是唯一执行主体。** 没有 `@s` 的地方（`on load`）不能调用需要 `@s` 的函数——编译错误。
+1. **`@s` 是唯一执行主体，且它不是到处都有。** `on load` 与 `<ns>/cycle` 都没有
+   执行者（1.12.2 从命令方块 / `gameLoopFunction` 调用函数时不给实体）；
+   `on every`、`@tick fn`、`on spawn`、`for e in entities<…>` 都有，因为它们在
+   某个 `execute` 的扇出体内。在没有执行者的地方写实体分数是**编译错误**，
+   因为 1.12.2 会静默丢弃那条命令。
 2. **「多」有两条路，成本差一个数量级**：扇出 `for e in entities<sel>` 是 N 次调用，
    广播写 `@sel f = v` 是一条命令写 N 个实体。字面可辨。
 3. **没有栈。** 递归只有一种：有界自递归。每个循环都必须写 `budget <n>` 或
@@ -126,25 +130,85 @@ class CastTimer {
 
 ### 3.3 入口
 
-| 写法 | 降级 |
-|---|---|
-| `on load` | 生成 `luo:math/load`，由 `gameLoopFunction` 的前置或命令方块调用 |
-| `on tick` | 生成 `luo:math/tick`，挂到 `gamerule gameLoopFunction` |
-| `on every 5s` | 生成 `luo:math/every/5s`，由周期链驱动（见下） |
-| `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` |
-| `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 |
+| 写法 | 生成 | 有 `@s`？ |
+|---|---|---|
+| `on load` | `luo:math/load`，由 `boot` 调用 | **没有** |
+| `on every 5s` | `luo:math/every/5s`，由周期链驱动 | 有（时钟实体） |
+| `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` | 有（被扇出的实例） |
+| `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 | 有（被扇出的实例） |
 
-> **实现状态（0.11.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
+#### 两个模块级入口：`boot` 和 `cycle`
+
+1.12.2 **没有 load 事件**，也**没有「每 tick 自动跑」的函数**，除非把名字挂到
+`gamerule gameLoopFunction`。所以一个模块只生成两个入口，用户各接一次：
+
+```mcfunction
+# <ns>/boot —— 世界加载时跑一次，接到命令方块
+function <ns>/comptime
+function <ns>/load
+function std:lib/comptime
+function std:lib/load
+
+# <ns>/cycle —— gameLoopFunction 指向这里
+function <ns>/make_clock unless @e[tag=ggm.clock]
+execute @e[tag=ggm.clock,c=1] ~ ~ ~ function <ns>/on_cycle
+```
+
+**为什么必须汇总**：一个模块可能有多个文件（`app.ggm` + `stdlib/math.ggm`），
+各自都写了 `on load`。若每文件各生成一个 `<ns>/load`，用户只会挂自己那一个，
+**库的初始化永远不跑**，且没有任何提示。
+
+#### `cycle` 里没有 `@s`，`on_cycle` 里有
+
+`gameLoopFunction` 调用函数时没有执行实体。所以 `cycle` 自己不做任何算术，
+它只负责让时钟实体存在，然后交给 `execute` 扇出：
+
+```mcfunction
+# <ns>/make_clock
+summon armor_stand ~ ~ ~ {Tags:["ggm.clock"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}
+
+# <ns>/on_cycle —— @s = 时钟实体
+scoreboard players add @s p.1 1
+function <ns>/every/1tick if @s[score_p.1_min=1,score_p.1=1]
+```
+
+时钟实体就是参考包里的 `TickTimer`。它不是新发明，是 1.12.2 上唯一能
+凭空造出执行者的办法。
+
+> **`on tick` 已删除（0.17.0）。** 它看起来像「每 tick 有执行者」，实际是
+> 「每 tick 没有执行者」——这个错觉让它比没有入口更危险。替代写法是
+> `on every 1tick`，区别不在拼写，在于后者在时钟实体的扇出体内。
+
+#### `on load` 里不能写实体分数
+
+```ggm
+obj counter
+on load { counter = 7 }        // E_NO_SELF_CONTEXT
+```
+
+`obj` 声明的 objective、类字段、`extern x: int = @s.x` 都是**执行者的**分数。
+`on load` 从命令方块进来，`@s` 什么都不指，`set @s counter 7` 会被 1.12.2
+静默丢弃。所以这是编译错误，不是警告。
+
+```ggm
+extern SEED: int = seed.math   // 假玩家，任何上下文都存在
+on load { SEED = 12345 }       // 可以
+```
+
+编译器自己的寄存器（`t0`、`l0`）在无执行者的函数里搬到假玩家 `#ggm.reg`，
+所以 `on load` 里仍能做算术——只是**作者的**数据不能假装挂在实体上。
+
+> **实现状态（0.17.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
 >
-> `on every N` **有真正的相位门**（0.16.0）：每个周期一个计数器
-> `p.<ticks>`，由 `on tick` 每 tick 递增，到达上界时调用该周期的入口；
+> `on every N` **有真正的相位门**：每个周期一个计数器 `p.<ticks>`，
+> 由 `on_cycle` 每 tick 递增，到达上界时调用该周期的入口；
 > 入口**先把自己归零**，所以下一次恰好是一个周期之后。
 >
 > 时长支持 `ticks` / `s` / `m`，其它单位直接报错——一个排不了期的入口
 > 比没有入口更糟。
->
+
 **时长是一个词法单位**（`DURATION`），不是一个整数加一个标识符。
-所以单位里可以有 `on tick` 的关键字：`on every 1tick` 与 `on every 5s` 同样合法。
+所以单位里可以有 `tick` 这个关键字：`on every 1tick` 与 `on every 5s` 同样合法。
 
 > 这不是可有可无的润色。当初时长是 `INT + IDENT` 两个 token，解析器手工拼接，
 > 于是 `1tick` **根本写不出来**——绕过办法是让单复数承载语义（`1ticks`）。
@@ -162,14 +226,14 @@ class CastTimer {
 
 #### 周期链
 
-多个 `on every` 时，**只有最短的那个由 `on tick` 驱动**，其余由「最近的、
+多个 `on every` 时，**只有最短的那个由 `on_cycle` 驱动**，其余由「最近的、
 能整除它的更短周期」驱动：
 
 ```
-tick   → 1ticks
-1ticks → 2ticks(2) 3ticks(3) 5ticks(5)
-5ticks → 1s(4)
-1s     → 3s(3) 5s(5)
+on_cycle → 1ticks
+1ticks   → 2ticks(2) 3ticks(3) 5ticks(5)
+5ticks   → 1s(4)
+1s       → 3s(3) 5s(5)
 ```
 
 括号里是**比值**，不是绝对时长：`5ticks` 驱动 `1s` 只需数到 4（20/5），
@@ -524,6 +588,7 @@ no-op 比缺功能更糟。**
 | `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
 | `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
 | `E_NO_BUDGET` | `while` / `loop` 没有 `cap <n>` 上界 |
+| `E_NO_SELF_CONTEXT` | 在无执行者的函数（`on load`）里读写实体分数 |
 | `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
 | `E_ARITY` | 调用实参个数与声明不符 |
 | `E_ASSIGN_TARGET` | 赋值目标不是可写位置 |
@@ -550,7 +615,7 @@ no-op 比缺功能更糟。**
 | `W_FIELD_UNUSED` | 字段声明了但既没 `decode` 也没 `encode` | 无，可直接实现 |
 | `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` | 值域分析 |
 | `W_DIV_ZERO` | 除数可能为 0 | 值域分析 |
-| `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 | 调用图上的 `@s` 可用性分析 |
+| `E_NO_SELF_CONTEXT`（调用图部分） | 无 `@s` 处**调用**需要 `@s` 的函数 | 调用图上的 `@s` 可用性分析 |
 | `E_TYPE_MISMATCH` | `int` / `bool` 混用 | 类型检查（当前只有 `int`） |
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 | 副作用分析 |
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |

@@ -22,7 +22,7 @@ func TestDeclaredObjectiveReadsItself(t *testing.T) {
 	files := compile(t, `namespace t:d
 
 obj ticks
-on load { ticks = 7 }
+on every 1tick { ticks = 7 }
 fn bump() -> int {
   ticks = ticks + 1
   ticks
@@ -63,7 +63,7 @@ fn bump() -> int {
 func TestHolderObjectiveAssignment(t *testing.T) {
 	files := compile(t, `namespace t:h
 obj t
-on load { seed.t = 9 }
+on every 1tick { seed.t = 9 }
 `, optimize.O0)
 
 	var saw bool
@@ -159,7 +159,7 @@ fn spin() -> int {
 // silently discarded, the exact failure `obj` exists to prevent.
 func TestBroadcastObjectiveIsDeclared(t *testing.T) {
 	files := compile(t, `namespace t:w
-on load {
+on every 1tick {
   @e[tag=x] fresh = 1
 }
 `, optimize.O2)
@@ -188,7 +188,7 @@ func TestFanOutBodyRunsPerEntity(t *testing.T) {
 
 obj m
 obj d
-on load { m = 42 }
+on every 1tick { m = 42 }
 
 fn run() -> int {
   d = 0
@@ -243,7 +243,7 @@ func TestFanOutBodyIsNotPruned(t *testing.T) {
 	files := compile(t, `namespace t:f
 obj m
 obj d
-on load { m = 1 }
+on every 1tick { m = 1 }
 fn run() -> int {
   d = 0
   for e in entities<@e[tag=x]> {
@@ -277,7 +277,6 @@ comptime {
     emit_line("say bit " + str(bit))
   }
 }
-on load { }
 `, optimize.O0)
 
 	var body string
@@ -302,7 +301,6 @@ comptime {
   emit_line("b " + strdec2(0, 1000))
   emit_line("c " + strpow2(10))
 }
-on load { }
 `, optimize.O0)
 
 	var body string
@@ -332,7 +330,6 @@ comptime {
     }
   }
 }
-on load { }
 `)
 	if !hasCode(msgs, "E_COMPTIME_STMT") {
 		t.Fatalf("want E_COMPTIME_STMT, got %v", msgs)
@@ -352,8 +349,7 @@ func TestOnEveryFiresOncePerPeriod(t *testing.T) {
 	const src = `namespace t:p
 
 obj beats
-on load { beats = 0 }
-on tick { }
+on every 1tick { }
 on every 1s { beats = beats + 1 }
 `
 	files := compile(t, src, optimize.O2)
@@ -363,18 +359,16 @@ on every 1s { beats = beats + 1 }
 	}
 	defer w.Close()
 
-	run := []string{"execute @e[tag=T] ~ ~ ~ function t:p/load"}
+	// gameLoopFunction names <ns>/cycle, so that is what the test calls.
+	// Calling it bare is exactly what the game does: no executor, which is
+	// why cycle only summons the clock and hands off.
+	run := []string{"function t:p/boot"}
 	for i := 0; i < 45; i++ {
-		run = append(run, "execute @e[tag=T] ~ ~ ~ function t:p/tick")
+		run = append(run, "function t:p/cycle")
 	}
-	run = append(run, "scoreboard players operation R beats = @e[tag=T] beats")
+	run = append(run, "scoreboard players operation R beats = @e[tag=ggm.clock] beats")
 
-	st, err := w.Run([]string{
-		"function t:p/init",
-		"kill @e[type=armor_stand]",
-		"summon armor_stand 0 0 0 {Marker:1b}",
-		"scoreboard players tag @e[type=armor_stand] add T",
-	}, run)
+	st, err := w.Run([]string{"function t:p/init"}, run)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -395,7 +389,6 @@ func TestOnEveryResetsBeforeAnEarlyReturn(t *testing.T) {
 obj beats
 fn helper() -> int { 1 }
 
-on tick { }
 on every 2s { return }
 `, optimize.O2)
 
@@ -418,7 +411,6 @@ on every 2s { return }
 // becoming an entry that never fires.
 func TestOnEveryRejectsUnknownUnits(t *testing.T) {
 	msgs := compileDiags(`namespace t:p
-on tick { }
 on every 3fortnight { }
 `)
 	if !hasCode(msgs, "E_PARSE") {
@@ -442,8 +434,6 @@ on every 3fortnight { }
 func TestPeriodChainShape(t *testing.T) {
 	files := compile(t, `namespace t:c
 obj n
-on load { n = 0 }
-on tick { }
 on every 1ticks { }
 on every 2ticks { }
 on every 5ticks { }
@@ -460,10 +450,10 @@ on every 3s { }
 		return ""
 	}
 
-	// The tick entry drives exactly one period.
-	tick := read("/tick")
-	if got := strings.Count(tick, "function t:c/every/"); got != 1 {
-		t.Errorf("the tick entry drives %d periods, want 1:\n%s", got, tick)
+	// The clock entry drives exactly one period.
+	onCycle := read("/on_cycle")
+	if got := strings.Count(onCycle, "function t:c/every/"); got != 1 {
+		t.Errorf("the clock entry drives %d periods, want 1:\n%s", got, onCycle)
 	}
 
 	// 5ticks drives 1s with ratio 4, not 20: the counter advances once per
@@ -489,8 +479,6 @@ on every 3s { }
 func TestPeriodCountersDoNotCollide(t *testing.T) {
 	files := compile(t, `namespace t:c
 obj n
-on load { n = 0 }
-on tick { }
 on every 5ticks { }
 on every 5s { }
 `, optimize.O2)
@@ -518,7 +506,6 @@ on every 5s { }
 // cadence nobody asked for, so it is rejected instead.
 func TestSubTickDurationIsRejected(t *testing.T) {
 	msgs := compileDiags(`namespace t:c
-on tick { }
 on every 100ms { }
 `)
 	if !hasCode(msgs, "E_PARSE") {
@@ -562,9 +549,7 @@ func TestDurationIsOneToken(t *testing.T) {
 func TestOnEveryAcceptsSingularTick(t *testing.T) {
 	files := compile(t, `namespace t:d
 obj n
-on load { n = 0 }
-on tick { }
-on every 1tick { }
+on every 1tick { n = 0 }
 `, optimize.O2)
 
 	var entry string

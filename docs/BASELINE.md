@@ -1,4 +1,4 @@
-# Baseline：ggm 0.16.0
+# Baseline：ggm 0.17.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -12,7 +12,7 @@
 | 产物 | 位置 | 怎么验证 |
 |---|---|---|
 | 生成结果 | `internal/driver/testdata/golden/*.txt` | `go test ./internal/driver -run GoldenBaseline` |
-| 语义行为 | `internal/*/**_test.go`（63 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
+| 语义行为 | `internal/*/**_test.go`（116 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
 | 版本标识 | `internal/version/version.go` | `ggm -version` |
 | 全局检查 | 见下节 | `go test ./internal/driver -run 'Callee\|Uncalled\|Builtin'` |
 | 类语义 | `internal/driver/class_test.go`（7 条，含真机执行） | `go test ./internal/driver -run 'Class\|Tick\|Spawn'` |
@@ -75,10 +75,10 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 
 | 级别 | 文件 | 命令 |
 |---|---|---|
-| `-O0` | 16 | 129 |
-| `-O1` | 15 | 127 |
-| `-O2` | 15 | 124 |
-| `-O3` | 15 | 124 |
+| `-O0` | 16 | 132 |
+| `-O1` | 16 | 132 |
+| `-O2` | 16 | 128 |
+| `-O3` | 16 | 128 |
 
 **静态命令数不是重点。** `luo:math/init` 里有 39 条（30 条 `scoreboard objectives add`
 加 9 条常量），但它们只在加载时跑一次。热代码看动态：
@@ -100,6 +100,11 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 - **`on death` 只有空体能编译。** 非空体会报 `E_HOOK_UNSUPPORTED`——1.12.2 无法观察
   已经消失的实体，正确实现需要影子实体，目前没做。
 - **`on spawn` 需要每 tick 调一次 `<ns>/spawn`**，否则实体永远不会被处理。
+- **入口只有两个，都要用户接线**：`<ns>/boot`（世界加载，命令方块）与 `<ns>/cycle`
+  （`gamerule gameLoopFunction`）。1.12.2 没有 load 事件。
+- **`on load` 里没有 `@s`**，写实体分数报 `E_NO_SELF_CONTEXT`。用假玩家
+  （`extern X: int = seed.x`）。
+- **`on tick` 已删除**，替代是 `on every 1tick`。
 - **字段 objective 名截断到 16 字符**，类名前 6 字符相同的两个类会撞车（`E_FIELD_COLLISION`）。
 - **类选择器只能是 1.12.2 选择器语法**，编译器按字面拼接，不校验。
 - **规范第 7 节「计划中」那张表里的检查都不存在**（`W_WRAP_UNPROVEN`、

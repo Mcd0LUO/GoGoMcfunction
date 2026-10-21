@@ -62,7 +62,10 @@ func TestSiblingMethodCallResolves(t *testing.T) {
 // class selector, and @s inside the method is each instance.
 func TestClassTickFanOut(t *testing.T) {
 	files := compile(t, classSrc, optimize.O2)
-	leaf := files["t:k/tick"]
+	// The @tick method is driven from on_cycle, which runs inside the clock
+	// entity's execute. That is what makes @s the instance rather than
+	// nothing at all.
+	leaf := files["t:k/on_cycle"]
 	if !strings.Contains(leaf, "execute @e[tag=x] ~ ~ ~ function t:k/C/onTick") {
 		t.Fatalf("no fan-out to the tick method:\n%s", leaf)
 	}
@@ -73,8 +76,8 @@ func TestClassTickFanOut(t *testing.T) {
 		"summon armor_stand 0 0 0 {Marker:1b,Tags:[\"x\"]}",
 		"execute @e[tag=x] ~ ~ ~ function t:k/C/init",
 	}, []string{
-		"function t:k/tick",
-		"function t:k/tick",
+		"function t:k/cycle",
+		"function t:k/cycle",
 		"scoreboard players operation R C.hp = @e[tag=x] C.hp",
 	})
 	if err != nil {

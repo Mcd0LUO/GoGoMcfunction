@@ -104,7 +104,7 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 	l.marshalArgs(ctx, fb, block, path, c)
 	fb.Emit(block, ir.Call{Path: path})
 	t := fb.TmpLoc()
-	fb.Emit(block, ir.Copy{Dst: t, Src: loc("return")})
+	fb.Emit(block, ir.Copy{Dst: t, Src: ctx.loc("return")})
 	return t, nil
 }
 
@@ -225,7 +225,7 @@ func (l *Lowerer) marshalArgs(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, 
 		}
 	}
 	for i := range c.Args {
-		dst := loc(fmt.Sprintf("a%d", i))
+		dst := ctx.loc(fmt.Sprintf("a%d", i))
 		if spilled[i] || operands[i] != dst {
 			fb.Emit(block, ir.Copy{Dst: dst, Src: operands[i]})
 		}
@@ -335,7 +335,7 @@ func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst
 		if out == "" {
 			out = "return"
 		}
-		fb.Emit(block, ir.Copy{Dst: dst, Src: loc(out)})
+		fb.Emit(block, ir.Copy{Dst: dst, Src: ctx.loc(out)})
 		return true
 	}
 	path := l.path(c.Name)
@@ -347,7 +347,7 @@ func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst
 	}
 	l.marshalArgs(ctx, fb, block, path, c)
 	fb.Emit(block, ir.Call{Path: path})
-	fb.Emit(block, ir.Copy{Dst: dst, Src: loc("return")})
+	fb.Emit(block, ir.Copy{Dst: dst, Src: ctx.loc("return")})
 	return true
 }
 
@@ -361,7 +361,7 @@ func (l *Lowerer) marshalExtern(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 			l.diags.Error(posOf(c.P), "E_ARG", "%s", err)
 			return
 		}
-		fb.Emit(block, ir.Copy{Dst: loc(x.In[i].Reg), Src: src})
+		fb.Emit(block, ir.Copy{Dst: ctx.loc(x.In[i].Reg), Src: src})
 	}
 }
 
@@ -373,7 +373,7 @@ func (l *Lowerer) callExtern(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c
 		out = "return"
 	}
 	t := fb.TmpLoc()
-	fb.Emit(block, ir.Copy{Dst: t, Src: loc(out)})
+	fb.Emit(block, ir.Copy{Dst: t, Src: ctx.loc(out)})
 	return t, nil
 }
 

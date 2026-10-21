@@ -84,9 +84,21 @@ func (b *FuncBuilder) Const(v int) Loc {
 	return Loc{Holder: ConstName(v), Obj: ConstObjective}
 }
 
-// TmpLoc allocates a scratch location on @s.
+// TmpLoc allocates a scratch location in this function's register file.
+//
+// The holder is the function's, not always @s: a function with no executor
+// (on load) keeps its registers on a fake player, because a command naming
+// an undefined @s is dropped without an error.
 func (b *FuncBuilder) TmpLoc() Loc {
-	return Loc{Holder: "@s", Obj: b.Tmp()}
+	return Loc{Holder: b.fn.RegisterHolder(), Obj: b.Tmp()}
+}
+
+// RegisterHolder is the holder this function's registers live on.
+func (f *Function) RegisterHolder() string {
+	if f.RegHolder == "" {
+		return SelfHolder
+	}
+	return f.RegHolder
 }
 
 // AllBlocks returns the CFG in index order.

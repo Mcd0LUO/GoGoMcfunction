@@ -154,37 +154,22 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 	for _, fn := range f.Funcs {
 		l.lowerFunc(fn)
 	}
-	// on-tick blocks and class tick methods share one entry point.
-	// Generating them separately would create two functions with the same
-	// id, and the second would replace the first on disk.
-	var tickBody []syntax.Stmt
-	tickPos := syntax.Pos{}
 	// Collect every period BEFORE lowering any of them. A period's body has to
 	// name the periods it drives, and with collection interleaved the first
 	// period lowered saw only itself in the list -- so it drove nothing, and
 	// the whole chain silently became seven independent counters.
 	for _, od := range f.Ons {
-		if od.Event == "tick" {
-			tickBody = append(tickBody, od.Body...)
-			if tickPos.Line == 0 {
-				tickPos = od.P
-			}
-			continue
-		}
 		if od.Event == "every" {
 			l.periods = append(l.periods, od)
 		}
 	}
 	for _, od := range f.Ons {
-		if od.Event == "tick" {
-			continue
-		}
 		l.lowerOn(od)
 	}
 	for _, cd := range f.Classes {
 		l.lowerClass(cd)
 	}
-	l.lowerTickEntry(tickBody, tickPos, f.Classes)
+	l.lowerCycleEntry(f.Classes)
 	l.lowerSpawnEntry(f.Classes)
 	ids := make(map[string]string, len(l.funcIDs))
 	for k, v := range l.funcIDs {
@@ -277,18 +262,33 @@ func (l *Lowerer) entryEvents(f *syntax.File) []string {
 		declared[od.Event] = true
 	}
 	need := map[string]bool{}
+	// The clock is generated when anything needs to run once a tick:
+	// a period, or a class's @tick method. `on load` does not need one --
+	// it runs exactly once, from boot, and never from the clock.
+	hasClock := false
+	for _, od := range f.Ons {
+		if od.Event == "every" {
+			hasClock = true
+		}
+	}
 	for _, cd := range f.Classes {
 		for _, m := range cd.Methods {
 			if m.Tick {
-				need["tick"] = true
+				hasClock = true
 			}
 		}
 		for _, ev := range cd.Events {
 			need[ev.Event] = true
 		}
 	}
+	if hasClock {
+		need["cycle"] = true
+		need["on_cycle"] = true
+		need["make_clock"] = true
+	}
 	var out []string
-	for _, ev := range []string{"tick", "spawn", "death"} {
+	// Sorted for a stable collision message.
+	for _, ev := range []string{"cycle", "make_clock", "on_cycle", "spawn"} {
 		if need[ev] && !declared[ev] {
 			out = append(out, ev)
 		}
@@ -360,8 +360,28 @@ func (l *Lowerer) lowerClassEvent(cd syntax.ClassDecl, ev syntax.ClassEvent, fie
 	}
 }
 
-// lowerTickEntry builds the namespace ticking entry, if there is one.
-func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []syntax.ClassDecl) {
+// clockTag marks the entity that carries the module's clock.
+//
+// 1.12.2's gameLoopFunction runs a function with NO executor: @s is
+// undefined there, and every command that names it is silently dropped.
+// The hand-written data packs work around that the same way this does --
+// summon one marker entity, then run the tick body inside an execute that
+// binds @s to it.
+const clockTag = "ggm.clock"
+
+// lowerCycleEntry builds the three functions that make up the module's
+// clock: cycle, make_clock and on_cycle.
+//
+//   - cycle is the only thing gameLoopFunction should name. It has no
+//     executor, so it does nothing but ensure the clock exists and hand
+//     off.
+//   - make_clock summons the marker entity unless one already exists.
+//   - on_cycle runs INSIDE `execute @e[tag=ggm.clock]`, so @s there is the
+//     clock entity and every @s write lands somewhere.
+//
+// Splitting them is not cosmetic: putting the body directly in cycle would
+// put it back in the no-executor context that made `on tick` broken.
+func (l *Lowerer) lowerCycleEntry(classes []syntax.ClassDecl) {
 	type ticker struct{ path, selector string }
 	var tickers []ticker
 	for _, cd := range classes {
@@ -371,40 +391,27 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 			}
 		}
 	}
-	// Periods are driven from here. `on every N` compiles to an ordinary
-	// function; without a driver nothing ever calls it, and the entry looks
-	// present in the output while never running -- which is what the spec
-	// claimed was a phase gate that did not exist.
-	//
-	// The counter is a plain objective written once per tick per period, so
-	// the cost is one add and one guarded call per period per tick.
-	var periods []syntax.OnDecl
-	for _, od := range l.periods {
-		periods = append(periods, od)
-	}
-	if len(body) == 0 && len(tickers) == 0 && len(periods) == 0 {
+	periods := l.periods
+	if len(tickers) == 0 && len(periods) == 0 {
 		return
 	}
-	name := l.path("tick")
+
+	// make_clock
+	mk := l.prog.NewFunc(l.path("make_clock"))
+	mk.Func().Exported = true
+	mk.Emit(0, ir.Raw{Text: "summon armor_stand ~ ~ ~ {Tags:[\"" + clockTag +
+		"\"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}"})
+
+	// on_cycle: the body that actually has @s.
+	name := l.path("on_cycle")
 	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
 	fb := l.prog.NewFunc(name)
 	fb.Func().Exported = true
-	fb.Func().Origin = l.origin(pos)
-	end := l.lowerSeq(ctx, fb, 0, body)
-	if end == noFallThrough {
-		return
-	}
+	end := ir.BlockID(0)
 	for _, t := range tickers {
 		fb.Emit(end, ir.FanOut{Selector: t.selector, Path: t.path})
 	}
-	// Only the SHORTEST period is driven from here. Everything else is driven
-	// by a shorter period it is a multiple of, which is what keeps the cost at
-	// one counter per period rather than one per period per tick.
-	//
-	// The rule is the reference data pack's: period A drives period B when B
-	// is a whole multiple of A and no period between them already divides B.
-	// 0.1s drives 0.2/0.3/0.5s, 0.5s drives 1s, 1s drives 3/5s -- eight edges
-	// for seven periods, instead of twenty-one.
+	_ = ctx
 	if len(periods) > 0 {
 		fastest := periods[0]
 		for _, od := range periods {
@@ -419,7 +426,18 @@ func (l *Lowerer) lowerTickEntry(body []syntax.Stmt, pos syntax.Pos, classes []s
 			fastest.EveryTicks, periodCounter(fastest), fastest.EveryTicks)})
 	}
 	fb.SetTerm(end, ir.Return{})
+
+	// cycle: the entry gameLoopFunction names. No executor here.
+	cyc := l.prog.NewFunc(l.path("cycle"))
+	cyc.Func().Exported = true
+	cyc.Emit(0, ir.Raw{Text: fmt.Sprintf("function %s unless @e[tag=%s]",
+		l.path("make_clock"), clockTag)})
+	cyc.Emit(0, ir.Raw{Text: fmt.Sprintf("execute @e[tag=%s,c=1] ~ ~ ~ function %s",
+		clockTag, l.path("on_cycle"))})
 }
+
+// lowerTickEntry is gone. It built the entry gameLoopFunction named, which
+// had no executor -- see lowerCycleEntry.
 
 // downstream lists the periods this one drives.
 //
@@ -510,12 +528,15 @@ func (l *Lowerer) claimDeclarations(f *syntax.File) {
 }
 
 // onName returns the function an entry point lowers to.
+//
+// Two `on load` blocks in one file would both claim <ns>/load and the second
+// would replace the first on disk, so the collision check still runs -- but
+// two `on every 5s` blocks are the same function for the same reason, and
+// the diagnostic names whichever was written first.
 func (l *Lowerer) onName(od syntax.OnDecl) (string, bool) {
 	switch od.Event {
 	case "load":
 		return l.path("load"), true
-	case "tick":
-		return l.path("tick"), true
 	case "every":
 		return l.path("every/" + od.Every), true
 	}
@@ -627,7 +648,7 @@ func (l *Lowerer) bindParams(ctx *fnCtx, fb *ir.FuncBuilder, params []syntax.Par
 		if i < clobbered && syntax.Mentions(body, p.Name) {
 			local := ctx.newSlot()
 			ctx.scope[p.Name] = local
-			fb.Emit(0, ir.Copy{Dst: loc(local), Src: loc(reg)})
+			fb.Emit(0, ir.Copy{Dst: ctx.loc(local), Src: ctx.loc(reg)})
 			continue
 		}
 		ctx.params = append(ctx.params, reg)
@@ -667,6 +688,22 @@ type fnCtx struct {
 	// fields maps a field's name to the objective it lives in. The two
 	// differ because objective names are truncated to the version's limit.
 	fields map[string]string
+	// noSelf marks a body entered without an executor: `on load`, and the
+	// boot function that calls it.
+	//
+	// Registers still work here -- they move to a fake player -- but a class
+	// field, a selector fan-out or a decode from @s do not, because there is
+	// no entity for them to name. Reporting that is the whole point: 1.12.2
+	// drops such a command silently.
+	noSelf bool
+}
+
+// selfHolder is the holder this body's registers live on.
+func (c *fnCtx) selfHolder() string {
+	if c.noSelf {
+		return ir.NoSelfHolder
+	}
+	return ir.SelfHolder
 }
 
 // isField reports whether a bare name refers to a field of the enclosing
@@ -783,9 +820,21 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	if !ok {
 		return
 	}
-	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN}
+	// `on load` runs from boot, with NO executor: 1.12.2 has no load event,
+	// so the user wires a command block, and a command block has no @s.
+	// Every `on every` period instead runs inside `execute @e[tag=ggm.clock]`,
+	// so @s there is the clock entity and ordinary code works.
+	//
+	// This is the difference that matters, and it is why `on tick` is gone:
+	// it looked like the second kind and behaved like the first.
+	noSelf := od.Event == "load"
+	ctx := &fnCtx{path: name, scope: map[string]string{}, localN: &l.localN, noSelf: noSelf}
 	fb := l.prog.NewFunc(name)
 	fb.Func().Exported = true
+	fb.Func().NoSelf = noSelf
+	if noSelf {
+		fb.Func().RegHolder = ir.NoSelfHolder
+	}
 	fb.Func().Origin = l.origin(od.P)
 	// Reset FIRST, unconditionally.
 	//
@@ -795,7 +844,7 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	// return as noFallThrough, so the reset would silently vanish for exactly
 	// those periods whose body returns.
 	if od.Event == "every" {
-		fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: "@s", Obj: periodCounter(od)}, Value: 0})
+		fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: ir.SelfHolder, Obj: periodCounter(od)}, Value: 0})
 	}
 	end := l.lowerSeq(ctx, fb, 0, od.Body)
 	if end == noFallThrough {
@@ -816,7 +865,7 @@ func (l *Lowerer) lowerOn(od syntax.OnDecl) {
 	for _, down := range l.downstream(od) {
 		obj := periodCounter(down)
 		ratio := down.EveryTicks / od.EveryTicks
-		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: "@s", Obj: obj}, Value: 1})
+		fb.Emit(end, ir.Add{Dst: ir.Loc{Holder: ir.SelfHolder, Obj: obj}, Value: 1})
 		fb.Emit(end, ir.Raw{Text: fmt.Sprintf(
 			"function %s if @s[score_%s_min=%d,score_%s=%d]",
 			l.path("every/"+down.Every), obj, ratio, obj, ratio)})

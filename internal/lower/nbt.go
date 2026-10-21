@@ -90,7 +90,7 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 			s.Target, s.Target)
 		return
 	}
-	dst := l.targetLoc(ctx, s.Target)
+	dst := l.targetLoc(ctx, s.Target, s.P)
 
 	// One reset for the whole statement, then every slot's rungs. Resetting per
 	// slot would leave only the last slot's contribution, which is exactly what
@@ -151,7 +151,7 @@ func (l *Lowerer) lowerEncode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 			"objective %q is never declared; add `obj %s` or bind it with extern", s.Source, s.Source)
 		return
 	}
-	src := l.targetLoc(ctx, s.Source)
+	src := l.targetLoc(ctx, s.Source, s.P)
 
 	for v := s.Lo; v <= s.Hi; v++ {
 		// Both bounds on the guard. `score_return=3` alone means `<= 3`, so

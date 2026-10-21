@@ -48,7 +48,7 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	if !ok {
 		return false
 	}
-	if exprMentions(bin.R, loc(dst), ctx) {
+	if exprMentions(bin.R, ctx.loc(dst), ctx) {
 		return false
 	}
 	// When the left operand is itself an arithmetic op, compute it into dst
@@ -70,7 +70,7 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 				l.diags.Error(posOf(exprPos(bin.R)), "E_EXPR", "%s", err)
 				return true
 			}
-			fb.Emit(block, ir.Arith{Dst: loc(dst), Op: op, Src: rhs})
+			fb.Emit(block, ir.Arith{Dst: ctx.loc(dst), Op: op, Src: rhs})
 			return true
 		}
 	}
@@ -79,13 +79,13 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 		l.diags.Error(posOf(exprPos(bin.L)), "E_EXPR", "%s", err)
 		return true
 	}
-	fb.Emit(block, ir.Copy{Dst: loc(dst), Src: lhs})
+	fb.Emit(block, ir.Copy{Dst: ctx.loc(dst), Src: lhs})
 	rhs, err := l.expr(ctx, fb, block, bin.R)
 	if err != nil {
 		l.diags.Error(posOf(exprPos(bin.R)), "E_EXPR", "%s", err)
 		return true
 	}
-	fb.Emit(block, ir.Arith{Dst: loc(dst), Op: op, Src: rhs})
+	fb.Emit(block, ir.Arith{Dst: ctx.loc(dst), Op: op, Src: rhs})
 	return true
 }
 
@@ -129,7 +129,7 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 			return ir.Loc{}, fmt.Errorf("selector %s cannot be used as a value", x.Name)
 		}
 		if xd, ok := l.externs[x.Name]; ok && (xd.Kind == "var" || xd.Kind == "global") {
-			return externLoc(xd), nil
+			return l.externTarget(ctx, xd, x.P), nil
 		}
 		if v, ok := l.kt[x.Name]; ok {
 			return fb.Const(v), nil
@@ -142,7 +142,7 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		// checked after externs and constants so an explicit binding
 		// still wins.
 		if ctx.isField(x.Name) {
-			return loc(ctx.fieldLoc(x.Name)), nil
+			return l.entityScore(ctx, ctx.fieldLoc(x.Name), x.P), nil
 		}
 		// A declared objective reads by its own name. Missing this while the
 		// WRITE path had it made `ticks = ticks + 1` compile to
@@ -150,9 +150,9 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		// the value came from a fresh local that nothing ever wrote, so the
 		// counter was stuck at 1 forever.
 		if l.objs[x.Name] {
-			return loc(x.Name), nil
+			return l.entityScore(ctx, x.Name, x.P), nil
 		}
-		return loc(ctx.slot(x.Name)), nil
+		return ctx.loc(ctx.slot(x.Name)), nil
 	case syntax.Call:
 		return l.call(ctx, fb, block, x)
 	case syntax.Binary:
@@ -256,8 +256,8 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 		return ir.Predicate{}, err
 	}
 	d := fb.Tmp()
-	fb.Emit(block, ir.Copy{Dst: loc(d), Src: src})
-	fb.Emit(block, ir.Arith{Dst: loc(d), Op: "-=", Src: fb.Const(1)})
+	fb.Emit(block, ir.Copy{Dst: ctx.loc(d), Src: src})
+	fb.Emit(block, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: fb.Const(1)})
 	return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: 0, HasMax: true, Max: 0}}}}, nil
 }
 
@@ -286,7 +286,7 @@ func (l *Lowerer) lowerCondInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		if err != nil {
 			return ir.Predicate{}, err
 		}
-		fb.Emit(block, ir.Arith{Dst: loc(d), Op: "-=", Src: rhs})
+		fb.Emit(block, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: rhs})
 		return l.predicateFor(d, x.Op)
 	}
 	lhs, err := l.expr(ctx, fb, block, x.L)
@@ -297,8 +297,8 @@ func (l *Lowerer) lowerCondInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	if err != nil {
 		return ir.Predicate{}, err
 	}
-	fb.Emit(block, ir.Copy{Dst: loc(d), Src: lhs})
-	fb.Emit(block, ir.Arith{Dst: loc(d), Op: "-=", Src: rhs})
+	fb.Emit(block, ir.Copy{Dst: ctx.loc(d), Src: lhs})
+	fb.Emit(block, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: rhs})
 	return l.predicateFor(d, x.Op)
 }
 
@@ -310,7 +310,7 @@ func (l *Lowerer) lowerCondInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 // path.
 func (l *Lowerer) assignOperandInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d string, e syntax.Expr) bool {
 	if c, ok := e.(syntax.Call); ok {
-		return l.callInto(ctx, fb, block, loc(d), c)
+		return l.callInto(ctx, fb, block, ctx.loc(d), c)
 	}
 	if bin, ok := e.(syntax.Binary); ok && !isComparison(bin.Op) {
 		return l.assignBinaryInto(ctx, fb, block, d, bin)
@@ -336,7 +336,7 @@ func (l *Lowerer) lowerAbsComparison(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bl
 	if inner.Holder == "@s" {
 		slot = inner.Obj
 	} else {
-		fb.Emit(block, ir.Copy{Dst: loc(d), Src: inner})
+		fb.Emit(block, ir.Copy{Dst: ctx.loc(d), Src: inner})
 	}
 	switch x.Op {
 	case syntax.GE, syntax.GT:
@@ -396,16 +396,21 @@ func comparisonText(k syntax.Kind) string {
 	return ""
 }
 
-// externLoc resolves a bound score. The holder is @s unless the declaration
-// named a fake player, which is how a global is spelled.
-func externLoc(d syntax.ExternDecl) ir.Loc {
+// externLoc resolves a bound score. The holder is the body's register file
+// unless the declaration named a fake player, which is how a global is
+// spelled.
+//
+// A binding that names @s explicitly stays on @s: the author asked for the
+// executor, and in a body that has none the access is reported by the
+// caller rather than silently retargeted to a fake player.
+func externLoc(c *fnCtx, d syntax.ExternDecl) ir.Loc {
 	if d.Holder != "" && d.Holder != "@s" {
 		return ir.Loc{Holder: d.Holder, Obj: d.Objective}
 	}
 	if d.Objective != "" {
-		return loc(d.Objective)
+		return c.loc(d.Objective)
 	}
-	return loc(d.Name)
+	return c.loc(d.Name)
 }
 
 func isComparison(k syntax.Kind) bool {
