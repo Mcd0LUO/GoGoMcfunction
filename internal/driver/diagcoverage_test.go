@@ -57,6 +57,26 @@ func TestEveryDiagnosticFires(t *testing.T) {
 			"E_STMT",
 			"namespace t:d\nobj X\nobj Y\n[export]\nfn f() { X Y = 1 }\n",
 		},
+		{
+			"E_FOR_RANGE",
+			"namespace t:d\nobj X\nobj i\n[export]\nfn f() { for k in 0..\"s\" { i = k } }\n",
+		},
+		// A class field is `var <name> [: type] [= init]`, not `nbt`. Both
+		// cases below are about class field LOWERING, not the nbt codec, and
+		// the first attempt at them used the wrong keyword and so tested
+		// nothing.
+		{
+			"E_UNINIT_FIELD",
+			"namespace t:d\nobj X\nclass C {\n  var a: int\n}\n[export]\nfn f() { X = 1 }\n",
+		},
+		{
+			"E_FIELD_COLLISION",
+			"namespace t:d\nobj X\nclass C {\n  var averylongname1 = 1\n  var averylongname2 = 2\n}\n[export]\nfn f() { X = 1 }\n",
+		},
+		{
+			"E_STR_RUNTIME",
+			"namespace t:d\nobj X\n[export]\nfn f() { X = 1 + str(5) }\n",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.code, func(t *testing.T) {
@@ -89,22 +109,19 @@ func TestEveryDiagnosticFires(t *testing.T) {
 // there would be the quiet wrong answer this compiler exists to prevent, so if
 // the parser ever stops enforcing its end, that has to be a crash.
 //
-// Five codes still have no test. Each is listed with the reason it could not
-// be triggered, so the gap is documented rather than forgotten.
+// One code still has no test.
 //
-//	E_BAD_COMMAND         needs Render to emit a line ValidateFor rejects; no
-//	                      source path to it was found.
-//	E_FIELD_COLLISION     lives in class-field lowering; the class field
-//	                      keyword was not identified while writing this.
-//	E_FOR_RANGE           `for k in 0..X` lowers to a runtime loop, so this
-//	                      check fires under a condition not found here.
-//	E_STR_RUNTIME         an extern str assigned to an objective compiles; the
-//	                      runtime-use path was not found.
-//	E_UNINIT_FIELD        lives in class-field lowering, same blocker as above.
+//	E_BAD_COMMAND  needs Render to emit a line ValidateFor rejects. Every
+//	               command in the IR is built by the back end from a known
+//	               shape, and no source-level construct was found that makes
+//	               it emit a malformed line -- including `comptime { cmd(...) }`,
+//	               which does not reach ValidateFor at all.
+//
+// Two others were nearly left here for a bad reason: E_UNINIT_FIELD and
+// E_FIELD_COLLISION were listed as untriggerable because the first attempt at
+// them wrote `nbt` where a class field is written `var`. They fired on the
+// first try once the keyword was right, which is worth recording: "I could not
+// trigger it" is a statement about the person trying, not about the code.
 var untestedDiagnostics = []string{
 	"E_BAD_COMMAND",
-	"E_FIELD_COLLISION",
-	"E_FOR_RANGE",
-	"E_STR_RUNTIME",
-	"E_UNINIT_FIELD",
 }

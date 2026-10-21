@@ -17,10 +17,24 @@ import (
 // "already reported [E_EXPR]", which names the compiler's sentinel rather than
 // their mistake.
 func (l *Lowerer) reportExprErr(e syntax.Expr, err error) {
+	l.reportErr(exprPos(e), "E_EXPR", err)
+}
+
+// reportErr records a lowering error under code, unless the mistake was already
+// recorded somewhere below.
+//
+// Ten sites besides reportExprErr wrote `l.diags.Error(pos, code, "%s", err)`
+// directly, so a nested failure reached the author as the message
+//
+//	5:10: error: already reported [E_FOR_RANGE]
+
+// which names the compiler's bookkeeping rather than their program. `for k in
+// nosuch(1)..3` produced exactly that.
+func (l *Lowerer) reportErr(p syntax.Pos, code string, err error) {
 	if errors.Is(err, errAlreadyReported) {
 		return
 	}
-	l.diags.Error(posOf(exprPos(e)), "E_EXPR", "%s", err)
+	l.diags.Error(posOf(p), code, "%s", err)
 }
 
 // assignInto stores the value of e into dst.

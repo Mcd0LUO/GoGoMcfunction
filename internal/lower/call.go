@@ -310,7 +310,7 @@ func (l *Lowerer) marshalArgs(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, 
 	for i, a := range c.Args {
 		op, err := l.expr(ctx, fb, block, a)
 		if err != nil {
-			l.diags.Error(posOf(c.P), "E_ARG", "%s", err)
+			l.reportErr(c.P, "E_ARG", err)
 			return
 		}
 		operands[i] = op
@@ -457,7 +457,7 @@ func (l *Lowerer) marshalExtern(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		}
 		src, err := l.expr(ctx, fb, block, a)
 		if err != nil {
-			l.diags.Error(posOf(c.P), "E_ARG", "%s", err)
+			l.reportErr(c.P, "E_ARG", err)
 			return
 		}
 		fb.Emit(block, ir.Copy{Dst: ctx.loc(x.In[i].Reg), Src: src})
@@ -561,7 +561,19 @@ func (l *Lowerer) builtin(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c sy
 	case "str":
 		// compile-time only; reaching here means a runtime use
 		l.diags.Error(posOf(c.P), "E_STR_RUNTIME", "str() is compile-time only")
-		return ir.Loc{}, true
+		// A fresh temporary, not the zero Loc.
+		//
+		// Returning ir.Loc{} said "handled" while handing back a location
+		// with no holder and no objective, and the caller used it as an
+		// operand -- so the IR carried an invalid location and Verify then
+		// reported a second, internal failure on top of this one:
+		//
+		//	-: error: t:s9/f: block 0: op with invalid location [E_IR_INVARIANT]
+		//	4:18: error: str() is compile-time only [E_STR_RUNTIME]
+		//
+		// Compilation fails either way, but the author should see one
+		// diagnostic about their program, not one about the compiler.
+		return fb.TmpLoc(), true
 	}
 	return ir.Loc{}, false
 }

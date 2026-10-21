@@ -201,7 +201,7 @@ func (l *Lowerer) externTarget(ctx *fnCtx, d syntax.ExternDecl, p syntax.Pos) ir
 func (l *Lowerer) lowerIf(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.IfStmt, rest []syntax.Stmt) ir.BlockID {
 	p, err := l.lowerCond(ctx, fb, cur, s.Cond)
 	if err != nil {
-		l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+		l.reportErr(s.P, "E_COND", err)
 		return cur
 	}
 
@@ -284,7 +284,7 @@ func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s s
 	// distinguishes a while loop from a tail-tested one.
 	p, err := l.lowerCond(ctx, fb, cur, s.Cond)
 	if err != nil {
-		l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+		l.reportErr(s.P, "E_COND", err)
 		return after
 	}
 	fb.SetTerm(cur, ir.Branch{Cond: p, Then: body, Else: after})
@@ -338,7 +338,7 @@ func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s sy
 func (l *Lowerer) closeLoop(ctx *fnCtx, fb *ir.FuncBuilder, body, bodyEnd, after ir.BlockID, budget string, cond syntax.Expr, pos syntax.Pos) {
 	p, err := l.lowerCond(ctx, fb, bodyEnd, cond)
 	if err != nil {
-		l.diags.Error(posOf(pos), "E_COND", "%s", err)
+		l.reportErr(pos, "E_COND", err)
 		fb.SetTerm(bodyEnd, ir.Jump{Target: after})
 		return
 	}
@@ -410,7 +410,7 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 	if s.Where != nil {
 		cond, err := l.lowerCond(bctx, bb, 0, s.Where)
 		if err != nil {
-			l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+			l.reportErr(s.P, "E_COND", err)
 		} else {
 			guard := bb.NewBlock()
 			body := bb.NewBlock()
@@ -450,7 +450,7 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 	} else {
 		src, err := l.expr(ctx, fb, cur, r.L)
 		if err != nil {
-			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
+			l.reportErr(s.P, "E_FOR_RANGE", err)
 			return cur
 		}
 		fb.Emit(cur, ir.Copy{Dst: ctx.loc(i), Src: src})
@@ -460,7 +460,7 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 	} else {
 		src, err := l.expr(ctx, fb, cur, r.R)
 		if err != nil {
-			l.diags.Error(posOf(s.P), "E_FOR_RANGE", "%s", err)
+			l.reportErr(s.P, "E_FOR_RANGE", err)
 			return cur
 		}
 		fb.Emit(cur, ir.Copy{Dst: ctx.loc(lim), Src: src})
@@ -510,7 +510,7 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 	if s.Where != nil {
 		cond, err := l.lowerCond(ctx, fb, body, s.Where)
 		if err != nil {
-			l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+			l.reportErr(s.P, "E_COND", err)
 		} else {
 			keep := fb.NewBlock()
 			fb.SetTerm(body, ir.Branch{Cond: cond, Then: keep, Else: step})
@@ -545,7 +545,7 @@ func (l *Lowerer) lowerBroadcast(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID,
 	}
 	op, err := l.expr(ctx, fb, cur, s.Value)
 	if err != nil {
-		l.diags.Error(posOf(s.P), "E_BROADCAST_VALUE", "%s", err)
+		l.reportErr(s.P, "E_BROADCAST_VALUE", err)
 		return
 	}
 	fb.Emit(cur, ir.Copy{Dst: ir.Loc{Holder: sel.Name, Obj: s.Field}, Src: op})
