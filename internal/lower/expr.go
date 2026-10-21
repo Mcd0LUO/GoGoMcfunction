@@ -134,9 +134,20 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		if v, ok := l.kt[x.Name]; ok {
 			return fb.Const(v), nil
 		}
-		if strings.Contains(x.Name, ".") {
-			parts := strings.SplitN(x.Name, ".", 2)
-			return ir.Loc{Holder: parts[0], Obj: parts[1]}, nil
+		// A declared objective reads by its own name. Missing this while the
+		// WRITE path had it made `ticks = ticks + 1` compile to
+		// `ticks = l0 + 1` -- the target landed on the right objective but
+		// the value came from a fresh local that nothing ever wrote, so the
+		// counter was stuck at 1 forever.
+		//
+		// It is checked BEFORE the field, and it replaced a `holder.objective`
+		// fallback for any dotted name. That fallback was wrong: an objective
+		// name may itself contain dots -- `Ap.Amount`, `wp.damage1` are real
+		// names in the reference data pack -- so `Ap.Amount` was split into
+		// holder `Ap` and objective `Amount`, and the command named a score
+		// nothing writes. A wrong answer with no diagnostic.
+		if l.objs[x.Name] {
+			return l.entityScore(ctx, x.Name, x.P), nil
 		}
 		// A field of the enclosing class beats a fresh local. Fields are
 		// checked after externs and constants so an explicit binding
@@ -144,13 +155,21 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		if ctx.isField(x.Name) {
 			return l.entityScore(ctx, ctx.fieldLoc(x.Name), x.P), nil
 		}
-		// A declared objective reads by its own name. Missing this while the
-		// WRITE path had it made `ticks = ticks + 1` compile to
-		// `ticks = l0 + 1` -- the target landed on the right objective but
-		// the value came from a fresh local that nothing ever wrote, so the
-		// counter was stuck at 1 forever.
-		if l.objs[x.Name] {
-			return l.entityScore(ctx, x.Name, x.P), nil
+		// `holder.objective` is shorthand for a score on a fake player.
+		//
+		// It is checked LAST, after declared objectives and fields, because it
+		// is ambiguous with an objective whose name contains a dot -- and that
+		// shape is far more common. The reference data pack declares
+		// `Ap.Amount`, `Count.残照花魄`, `Time.day`, `timer.tick` and dozens
+		// more; only two names in this repository's own examples use the
+		// shorthand. Checking the shorthand first silently split every one of
+		// those objectives into a holder and a shorter objective name.
+		//
+		// Declaration wins, and an undeclared dotted name is still the
+		// shorthand -- so both spellings keep working, and the one that is
+		// written down explicitly is the one that is unambiguous.
+		if i := strings.Index(x.Name, "."); i > 0 {
+			return ir.Loc{Holder: x.Name[:i], Obj: x.Name[i+1:]}, nil
 		}
 		return ctx.loc(ctx.slot(x.Name)), nil
 	case syntax.Call:

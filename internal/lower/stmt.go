@@ -134,7 +134,10 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string, p syntax.Pos) ir.Loc {
 	if ctx.isField(name) {
 		return l.entityScore(ctx, ctx.fieldLoc(name), p)
 	}
-	// `holder.objective`, the same shape extern binds with.
+	// `holder.objective` is shorthand for a score on a fake player, checked
+	// after declared objectives for the same reason as on the read path: the
+	// shape is ambiguous with an objective name containing a dot, and that is
+	// the far more common of the two.
 	if i := strings.Index(name, "."); i > 0 {
 		return ir.Loc{Holder: name[:i], Obj: name[i+1:]}
 	}
