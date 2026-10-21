@@ -649,6 +649,7 @@ no-op 比缺功能更糟。**
 | `playsound(sound, source, target)` | `playsound <sound> <source> <target>` |
 | `advancement("grant\|revoke", target, "only\|through\|from\|until", id)` | `advancement <...>` |
 | `trigger(objective, "set\|add\|remove", value)` | `trigger <objective> <...>` |
+| `enable(target, objective)` | `scoreboard players enable <target> <objective>` |
 | `stats(target, "set\|clear", stat, objective)` | `stats entity <target> <...> <target> <obj>` |
 | `tag_add(target, tag)` / `tag_remove(target, tag)` | `scoreboard players tag <target> add\|remove <tag>` |
 | `say(text)` | `say <text>` |
@@ -689,6 +690,28 @@ tp(self, "100", "64", "-20")  // 绝对：到那个方块
 写不出来。让波浪号可见，每个轴多一个字符，两种形式就都能说清自己是什么——
 而且这正是 1.12.2 自己的区分方式，中间不再有可错的翻译。
 
+#### `detect`：探测方块
+
+```ggm
+if detect("~", "~-1", "~", "stone", "0", self) {
+    can_stand = 1
+}
+```
+
+参数是 `(x, y, z, 方块, 数据值, 执行者)`。1.12.2 里没有布尔表达式，也**没有
+`unless detect`**——探测只能写成「条件成立时执行一条命令」。所以它降级成一个
+标志位：
+
+```mcfunction
+scoreboard players set @s t0 0
+execute @s ~ ~ ~ detect ~ ~-1 ~ stone 0 scoreboard players set @s t0 1
+function t:app/probe$b1 if @s[score_t0_min=1]
+```
+
+标志位是必要的，不是浪费：它让**补集**可表达。没有它，`detect` 只能写
+「成立时做 A」，写不出「不成立时做 B」。
+
+两行加一个槽的代价，换来 `detect` 能用在 `if` 和 `while` 里，和别的条件一样。
 #### `cmd` 是逃生口，但仍然过校验
 
 `cmd` 和编译期的 `cmd` **同名**：「发一条任意命令」在语言里只有一个名字。

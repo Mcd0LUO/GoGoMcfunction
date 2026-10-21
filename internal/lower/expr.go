@@ -246,6 +246,9 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 	if mc, ok := e.(syntax.MatchCond); ok {
 		return l.lowerMatch(ctx, fb, block, mc)
 	}
+	if call, ok := e.(syntax.Call); ok && call.Name == "detect" {
+		return l.lowerBlockProbe(ctx, fb, block, call)
+	}
 	if bin, ok := e.(syntax.Binary); ok && isComparison(bin.Op) {
 		d := fb.Tmp()
 		return l.lowerCondInto(ctx, fb, block, d, bin)
@@ -259,6 +262,56 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 	fb.Emit(block, ir.Copy{Dst: ctx.loc(d), Src: src})
 	fb.Emit(block, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: fb.Const(1)})
 	return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: 0, HasMax: true, Max: 0}}}}, nil
+}
+
+// lowerBlockProbe turns `detect(...)` into a flag the branch can read.
+//
+// 1.12.2 can only test a block by running a command conditionally: there is no
+// boolean expression, and `unless detect` does not exist. So the probe is:
+//
+//	set @s flag 0
+//	execute @s ~ ~ ~ detect <x> <y> <z> <block> <data> scoreboard players set @s flag 1
+//
+// and then the branch tests `flag == 1`, which the existing predicate
+// machinery already knows how to render -- including its complement, which is
+// the thing `detect` alone cannot express.
+//
+// This costs two commands and a slot. The alternative was a second kind of
+// condition in the IR that every pass would have to learn about, and one that
+// `while` could not use.
+func (l *Lowerer) lowerBlockProbe(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syntax.Call) (ir.Predicate, error) {
+	if len(c.Args) != 6 {
+		return ir.Predicate{}, fmt.Errorf("detect needs (x, y, z, block, data, target): the position to probe, the block, and who probes it")
+	}
+	// Arguments 0..4 are command text; argument 5 is the probe's executor.
+	coords := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		v, ok := l.rawArg(c, i)
+		if !ok {
+			return ir.Predicate{}, fmt.Errorf("detect argument %d must be a literal", i+1)
+		}
+		coords[i] = v
+	}
+	sel := l.targetArg(c, 5)
+
+	// TmpLoc, not Tmp: Tmp only mints a NAME, and the holder has to come
+	// from the function -- a [load] function keeps its registers on a fake
+	// player, so writing @s there would land on nothing.
+	f := fb.TmpLoc()
+	fb.Emit(block, ir.Set{Dst: f, Value: 0})
+	fb.Emit(block, ir.Raw{
+		// The flag is %s, not fmt.Sprintf("%s %s", ...): a location baked
+		// into the text cannot be renamed with the op that writes it, and the
+		// two then disagree -- the op said t0, the command said t1, and the
+		// branch read the wrong one at -O2.
+		Text: fmt.Sprintf("execute %s ~ ~ ~ detect %s %s %s %s %s scoreboard players set %%s 1",
+			sel, coords[0], coords[1], coords[2], coords[3], coords[4]),
+		Args: []ir.Loc{f},
+		// Declared, not inferred: without this the flag looks dead to liveness
+		// and the next probe is coloured onto the same objective.
+		Writes: []ir.Loc{f},
+	})
+	return ir.Predicate{Alts: [][]ir.Cond{{{Obj: f.Obj, HasMin: true, Min: 1}}}}, nil
 }
 
 // lowerCondInto computes lhs - rhs into slot d and returns the true predicate.

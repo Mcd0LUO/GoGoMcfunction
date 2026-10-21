@@ -199,7 +199,37 @@ type FanOut struct {
 }
 
 // Raw is an escape hatch for commands the IR does not model.
-type Raw struct{ Text string }
+//
+// It carries its effects explicitly, because analysis cannot read them out of
+// the text: a `Raw` that writes an objective is invisible to liveness, and an
+// invisible write lets the allocator reuse that slot for something else.
+//
+// That is not hypothetical. A block probe writes its flag with
+//
+//	execute @s ~ ~ ~ detect … scoreboard players set @s t0 1
+//
+// and with no declared write the temp looked dead, so the next probe was
+// coloured onto the SAME objective -- the second probe then overwrote the
+// first one's answer and the first branch read the wrong flag. At -O0 the
+// output was correct, which is the worst shape for a bug to have.
+//
+// Declaring the effects rather than parsing the text keeps the dependency the
+// right way round: the code that builds the command already knows what it
+// touches, and a string parser would have to understand every command.
+type Raw struct {
+	Text string
+	// Writes and Reads are the locations the command touches, if any.
+	Writes []Loc
+	Reads  []Loc
+	// Args are locations spliced into Text at each %s, in order.
+	//
+	// A location must never be written into Text directly. Optimization
+	// renames temporaries, and a name baked into a string cannot be renamed
+	// with it: the op's Writes would say t0 while the command still said t1,
+	// and the two would drift apart silently. Splicing at render time is the
+	// only way a Raw can name a slot and survive a rename.
+	Args []Loc
+}
 
 func (Set) opNode()     {}
 func (Copy) opNode()    {}
@@ -231,6 +261,7 @@ type Cond struct {
 type Predicate struct {
 	Alts  [][]Cond
 	Exist *ExistTest
+	Block *BlockTest
 }
 
 // ExistTest is `function F if <selector>` — an O(1) existence test rather than
@@ -240,8 +271,25 @@ type ExistTest struct {
 	Negate   bool
 }
 
+// BlockTest is `execute <sel> ~ ~ ~ detect <x> <y> <z> <block> <data>`.
+//
+// 1.12.2 has no boolean expression in a command, so a block probe can only
+// exist as a guarded command. Lowering it as a Predicate keeps it usable in
+// `if` and in `while` without giving the language a second kind of condition.
+//
+// Block and Data are raw command text: a block id, and a data value or `*`.
+// Both are literals because a command is text.
+type BlockTest struct {
+	Selector string
+	X, Y, Z  string
+	Block    string
+	Data     string
+}
+
 // IsAlways reports whether the predicate imposes no condition.
-func (p Predicate) IsAlways() bool { return p.Exist == nil && len(p.Alts) == 0 }
+func (p Predicate) IsAlways() bool {
+	return p.Exist == nil && p.Block == nil && len(p.Alts) == 0
+}
 
 // SelfHolder is the executor selector, the default register file.
 const SelfHolder = "@s"

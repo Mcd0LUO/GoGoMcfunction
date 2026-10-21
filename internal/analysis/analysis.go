@@ -48,6 +48,17 @@ func Uses(op ir.Op) []ir.Loc {
 		return []ir.Loc{o.Dst}
 	case ir.Remove:
 		return []ir.Loc{o.Dst}
+	case ir.Raw:
+		// A raw command declares its reads; the text is not parsed.
+		//
+		// Its declared writes are also USES, for the same reason a guarded
+		// write's are: a command inside an `execute` may not run at all, and
+		// where it does not the previous value survives. Treating the write as
+		// an unconditional kill let dead-store elimination delete the `set 0`
+		// that initialises a probe flag -- the flag then kept whatever it held
+		// last tick, and the branch read a stale answer.
+		out := append([]ir.Loc{}, o.Reads...)
+		return append(out, o.Writes...)
 	case ir.Guarded:
 		// A guarded write does NOT kill the previous value: where the guard
 		// fails the old value survives. So the inner op's destinations are also
@@ -72,6 +83,8 @@ func Defs(op ir.Op) []ir.Loc {
 		return []ir.Loc{o.Dst}
 	case ir.Remove:
 		return []ir.Loc{o.Dst}
+	case ir.Raw:
+		return o.Writes
 	case ir.Guarded:
 		return Defs(o.Inner)
 	}

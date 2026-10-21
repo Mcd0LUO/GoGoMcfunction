@@ -230,6 +230,24 @@ func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.B
 	thenName := bp(fn, br.Then)
 	elseName := bp(fn, br.Else)
 
+	if br.Cond.Block != nil {
+		// A block probe: `execute <sel> ~ ~ ~ detect <x> <y> <z> <block> <data>`
+		// runs its command only when the block at that position matches.
+		//
+		// The then edge is one execute. The else edge has no `unless detect`
+		// form, so it is reached by running the else arm FIRST and letting the
+		// then arm overwrite the result -- which is only correct because the
+		// two arms are blocks that jump to a join, and a block cannot be
+		// partially executed.
+		//
+		// That reasoning is subtle enough that it is not done here. The lowerer
+		// turns a block probe into a flag first (see lowerBlockProbe), so a
+		// BlockTest should never arrive. Panicking rather than guessing means a
+		// future change that bypasses the lowering fails loudly instead of
+		// dropping an arm and returning a wrong answer.
+		panic("ir.BlockTest reached the back end; lowerBlockProbe should have turned it into a flag")
+	}
+
 	if br.Cond.Exist != nil {
 		// An existence test asks WHETHER anything matches, so it must run the
 		// arm at most once. `execute <sel> ~ ~ ~ function F` does not: it runs
@@ -363,7 +381,10 @@ func renderOp(t target.Target, op ir.Op) []mc.Command {
 			Cmd:      mc.Function{Name: o.Path},
 		}}
 	case ir.Raw:
-		return []mc.Command{mc.Raw{Text: o.Text}}
+		// Splice the declared locations into the text at render time. This is
+		// the only point where a slot name becomes a string, and it is after
+		// every pass that could rename one.
+		return []mc.Command{mc.Raw{Text: spliceLocations(o.Text, o.Args)}}
 	}
 	return nil
 }
@@ -378,6 +399,41 @@ func parseSelector(text string) *mc.Selector {
 		sel.Arg(arg)
 	}
 	return sel
+}
+
+// spliceLocations replaces each %s in text with one location, in order.
+//
+// A mismatch between the number of %s and the number of locations is a
+// compiler bug, not a user error: the text and the argument list are built
+// together. Panicking here is better than emitting a command with a literal
+// %s in it, which 1.12.2 would reject and which would take the whole function
+// file down with it.
+func spliceLocations(text string, args []ir.Loc) string {
+	if len(args) == 0 {
+		return text
+	}
+	var sb strings.Builder
+	i := 0
+	for {
+		j := strings.Index(text, "%s")
+		if j < 0 {
+			sb.WriteString(text)
+			break
+		}
+		if i >= len(args) {
+			panic("ir.Raw: more %s than Args")
+		}
+		sb.WriteString(text[:j])
+		sb.WriteString(args[i].Holder)
+		sb.WriteString(" ")
+		sb.WriteString(args[i].Obj)
+		text = text[j+2:]
+		i++
+	}
+	if i != len(args) {
+		panic("ir.Raw: more Args than %s")
+	}
+	return sb.String()
 }
 
 // negateSelector flips tag= conditions, which is the only negation 1.12.2

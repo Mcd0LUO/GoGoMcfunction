@@ -211,8 +211,22 @@ func (DeadStore) Run(p *ir.Program) *ir.Program {
 	return p
 }
 
-// isTempWrite reports whether an op writes a compiler temporary (tN).
+// isTempWrite reports whether an op is a pure write of a compiler temporary.
+//
+// A raw command is excluded even when it declares a temporary as its only
+// write: the command does something observable besides storing the value. The
+// block probe is exactly this -- `execute … detect … scoreboard players set @s
+// t0 1` writes a temp AND performs the probe, and deleting it because nothing
+// read t0 afterwards removed the test itself.
 func isTempWrite(op ir.Op) bool {
+	if _, ok := op.(ir.Raw); ok {
+		return false
+	}
+	// A guarded write is conditional too: where the guard fails the old value
+	// survives, so the write cannot be deleted on liveness alone.
+	if _, ok := op.(ir.Guarded); ok {
+		return false
+	}
 	d := analysis.Defs(op)
 	if len(d) != 1 {
 		return false
@@ -417,6 +431,21 @@ func applyRename(fn *ir.Function, rename map[string]string) {
 				// arithmetic wrote `t0`.
 				o.Inner = renameOp(o.Inner, rename)
 				o.Cond = renamePred(o.Cond, rename)
+				b.Ops[i] = o
+			case ir.Raw:
+				// A raw command names locations in two places: the Args that get
+				// spliced into its text at render time, and the declared effects
+				// that liveness reads. Renaming neither left the op claiming to
+				// write t0 while the rendered command still said t1.
+				for k := range o.Args {
+					o.Args[k] = rn(o.Args[k])
+				}
+				for k := range o.Writes {
+					o.Writes[k] = rn(o.Writes[k])
+				}
+				for k := range o.Reads {
+					o.Reads[k] = rn(o.Reads[k])
+				}
 				b.Ops[i] = o
 			}
 		}

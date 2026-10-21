@@ -68,8 +68,11 @@ var commandBuiltins = map[string]commandSpec{
 	// progress and score-adjacent
 	"advancement": {verb: "advancement", targetAt: 1, minArgs: 3},
 	"trigger":     {verb: "trigger", targetAt: -1, minArgs: 1},
-	"tag_add":     {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
-	"tag_remove":  {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
+	// enable is trigger's other half: 1.12.2 refuses a trigger write on an
+	// objective that has not been enabled for that player, and says nothing.
+	"enable":     {verb: "scoreboard players enable", targetAt: 0, minArgs: 2},
+	"tag_add":    {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
+	"tag_remove": {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
 }
 
 func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, s syntax.ExprStmt) {
