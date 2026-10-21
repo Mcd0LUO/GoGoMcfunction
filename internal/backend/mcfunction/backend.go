@@ -128,21 +128,41 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 	}
 
 	// A call to a block that emits nothing costs a call and does nothing.
-	silent := map[string]bool{}
-	for name, cmds := range files {
-		if len(cmds) == 0 {
-			silent[name] = true
-		}
-	}
-	for name, cmds := range files {
-		var kept []mc.Command
-		for _, c := range cmds {
-			if isCallTo(c, silent) {
-				continue
+	//
+	// This has to run to a FIXED POINT. Removing a call can empty the block
+	// that contained it, which makes THAT block silent, which means the calls
+	// to it must go too. One pass computed the silent set before any pruning,
+	// so a block that only became empty as a result was still called by its
+	// parent while its own file was dropped:
+	//
+	//	function system:果实/main$b2 unless @a[team=死亡之森]
+	//
+	// named a file that did not exist. 1.12.2 skips an unknown function
+	// silently, so this is a call that costs a command and does nothing --
+	// and eleven of them appeared at -O0, where no pass has cleaned the
+	// empty blocks away.
+	for {
+		silent := map[string]bool{}
+		for name, cmds := range files {
+			if len(cmds) == 0 {
+				silent[name] = true
 			}
-			kept = append(kept, c)
 		}
-		files[name] = kept
+		removed := false
+		for name, cmds := range files {
+			var kept []mc.Command
+			for _, c := range cmds {
+				if isCallTo(c, silent) {
+					removed = true
+					continue
+				}
+				kept = append(kept, c)
+			}
+			files[name] = kept
+		}
+		if !removed {
+			break
+		}
 	}
 
 	origin := map[string]string{}

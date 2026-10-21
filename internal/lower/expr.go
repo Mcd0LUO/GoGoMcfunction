@@ -74,7 +74,7 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	if !ok {
 		return false
 	}
-	if exprMentions(bin.R, ctx.loc(dst), ctx) {
+	if l.exprMentions(bin.R, ctx.loc(dst), ctx) {
 		return false
 	}
 	// When the left operand is itself an arithmetic op, compute it into dst
@@ -121,23 +121,38 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 // field lives on a truncated objective ("C.hp") while the source spells it
 // "hp", and comparing the wrong pair would either miss the read or invent
 // one.
-func exprMentions(e syntax.Expr, at ir.Loc, ctx *fnCtx) bool {
+// exprMentions reports whether an expression reads the location `at`.
+//
+// It has to agree with `expr`, which is where a name's location is actually
+// decided. A DECLARED OBJECTIVE reads by its own name; a local reads its slot.
+// Missing the declared case made `计算 = 0 - 计算` look like a destination that
+// the right operand never mentions, so the lowering wrote the left operand
+// into the destination first and then subtracted the destination from itself:
+//
+//	scoreboard players operation @s 计算 = #0 ggm.c
+//	scoreboard players operation @s 计算 -= @s 计算     <- always 0
+//
+// The negation silently produced zero instead of `-计算`.
+func (l *Lowerer) exprMentions(e syntax.Expr, at ir.Loc, ctx *fnCtx) bool {
 	switch x := e.(type) {
 	case syntax.Ident:
 		if strings.Contains(x.Name, ".") {
 			return false
+		}
+		if l.objs[x.Name] {
+			return at.Holder == ctx.selfHolder() && at.Obj == x.Name
 		}
 		if ctx.isField(x.Name) {
 			return at.Obj == ctx.fieldLoc(x.Name)
 		}
 		return at.Holder == "@s" && ctx.slot(x.Name) == at.Obj
 	case syntax.Binary:
-		return exprMentions(x.L, at, ctx) || exprMentions(x.R, at, ctx)
+		return l.exprMentions(x.L, at, ctx) || l.exprMentions(x.R, at, ctx)
 	case syntax.Unary:
-		return exprMentions(x.X, at, ctx)
+		return l.exprMentions(x.X, at, ctx)
 	case syntax.Call:
 		for _, a := range x.Args {
-			if exprMentions(a, at, ctx) {
+			if l.exprMentions(a, at, ctx) {
 				return true
 			}
 		}
@@ -375,6 +390,9 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 			right, err := l.lowerCond(ctx, fb, block, bin.R)
 			if err != nil {
 				return ir.Predicate{}, err
+			}
+			if left.Exist != nil || left.Block != nil || right.Exist != nil || right.Block != nil {
+				return ir.Predicate{}, fmt.Errorf("`||` cannot combine an existence or block probe: 1.12.2 tests a probe with `function F if <sel>`, which is a conjunction with any other condition, and there is no `or` form. Write it as two ifs")
 			}
 			return orPredicates(left, right), nil
 		}
