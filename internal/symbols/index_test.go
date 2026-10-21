@@ -274,3 +274,24 @@ func TestLoopVarFieldIsNotAShorthand(t *testing.T) {
 		t.Fatalf("description is %q, want it to name the field and the loop variable", s.Type)
 	}
 }
+
+// The objective a decode writes to resolves to its declaration.
+func TestDecodeTargetResolves(t *testing.T) {
+	src := "namespace t:d\nobj X\nnbt flags = p\"tag.f\" : bits 4\n[export]\nfn run() {\n    decode X from @s.Inventory(0)[flags]\n}\n"
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ix := Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": src})
+
+	s, ok := ix.At("a.ggm", 6, 12)
+	if !ok {
+		t.Fatal("the decode target did not resolve")
+	}
+	if s.Kind != KObj || s.Name != "X" {
+		t.Fatalf("resolved to %s %q, want obj X", s.Kind, s.Name)
+	}
+	if s.Pos.Line != 2 {
+		t.Fatalf("declaration at line %d, want 2", s.Pos.Line)
+	}
+}

@@ -91,6 +91,7 @@ func (p *parser) parseSignedInt() (int, Pos, error) {
 // parseDecode reads `decode <objective> from <container>[<field>] [ { cases } ]`.
 func (p *parser) parseDecode() (Stmt, error) {
 	t := p.next() // decode
+	targetPos := p.cur().Pos
 	target, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
@@ -102,7 +103,7 @@ func (p *parser) parseDecode() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := DecodeStmt{Target: target, Container: c, P: t.Pos}
+	s := DecodeStmt{Target: target, TargetPos: targetPos, Container: c, P: t.Pos}
 	if p.cur().Kind == LBRACK {
 		p.next()
 		f, err := p.expectIdent()
@@ -198,6 +199,7 @@ func (p *parser) parseEncode() (Stmt, error) {
 	if _, err := p.expect(ASSIGN); err != nil {
 		return nil, err
 	}
+	srcPos := p.cur().Pos
 	src, err := p.parseDottedName()
 	if err != nil {
 		return nil, err
@@ -231,5 +233,5 @@ func (p *parser) parseEncode() (Stmt, error) {
 	if hi < lo {
 		return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("over range %d..%d is empty", lo, hi)}
 	}
-	return EncodeStmt{Container: c, Field: f.Text, FieldPos: f.Pos, Source: src, Lo: lo, Hi: hi, P: t.Pos}, nil
+	return EncodeStmt{Container: c, Field: f.Text, FieldPos: f.Pos, Source: src, SourcePos: srcPos, Lo: lo, Hi: hi, P: t.Pos}, nil
 }

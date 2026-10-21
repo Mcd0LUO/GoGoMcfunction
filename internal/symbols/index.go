@@ -270,6 +270,17 @@ func (ix *Index) addBody(file, owner string, params []syntax.Param, body []synta
 		}
 		ix.occ[occ{file: file, line: p.Line, col: p.Col,
 			end: p.Col + runeLen(name)}] = s
+	}, NBTObjective: func(name string, p syntax.Pos) {
+		// The objective a decode writes to, or an encode reads from.
+		if p.Line <= 0 {
+			return
+		}
+		s, ok := ix.resolveDecl(name, class)
+		if !ok {
+			return
+		}
+		ix.occ[occ{file: file, line: p.Line, col: p.Col,
+			end: p.Col + runeLen(name)}] = s
 	}, Field: func(name string, p syntax.Pos, self bool) {
 		// `self.<field>` and a bare field access both name a class member.
 		// Nothing else would report it: the field's name is not an identifier

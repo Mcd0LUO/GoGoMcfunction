@@ -309,7 +309,9 @@ type EnumCase struct {
 
 // DecodeStmt is `[add] decode <objective> from <container>[<field>] [ { cases } ]`.
 type DecodeStmt struct {
-	Target    string
+	Target string
+	// TargetPos is where the target objective is written.
+	TargetPos Pos
 	Container Container
 	Field     string
 	// FieldPos is where the field's NAME is written. Without it the name in a
@@ -347,6 +349,8 @@ type EncodeStmt struct {
 	Field     string
 	FieldPos  Pos
 	Source    string
+	// SourcePos is where the source objective is written.
+	SourcePos Pos
 	Lo, Hi    int
 	P         Pos
 }
