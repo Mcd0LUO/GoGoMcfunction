@@ -116,14 +116,15 @@ func (s *Server) dispatch(m *msg) error {
 					Change:    TextDocumentSyncKindFull,
 					Save:      &SaveOptions{},
 				},
-				HoverProvider:          true,
-				DefinitionProvider:     true,
-				CompletionProvider:     &CompletionOptions{TriggerCharacters: []string{"."}},
-				DocumentSymbolProvider: true,
-				ReferencesProvider:     true,
-				RenameProvider:         true,
-				CodeActionProvider:     true,
-				SignatureHelpProvider:  &SignatureHelpOptions{TriggerCharacters: []string{"(", ","}},
+				HoverProvider:           true,
+				DefinitionProvider:      true,
+				CompletionProvider:      &CompletionOptions{TriggerCharacters: []string{"."}},
+				DocumentSymbolProvider:  true,
+				ReferencesProvider:      true,
+				RenameProvider:          true,
+				CodeActionProvider:      true,
+				WorkspaceSymbolProvider: true,
+				SignatureHelpProvider:   &SignatureHelpOptions{TriggerCharacters: []string{"(", ","}},
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
 		})
@@ -240,6 +241,17 @@ func (s *Server) dispatch(m *msg) error {
 		// A request this server answers synchronously cannot be cancelled
 		// mid-flight, and ignoring the notification is correct.
 		return nil
+
+	case "workspace/symbol":
+		var p WorkspaceSymbolParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleWorkspaceSymbols(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
 
 	case "textDocument/codeAction":
 		var p CodeActionParams

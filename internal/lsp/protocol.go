@@ -87,16 +87,17 @@ type ServerCapabilities struct {
 	// it defaults to utf-16, which is what this server implements, so it is
 	// redundant -- and stated anyway, because a negotiation that is implicit
 	// becomes a bug the day someone assumes the other default.
-	PositionEncoding       string                  `json:"positionEncoding,omitempty"`
-	TextDocumentSync       TextDocumentSyncOptions `json:"textDocumentSync"`
-	HoverProvider          bool                    `json:"hoverProvider,omitempty"`
-	DefinitionProvider     bool                    `json:"definitionProvider,omitempty"`
-	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
-	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
-	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
-	RenameProvider         bool                    `json:"renameProvider,omitempty"`
-	CodeActionProvider     bool                    `json:"codeActionProvider,omitempty"`
-	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
+	PositionEncoding        string                  `json:"positionEncoding,omitempty"`
+	TextDocumentSync        TextDocumentSyncOptions `json:"textDocumentSync"`
+	HoverProvider           bool                    `json:"hoverProvider,omitempty"`
+	DefinitionProvider      bool                    `json:"definitionProvider,omitempty"`
+	CompletionProvider      *CompletionOptions      `json:"completionProvider,omitempty"`
+	DocumentSymbolProvider  bool                    `json:"documentSymbolProvider,omitempty"`
+	ReferencesProvider      bool                    `json:"referencesProvider,omitempty"`
+	RenameProvider          bool                    `json:"renameProvider,omitempty"`
+	CodeActionProvider      bool                    `json:"codeActionProvider,omitempty"`
+	WorkspaceSymbolProvider bool                    `json:"workspaceSymbolProvider,omitempty"`
+	SignatureHelpProvider   *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 }
 
 // CompletionOptions configures completion. The trigger characters are the ones
@@ -369,4 +370,9 @@ type CodeAction struct {
 	Kind        CodeActionKind `json:"kind,omitempty"`
 	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
 	Edit        *WorkspaceEdit `json:"edit,omitempty"`
+}
+
+// WorkspaceSymbolParams is a workspace-wide symbol query string.
+type WorkspaceSymbolParams struct {
+	Query string `json:"query"`
 }

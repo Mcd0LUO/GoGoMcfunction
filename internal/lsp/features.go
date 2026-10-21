@@ -647,3 +647,54 @@ func quotedName(msg string) string {
 	}
 	return rest[:end]
 }
+
+// handleWorkspaceSymbols answers workspace/symbol, the search box.
+//
+// Every index the server holds is consulted, not only the current file's: a
+// workspace search that silently covered one namespace would be worse than no
+// search, because the answer looks complete.
+func (s *Server) handleWorkspaceSymbols(p WorkspaceSymbolParams) (any, error) {
+	needle := strings.ToLower(p.Query)
+	s.mu.Lock()
+	indexes := make([]*symbols.Index, 0, len(s.idx))
+	for _, ix := range s.idx {
+		indexes = append(indexes, ix)
+	}
+	s.mu.Unlock()
+
+	var out []SymbolInformation
+	seen := map[string]bool{}
+	for _, ix := range indexes {
+		for _, sym := range ix.All() {
+			if sym.Pos.Line == 0 {
+				continue
+			}
+			if needle != "" && !strings.Contains(strings.ToLower(sym.Name), needle) {
+				continue
+			}
+			key := sym.File + sym.Name + itoa(sym.Pos.Line)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, SymbolInformation{
+				Name: sym.Name,
+				Kind: symbolKind(sym.Kind),
+				Location: Location{
+					URI:   uriFromPath(sym.File),
+					Range: tokenRange(sym.Pos.Line, sym.Pos.Col, runeCount(lastSegmentOf(sym.Name))),
+				},
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Location.URI < out[j].Location.URI
+	})
+	if out == nil {
+		return nil, nil
+	}
+	return out, nil
+}

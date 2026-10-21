@@ -422,3 +422,41 @@ func TestQuickFixDeclaresTheObjective(t *testing.T) {
 		}
 	}
 }
+
+// Workspace search must cover every namespace the server knows, not only the
+// file being edited. A search that silently covered one module would be worse
+// than no search, because its answer looks complete.
+func TestWorkspaceSymbolsSpanModules(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"a.ggm": "namespace t:one\nfn alpha() { }\n",
+		"b.ggm": "namespace t:two\nfn alpaca() { }\n",
+	}
+	writeFiles(t, dir, files)
+	sess := newSession(t, dir)
+	// Open both so both namespaces have an index.
+	for _, name := range []string{"a.ggm", "b.ggm"} {
+		path := filepath.Join(dir, name)
+		sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+			TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: files[name]},
+		})
+	}
+	var syms []SymbolInformation
+	sess.ask(90, "workspace/symbol", WorkspaceSymbolParams{Query: "alp"}, &syms)
+	var names []string
+	for _, s := range syms {
+		names = append(names, s.Name)
+	}
+	var sawAlpha, sawAlpaca bool
+	for _, n := range names {
+		if n == "alpha" {
+			sawAlpha = true
+		}
+		if n == "alpaca" {
+			sawAlpaca = true
+		}
+	}
+	if !sawAlpha || !sawAlpaca {
+		t.Fatalf("workspace search returned %v, want a match from each namespace", names)
+	}
+}

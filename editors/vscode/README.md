@@ -38,6 +38,8 @@ in it and the squiggles appear as you type.
 | Find references | Every use of the symbol under the cursor |
 | Signature help | The call being typed, and which argument you are on |
 | Rename | Every use of the symbol, and no same-named stranger |
+| Quick fix | Declare an objective the program writes but never declares |
+| Workspace search | Names across every module the server has indexed |
 
 Hover and jump both report the KIND of a name, which matters here: an
 objective, an extern and a class field look identical at a use site and mean
