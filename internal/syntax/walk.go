@@ -10,6 +10,12 @@ type Visitor struct {
 	Ident func(name string, p Pos)
 	// Call is called for every call expression, before its arguments.
 	Call func(c Call)
+	// Field is called for every member access, before its base.
+	//
+	// The field's name is not an identifier node, so without this no traversal
+	// could see it: `self.hp` reported only the `self`, and an editor asking
+	// what `hp` means had nothing to answer with.
+	Field func(name string, p Pos, self bool)
 	// IntLit is called for every integer literal.
 	//
 	// A leading minus is part of the literal rather than an operator: the
@@ -132,6 +138,10 @@ func Walk(e Expr, v Visitor) {
 			Walk(a, v)
 		}
 	case Field:
+		if v.Field != nil && x.Name != "" {
+			_, isSelf := x.X.(SelfExpr)
+			v.Field(x.Name, x.P, isSelf)
+		}
 		Walk(x.X, v)
 	case Index:
 		Walk(x.X, v)

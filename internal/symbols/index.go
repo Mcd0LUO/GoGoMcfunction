@@ -259,6 +259,32 @@ func (ix *Index) addBody(file, owner string, params []syntax.Param, body []synta
 				return
 			}
 		}
+	}, Field: func(name string, p syntax.Pos, self bool) {
+		// `self.<field>` and a bare field access both name a class member.
+		// Nothing else would report it: the field's name is not an identifier
+		// node in the tree.
+		if class == "" {
+			return
+		}
+		// Field carries the position of the BASE expression, not of the name:
+		// for `self.hp` that is the `s` of `self`. The name starts five
+		// characters later, because the parser requires `self.` to be written
+		// without spaces.
+		col := p.Col
+		if self {
+			col += len("self.")
+		}
+		at := occ{file: file, line: p.Line, col: col,
+			end: col + runeLen(name)}
+		if s, ok := ix.resolveDecl(class+"."+name, ""); ok {
+			ix.occ[at] = s
+			return
+		}
+		if self {
+			return
+		}
+		// A dotted name on something other than self keeps the shorthand
+		// reading, which the Ident callback already recorded.
 	}, Ident: func(name string, p syntax.Pos) {
 		if name == "" {
 			return

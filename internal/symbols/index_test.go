@@ -185,3 +185,41 @@ func TestQualifiedMethodCallResolves(t *testing.T) {
 		t.Fatalf("%d occurrences of the method call", len(occ))
 	}
 }
+
+// A field is reachable by its bare name inside a class and by self. too.
+//
+// The parser builds a Field node for self.hp, whose BASE carries the position;
+// the field's name is not an identifier node at all, so no traversal reported
+// it and an editor had nothing to answer with.
+const selfSrc = "namespace t:sf\n" +
+	"obj X\n" +
+	"class Hero {\n" +
+	"    var hp: int = 20\n" +
+	"    fn inner() -> int { hp }\n" +
+	"    fn outer() -> int { inner() + self.hp }\n" +
+	"}\n" +
+	"[export]\n" +
+	"fn run() { X = t:sf/Hero/outer() }\n"
+
+func TestSelfFieldResolvesToTheClassField(t *testing.T) {
+	f, err := syntax.Parse(selfSrc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ix := Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": selfSrc})
+
+	for _, pos := range []struct{ line, col int }{{5, 25}, {6, 40}} {
+		s, ok := ix.At("a.ggm", pos.line, pos.col)
+		if !ok {
+			t.Fatalf("nothing at %d:%d", pos.line, pos.col)
+		}
+		if s.Name != "Hero.hp" || s.Kind != KField {
+			t.Fatalf("%d:%d resolved to %s %q", pos.line, pos.col, s.Kind, s.Name)
+		}
+	}
+
+	sym, _ := ix.At("a.ggm", 6, 40)
+	if occ := ix.Occurrences(sym); len(occ) != 2 {
+		t.Fatalf("%d occurrences, want the bare use and the self use", len(occ))
+	}
+}
