@@ -18,8 +18,8 @@ func TestDecodeIntoAccumulates(t *testing.T) {
 		"obj hp\n" +
 		"nbt f = p\"tag.dat.f\" : bits 3\n" +
 		"[export]\nfn reset() { hp = 0 }\n" +
-		"[export]\nfn slot9() { decode hp from @s.Inventory(9..9)[f] into }\n" +
-		"[export]\nfn slot10() { decode hp from @s.Inventory(10..10)[f] into }\n" +
+		"[export]\nfn slot9() { [add] decode hp from @s.Inventory(9..9)[f] }\n" +
+		"[export]\nfn slot10() { [add] decode hp from @s.Inventory(10..10)[f] }\n" +
 		"[export]\nfn all() { reset(); slot9(); slot10() }\n"
 	files := compile(t, src, optimize.O2)
 

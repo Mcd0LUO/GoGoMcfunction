@@ -101,7 +101,9 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 	// once in legacy/reset, then eighteen files each add one slot's worth. Three
 	// ordinary decodes cannot express it -- each resets, so only the last
 	// survives, and the value is silently the third slot's alone.
-	if !s.Into {
+	// `s.Add` is the `[add]` attribute: it skips this reset so several decodes
+	// can contribute to one objective.
+	if !s.Add {
 		fb.Emit(cur, ir.Set{Dst: dst, Value: 0})
 	}
 

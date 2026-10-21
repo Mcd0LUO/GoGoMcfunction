@@ -485,8 +485,8 @@ decode <objective> from <容器> {
 }
 ```
 
-块里**只有 case**，没有 `init` 子句。没有 `into` 时先发射 `set @s <obj> 0`，
-然后每条 case 一条命令；带 `into` 时跳过那条 `set`，各条 case 累加到已有值上。
+块里**只有 case**，没有 `init` 子句。默认先发射 `set @s <obj> 0`，
+然后每条 case 一条命令；加 `[add]` 属性则跳过那条 `set`，各条 case 累加到已有值上。
 
 （本节早先写过一个 `init 0` 子句。解析器从来不接受它 —— 照那段抄会得到
 `expected an NBT literal in the decode block, got identifier`。）
@@ -775,7 +775,7 @@ scoreboard players operation @s Ap.Amount = @p[r=20,tag=target] Ap.Amount
 **只能读，不能写。** 1.12.2 允许选择器出现在计分板运算的**右边**，不允许出现在
 左边。写成 `@p[tag=t]."X" = 1` 会报错并说明原因——而不是让解析器把那个点当成
 别的东西。要写别的实体，用 `for e in entities<...>`，体内 `@s` 就是它。
-#### `decode … into`：多处累加到一个 objective
+#### `[add] decode`：多处累加到一个 objective
 
 普通 `decode` **先清零**。一个值分散在多个槽位、由多条语句分别读取时，这就不够
 用了：每条都清零，只有最后一条的贡献留下，而结果看起来「有值」。
@@ -786,14 +786,18 @@ scoreboard players operation @s Ap.Amount = @p[r=20,tag=target] Ap.Amount
 fn reset() { legacy.AtkBase = 0 }
 
 [export]
-fn slot9()  { decode legacy.AtkBase from @s.Inventory(9..9)[AtkBase] into }
+fn slot9()  { [add] decode legacy.AtkBase from @s.Inventory(9..9)[AtkBase] }
 [export]
-fn slot10() { decode legacy.AtkBase from @s.Inventory(10..10)[AtkBase] into }
+fn slot10() { [add] decode legacy.AtkBase from @s.Inventory(10..10)[AtkBase] }
 ```
 
-`into` 放在**句尾**，因为它描述的是这个 decode 怎么写入，而不是写入什么。
-`decode a into b from c` 读起来像 `into` 引出了容器；
-`decode <什么> from <哪里> into <怎么写>` 每个部分都在它该在的位置。
+`[add]` 写在**句首**，和 `[wrapping]`、`[spawn]`、`[every(...)]` 同一个位置：
+这个语言把**修饰**放方括号，把**操作数**交给介词（`from <容器>`、`over <lo>..<hi>`）。
+它描述的不是「写入什么」，而是**成本**：跳过一条 `set`，所以基准值由作者负责。
+
+（早先的写法是句尾一个不带宾语的 `into`：`decode a from b into`。
+`into` 是介词，后面没有宾语就悬空了 —— into 什么？答案是「它自己」，
+而读者得先知道这一点。旧写法现在会报错并提示改成 `[add]`。）
 #### `detect`：探测方块
 
 ```ggm

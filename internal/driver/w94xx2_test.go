@@ -19,14 +19,14 @@ func TestDecodeIntoDeclaresItsObjective(t *testing.T) {
 	src := "namespace t:d\n" +
 		"obj legacy.AtkBase\n" +
 		"nbt f = p\"tag.dat.AtkBase\" : bits 3\n" +
-		"[export]\nfn g() { decode legacy.AtkBase from @s.Inventory(9..9)[f] into }\n"
+		"[export]\nfn g() { [add] decode legacy.AtkBase from @s.Inventory(9..9)[f] }\n"
 	files := compile(t, src, optimize.O2)
 	init, ok := files["t:d/init"]
 	if !ok {
 		t.Fatalf("no init; files: %v", keysOf(files))
 	}
 	if !strings.Contains(init, "objectives add legacy.AtkBase") {
-		t.Fatalf("decode-into wrote an objective it never declared:\n%s", init)
+		t.Fatalf("[add] decode wrote an objective it never declared:\n%s", init)
 	}
 }
 

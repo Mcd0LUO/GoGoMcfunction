@@ -116,15 +116,20 @@ func (p *parser) parseDecode() (Stmt, error) {
 	} else {
 		return nil, &Error{Pos: p.cur().Pos, Msg: "decode needs a field: decode <objective> from <container>[<field>]"}
 	}
-	// `into` trails the statement, where it reads as what it does: this decode
-	// adds into an objective instead of resetting it first.
+	// The accumulate mode is the `[add]` attribute on the statement, not a
+	// trailing `into`.
 	//
-	// Trailing rather than leading because `decode a into b from c` reads as
-	// though `into` introduced the container. In `decode <what> from <where>
-	// into <how>` every part keeps the position its meaning suggests.
+	// `into` trailed here and took no argument, which reads as a preposition
+	// with its object missing: "decode atk from the inventory into" -- into
+	// what? The answer was "into itself", and the reader had to know that.
+	// What the word actually announces is a COST: no reset command is emitted,
+	// so the base value is the author's business. This language writes
+	// modifiers in brackets, so it is [add].
+	//
+	// The old spelling is still recognised, to be told what replaced it rather
+	// than left with a bare parse error.
 	if p.cur().Text == "into" {
-		p.next()
-		s.Into = true
+		return nil, &Error{Pos: p.cur().Pos, Msg: "the accumulate mode is an attribute now: write `[add] decode ...`, because `into` with no object after it did not say what it modified"}
 	}
 	// Optional author-written cases, appended after the field's own.
 	if p.cur().Kind == LBRACE {

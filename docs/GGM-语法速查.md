@@ -92,7 +92,7 @@ loop  Mana > 100, budget 10 { }    // 后测，必须给 budget
 @a[tag=player] Hp = 100            // 广播写：选择器在左
 
 decode atk from @s.Inventory(0)[atkbits]
-decode atk from @s.Inventory(0)[atkbits] into   // 累加而不是重置
+[add] decode atk from @s.Inventory(0)[atkbits]  // 累加，不重置
 decode kind from @s.Inventory(0)[kind] {
     n"tag.kind:1b" set 1
     n"tag.kind:2b" set 2
@@ -106,7 +106,7 @@ encode @s.Inventory(0)[atkbits] = Hits over 0..11
 所有循环都是自我递归调用，没有界就是无限递归。
 
 **陷阱**：`decode` 的块里**没有 `init` 子句**（规范 §4.4 写错了）。
-默认重置为 0，加 `into` 才是累加。
+默认重置为 0，加 `[add]` 属性才是累加。
 
 **陷阱**：`decode` 的目标是 **objective**，方括号里是 **nbt 字段名**，两者分别声明：
 

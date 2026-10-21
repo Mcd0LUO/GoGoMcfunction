@@ -300,21 +300,26 @@ type EnumCase struct {
 	Value int
 }
 
-// DecodeStmt is `decode <objective> from <container>[<field>] [ { cases } ]`.
+// DecodeStmt is `[add] decode <objective> from <container>[<field>] [ { cases } ]`.
 type DecodeStmt struct {
 	Target    string
 	Container Container
 	Field     string
 	Cases     []DecodeCase
-	// Into is set by `decode … into …`, which accumulates instead of
+	// Add is set by the `[add]` attribute, which accumulates instead of
 	// resetting first.
 	//
 	// Without it a value spread over several statements is impossible to
 	// express: each decode resets the objective, so only the last one's
 	// contribution survives and the answer is quietly wrong. The reference
 	// data pack resets once and adds from eighteen files.
-	Into bool
-	P    Pos
+	//
+	// It used to be a trailing `into` with no argument -- `decode a from b into`
+	// -- which is a preposition with nothing after it. The property it names is
+	// a COST (one fewer command, because the reset is skipped), and this
+	// language writes modifiers in brackets: [wrapping], [spawn], [every].
+	Add bool
+	P   Pos
 }
 
 // DecodeCase is one author-written `<nbt> add|set <v>` inside a decode block.

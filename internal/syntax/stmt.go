@@ -28,6 +28,25 @@ func (p *parser) parseBlock() ([]Stmt, error) {
 
 func (p *parser) parseStmt() (Stmt, error) {
 	t := p.cur()
+	// A statement may carry attributes. `[` never starts a statement
+	// otherwise -- a bare list literal is not a statement -- so the bracket is
+	// unambiguous here.
+	//
+	// Today only `[add]` exists, and only on `decode`. It is still parsed as a
+	// general attribute list so that a wrong one gets the message "[add] is the
+	// only attribute a statement takes" instead of a parse error about `[`.
+	if t.Kind == LBRACK {
+		attrs, err := p.parseAttrs()
+		if err != nil {
+			return nil, err
+		}
+		p.skipNewlines()
+		st, err := p.parseStmt()
+		if err != nil {
+			return nil, err
+		}
+		return applyStmtAttrs(st, attrs)
+	}
 	switch t.Kind {
 	case LET:
 		p.next()
@@ -265,4 +284,33 @@ func (p *parser) parseCond() (Expr, error) {
 		p.i = save
 	}
 	return p.parseExpr()
+}
+
+// applyStmtAttrs applies a statement's attribute list, returning the statement.
+//
+// It returns a Stmt rather than mutating one because the AST nodes are value
+// types: `st.(DecodeStmt)` hands back a copy, so setting a field on it would
+// be discarded and the attribute would be silently dropped -- exactly the
+// failure mode this whole file is written to avoid.
+//
+// Only one attribute exists: `[add]` on `decode`, which skips the reset so
+// several decodes can contribute to one objective. Anything else is an error
+// rather than being ignored, because an attribute nobody applies is a modifier
+// the author believes they wrote.
+func applyStmtAttrs(st Stmt, attrs []Attr) (Stmt, error) {
+	for _, a := range attrs {
+		if a.Name != "add" {
+			return nil, &Error{Pos: a.P, Msg: fmt.Sprintf("[%s] is not an attribute a statement takes; [add] is the only one, and it applies to decode", a.Name)}
+		}
+		if len(a.Args) != 0 {
+			return nil, &Error{Pos: a.P, Msg: "[add] takes no arguments"}
+		}
+		d, ok := st.(DecodeStmt)
+		if !ok {
+			return nil, &Error{Pos: a.P, Msg: "[add] applies to decode, because it means 'do not reset the objective first'"}
+		}
+		d.Add = true
+		st = d
+	}
+	return st, nil
 }
