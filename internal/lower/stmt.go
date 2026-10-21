@@ -157,6 +157,18 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string, p syntax.Pos) ir.Loc {
 		l.warnAmbiguous(name, p)
 		return ir.Loc{Holder: name[:i], Obj: name[i+1:]}
 	}
+	// An undeclared name is not a new variable on the WRITE side either.
+	//
+	// It used to be: `ghost = 2` in a body that never declared ghost compiled,
+	// got a fresh local, and nobody read it. That is a silent no-op, which is
+	// the failure this compiler exists to make impossible -- and the read path
+	// already refuses the same name.
+	if s, ok := ctx.lookup(name); ok {
+		return ctx.loc(s)
+	}
+	l.diags.Error(posOf(p), "E_UNDEFINED",
+		"%q is assigned but never declared; write `let %s = ...` or declare it with obj/extern. 1.12.2 accepts the write and nobody reads the score",
+		name, name)
 	return ctx.loc(ctx.slot(name))
 }
 

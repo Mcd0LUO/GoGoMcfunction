@@ -567,3 +567,83 @@ func (s *Server) handleRename(p RenameParams) (any, error) {
 	}
 	return &WorkspaceEdit{Changes: changes}, nil
 }
+
+// handleCodeActions offers fixes for the diagnostics the client reports.
+//
+// One exists: declaring an objective the program uses but never declares.
+// 1.12.2 discards writes to an undeclared objective without an error, so this
+// is the mistake the compiler exists to catch -- and once it is caught, writing
+// the declaration is mechanical, which is exactly the work a quick fix should
+// take.
+func (s *Server) handleCodeActions(p CodeActionParams) (any, error) {
+	path, text, _, _, _, ok := s.locate(PositionParams{TextDocument: p.TextDocument})
+	if !ok {
+		return nil, nil
+	}
+	var actions []CodeAction
+	seen := map[string]bool{}
+	for _, d := range p.Context.Diagnostics {
+		if d.Code != "E_OBJECTIVE_UNDECLARED" && d.Code != "W_DOTTED_UNDECLARED" {
+			continue
+		}
+		name := quotedName(d.Message)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		edit := insertLine(path, text, "obj "+name)
+		actions = append(actions, CodeAction{
+			Title:       "Declare `obj " + name + "`",
+			Kind:        CodeActionQuickFix,
+			Diagnostics: []Diagnostic{d},
+			Edit:        &WorkspaceEdit{Changes: map[DocumentURI][]TextEdit{uriFromPath(path): {edit}}},
+		})
+	}
+	if actions == nil {
+		return nil, nil
+	}
+	return actions, nil
+}
+
+// insertLine builds the edit that puts a line after the namespace declaration.
+//
+// After, not at the top: a file that starts with `obj X` and has its namespace
+// on line 2 would otherwise lose the namespace from the first line, and a
+// declaration above the namespace reads as a mistake even where it parses.
+func insertLine(path, text, line string) TextEdit {
+	lines := strings.Split(text, "\n")
+	at := 0
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "namespace ") {
+			at = i + 1
+			break
+		}
+	}
+	return TextEdit{
+		Range: Range{
+			Start: Position{Line: uint32(at), Character: 0},
+			End:   Position{Line: uint32(at), Character: 0},
+		},
+		NewText: line + "\n",
+	}
+}
+
+// quotedName returns the first double-quoted name in a diagnostic message.
+//
+// The name is taken from the message rather than from the source under the
+// caret because a decode or encode statement reports the whole statement: the
+// caret sits on `decode`, not on the objective it names. The message format is
+// the compiler's own and is asserted by the diagnostics tests, so reading it
+// here is reading a contract rather than guessing.
+func quotedName(msg string) string {
+	open := strings.IndexByte(msg, '"')
+	if open < 0 {
+		return ""
+	}
+	rest := msg[open+1:]
+	end := strings.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}

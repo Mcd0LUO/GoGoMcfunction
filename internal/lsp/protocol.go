@@ -95,6 +95,7 @@ type ServerCapabilities struct {
 	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
 	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
 	RenameProvider         bool                    `json:"renameProvider,omitempty"`
+	CodeActionProvider     bool                    `json:"codeActionProvider,omitempty"`
 	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 }
 
@@ -342,4 +343,30 @@ type RenameParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
 	NewName      string                 `json:"newName"`
+}
+
+// CodeActionKind tells the client how to group an action.
+type CodeActionKind string
+
+// CodeActionQuickFix is the kind used here: a fix for one diagnostic.
+const CodeActionQuickFix CodeActionKind = "quickfix"
+
+// CodeActionParams asks what can be done about a range or its diagnostics.
+type CodeActionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+	Context      CodeActionContext      `json:"context"`
+}
+
+// CodeActionContext carries the diagnostics the client already knows about.
+type CodeActionContext struct {
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// CodeAction is one offered fix.
+type CodeAction struct {
+	Title       string         `json:"title"`
+	Kind        CodeActionKind `json:"kind,omitempty"`
+	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
+	Edit        *WorkspaceEdit `json:"edit,omitempty"`
 }

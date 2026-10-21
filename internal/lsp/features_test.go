@@ -368,3 +368,57 @@ func TestRenameRefusesAShorthand(t *testing.T) {
 		t.Fatalf("rename answered for a holder.objective shorthand: %v", got)
 	}
 }
+
+// A quick fix for the mistake the compiler exists to catch.
+//
+// Writing to an objective nobody declared is discarded by 1.12.2 without an
+// error, so the compiler reports it -- and once reported, adding the
+// declaration is mechanical, which is the work a quick fix should take.
+func TestQuickFixDeclaresTheObjective(t *testing.T) {
+	dir := t.TempDir()
+	src := "namespace t:fix\nobj X\nnbt f = p\"tag.a\" : bits 4\n[export]\nfn g() { decode atk from @s.Inventory(0)[f] }\n"
+	writeFiles(t, dir, map[string]string{"c.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "c.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+	diags := sess.diagnostics(uriFromPath(path))
+	var target *Diagnostic
+	for i := range diags {
+		if diags[i].Code == "E_OBJECTIVE_UNDECLARED" {
+			target = &diags[i]
+		}
+	}
+	if target == nil {
+		t.Fatalf("no undeclared-objective diagnostic was published: %+v", diags)
+	}
+
+	var actions []CodeAction
+	sess.ask(80, "textDocument/codeAction", CodeActionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Range:        target.Range,
+		Context:      CodeActionContext{Diagnostics: []Diagnostic{*target}},
+	}, &actions)
+	if len(actions) == 0 {
+		t.Fatal("no quick fix offered for an undeclared objective")
+	}
+	if !strings.Contains(actions[0].Title, "obj atk") {
+		t.Fatalf("the fix is titled %q, want it to name obj atk", actions[0].Title)
+	}
+	if actions[0].Edit == nil {
+		t.Fatal("the fix carries no edit")
+	}
+	for _, edits := range actions[0].Edit.Changes {
+		if len(edits) != 1 {
+			t.Fatalf("the fix carries %d edits, want 1", len(edits))
+		}
+		if !strings.Contains(edits[0].NewText, "obj atk") {
+			t.Fatalf("the inserted text is %q", edits[0].NewText)
+		}
+		// After the namespace line, so the file still opens with its namespace.
+		if edits[0].Range.Start.Line != 1 {
+			t.Fatalf("the insertion is at line %d, want 1 (after namespace)", edits[0].Range.Start.Line)
+		}
+	}
+}

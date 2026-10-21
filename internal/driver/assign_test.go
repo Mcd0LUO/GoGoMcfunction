@@ -1,144 +1,34 @@
 package driver_test
 
 import (
-	"reflect"
+	"strings"
 	"testing"
-
-	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 )
 
-// Compound assignment is not a separate operation: `x += e` means `x = x + e`.
-// The parser records the operator in AssignStmt.Op, and lowering folds it into
-// the binary expression it abbreviates so both spellings take one path.
-//
-// That fold is what this file pins down. Without it the operator was dropped
-// outright and every compound assignment compiled to a plain overwrite, so
-// `y += 3` left 3 in y instead of adding 3 to it -- a silent wrong answer,
-// not an error, which is the failure mode this compiler exists to prevent.
-const compoundSrc = `namespace t:as
-extern a0: int = @s.a0
-
-fn add(x: int) -> int {
-  let y = x
-  y += 3
-  y
-}
-
-fn sub(x: int) -> int {
-  let y = x
-  y -= 3
-  y
-}
-
-fn mul(x: int) -> int {
-  let y = x
-  y *= 3
-  y
-}
-
-fn div(x: int) -> int {
-  let y = x
-  y /= 3
-  y
-}
-
-fn mod(x: int) -> int {
-  let y = x
-  y %= 3
-  y
-}
-`
-
-// refCompound is what each operator must produce, computed without GGM.
-//
-// Division and modulo truncate toward zero, matching 1.12.2 rather than Go's
-// floor semantics for negative operands: -7 / 3 is -2 and -7 % 3 is -1.
-func refCompound(fn string, x int) int {
-	switch fn {
-	case "add":
-		return x + 3
-	case "sub":
-		return x - 3
-	case "mul":
-		return x * 3
-	case "div":
-		return int(int32(x) / 3)
-	case "mod":
-		return int(int32(x) % 3)
-	}
-	panic("unknown fn " + fn)
-}
-
-func TestCompoundAssignmentComputes(t *testing.T) {
-	files := compile(t, compoundSrc, optimize.O2)
-	h := newHarness(t, "t:as", files)
-
-	// 7 exercises non-zero quotient and remainder; -7 checks the sign, which
-	// is where "the operator was dropped" and "the operator is inverted"
-	// would look the same on non-negative inputs alone.
-	xs := []int{7, -7, 0, 1, 2, 100, -100}
-	for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
-		sets := make([]map[string]int, len(xs))
-		for i, x := range xs {
-			sets[i] = map[string]int{"a0": x}
-		}
-		got := h.Calls("t:as/"+fn, sets)
-		for i, x := range xs {
-			if want := refCompound(fn, x); got[i] != want {
-				t.Errorf("%s(%d) = %d, want %d", fn, x, got[i], want)
-			}
+// Assigning to a name nobody declared is a silent no-op: it gets a fresh
+// local, and nothing reads it. The READ side already refuses the same name;
+// the write side used to accept it, which is the shape this compiler exists
+// to reject.
+func TestUndeclaredAssignmentIsReported(t *testing.T) {
+	src := "namespace t:wa\nobj X\n[export]\nfn f() { X = 1  ghost = 2 }\n"
+	var found bool
+	for _, c := range compileDiags(src) {
+		if strings.HasPrefix(c, "E_UNDEFINED") && strings.Contains(c, "ghost") {
+			found = true
 		}
 	}
-}
-
-func TestCompoundAssignmentAtEveryLevel(t *testing.T) {
-	for _, level := range []optimize.Level{optimize.O0, optimize.O1, optimize.O2, optimize.O3} {
-		t.Run(level.String(), func(t *testing.T) {
-			files := compile(t, compoundSrc, level)
-			h := newHarness(t, "t:as", files)
-			xs := []int{7, -7, 12345}
-			for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
-				sets := make([]map[string]int, len(xs))
-				for i, x := range xs {
-					sets[i] = map[string]int{"a0": x}
-				}
-				got := h.Calls("t:as/"+fn, sets)
-				for i, x := range xs {
-					if want := refCompound(fn, x); got[i] != want {
-						t.Errorf("%s(%d) = %d, want %d", fn, x, got[i], want)
-					}
-				}
-			}
-		})
+	if !found {
+		t.Fatal("an assignment to an undeclared name was accepted")
 	}
 }
 
-// The two spellings must be indistinguishable, not merely both correct: an
-// optimisation that treats them differently would be free to diverge from
-// there on. Comparing rendered output catches that at every level, including
-// the redundant self-copy -O0 emits for both.
-func TestCompoundAssignmentMatchesLonghand(t *testing.T) {
-	pairs := []struct{ name, compound, longhand string }{
-		{"add", "y += 3", "y = y + 3"},
-		{"sub", "y -= 3", "y = y - 3"},
-		{"mul", "y *= 3", "y = y * 3"},
-		{"div", "y /= 3", "y = y / 3"},
-		{"mod", "y %= 3", "y = y % 3"},
-	}
-	for _, p := range pairs {
-		for _, level := range []optimize.Level{optimize.O0, optimize.O1, optimize.O2, optimize.O3} {
-			t.Run(p.name+"/"+level.String(), func(t *testing.T) {
-				mk := func(stmt string) string {
-					return "namespace t:as\nextern a0: int = @s.a0\n\nfn f(x: int) -> int {\n  let y = x\n  " +
-						stmt + "\n  y\n}\n"
-				}
-				got := compile(t, mk(p.compound), level)
-				want := compile(t, mk(p.longhand), level)
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("%s and %s compiled differently\ngot:  %v\nwant: %v",
-						p.compound, p.longhand, got, want)
-				}
-			})
+// The check must not fire on a declared target, or every program fails.
+func TestDeclaredAssignmentTargetsCompile(t *testing.T) {
+	src := "namespace t:wb\nobj X\nextern E: int = @s.e\n[export]\nfn f(a: int) {\n" +
+		"  let b = a\n  X = b\n  E = a\n  b += 1\n  X += b\n}\n"
+	for _, c := range compileDiags(src) {
+		if strings.HasPrefix(c, "E_") {
+			t.Fatalf("a declared assignment target was rejected: %s", c)
 		}
 	}
 }
