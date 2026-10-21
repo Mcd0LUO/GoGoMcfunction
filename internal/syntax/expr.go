@@ -58,11 +58,15 @@ func (p *parser) tryMatchContainer() (Container, string, error) {
 	if err != nil {
 		return Container{}, "", err
 	}
-	switch key.Text {
-	case "SelectedItem", "Item", "Inventory":
-	default:
-		return Container{}, "", fmt.Errorf("not a container")
-	}
+	// Any identifier is a container. The old whitelist held exactly the three
+	// the codec's `decode`/`encode` know about, which is a different question:
+	// `matches` tests an arbitrary NBT pattern on the entity, and the data pack
+	// uses it on ActiveEffects, Inventory, SelectedItem and others.
+	//
+	// The three named containers still matter for `decode`, where the slot
+	// range has to be meaningful; `matches` only needs to know where to point
+	// the pattern, and the pattern itself says the rest.
+	_ = key
 	if p.cur().Kind != IDENT || p.cur().Text != "matches" {
 		return Container{}, "", fmt.Errorf("not a match")
 	}

@@ -33,6 +33,7 @@ func run() error {
 		showSkip = flag.Bool("v", false, "explain which optimisations the level omits")
 		showVer  = flag.Bool("version", false, "print the version and exit")
 		comments = flag.Bool("comments", false, "put a header naming each generated file's declaration")
+		showIR   = flag.Bool("ir", false, "print the optimised IR instead of writing files")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: ggm [flags] <file.ggm> ...")
@@ -89,6 +90,13 @@ func run() error {
 		return fmt.Errorf("compilation failed")
 	}
 	if *check || out == nil {
+		return nil
+	}
+	// The IR, not the commands. Printed instead of writing files, because the
+	// question it answers is "what shape did the optimiser produce", and
+	// rendering commands on top of that only obscures it.
+	if *showIR {
+		fmt.Print(out.IR.DumpString())
 		return nil
 	}
 	if err := write(out, *outDir); err != nil {

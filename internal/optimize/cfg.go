@@ -42,7 +42,9 @@ func (SimplifyCFG) Run(p *ir.Program) *ir.Program {
 			// compiler cannot infer that without a value-numbering analysis, so
 			// it must not perform this rewrite.
 			changed := mergeLinear(fn)
+			changed = sinkJoinIntoEmptyElse(fn) || changed
 			changed = inlineLeafArms(fn) || changed
+			changed = foldSameTargetBranch(fn) || changed
 			changed = threadEmptyJumps(fn) || changed
 			if !changed {
 				break
@@ -62,6 +64,73 @@ func predCount(fn *ir.Function) map[ir.BlockID]int {
 		}
 	}
 	return count
+}
+
+// sinkJoinIntoEmptyElse moves the join block's code into an empty else arm.
+//
+//	A: Branch(c, T, E)      A: Branch(c, T, E)
+//	T: ops; Jump(J)   ==>   T: ops; Jump(J)
+//	E: Jump(J)              E: join-ops; ...
+//	J: join-ops; ...        J: (now single-pred, merged by mergeLinear)
+//
+// This is what turns a run of independent `if`s into flat code. Without it
+// every if ends in a join with two predecessors, mergeLinear cannot absorb the
+// join, and the next statement becomes another block -- so `if a {}; if b {}`
+// costs a file per if, and the reference data pack's flat `execute … if …`
+// style turns into a chain.
+//
+// It is only sound when the else arm is EMPTY: sinking code into an arm that
+// does work would run that work in a different order. An empty else arm is
+// exactly "fall through", so moving the join there changes nothing.
+func sinkJoinIntoEmptyElse(fn *ir.Function) bool {
+	changed := false
+	preds := predCount(fn)
+	for _, b := range fn.Blocks {
+		br, ok := b.Term.(ir.Branch)
+		if !ok {
+			continue
+		}
+		elseBlk := blockByID(fn, br.Else)
+		if elseBlk == nil || len(elseBlk.Ops) != 0 || preds[elseBlk.ID] != 1 {
+			continue
+		}
+		ej, ok := elseBlk.Term.(ir.Jump)
+		if !ok {
+			continue
+		}
+		join := blockByID(fn, ej.Target)
+		if join == nil || join.ID == elseBlk.ID || join.ID == b.ID {
+			continue
+		}
+		// The join must be reachable only from the two arms; sinking it into
+		// the else arm would otherwise duplicate code that a third edge needs.
+		if preds[join.ID] != 2 {
+			continue
+		}
+		// The then arm must jump straight to the same join, or the join is not
+		// shared and this is a different shape.
+		thenBlk := blockByID(fn, br.Then)
+		if thenBlk == nil {
+			continue
+		}
+		tj, ok := thenBlk.Term.(ir.Jump)
+		if !ok || tj.Target != join.ID {
+			continue
+		}
+		elseBlk.Ops = append(elseBlk.Ops, join.Ops...)
+		elseBlk.Term = retarget(join.Term, join.ID, elseBlk.ID)
+		join.Ops = nil
+		join.Term = ir.Return{}
+		for _, other := range fn.Blocks {
+			if other.ID == join.ID {
+				continue
+			}
+			other.Term = retarget(other.Term, join.ID, elseBlk.ID)
+		}
+		changed = true
+		preds = predCount(fn)
+	}
+	return changed
 }
 
 // mergeLinear concatenates A -> B when B has exactly one predecessor.
@@ -142,8 +211,23 @@ func inlineLeafArms(fn *ir.Function) bool {
 			if target == nil || preds[target.ID] != 1 {
 				continue
 			}
+			// A Return arm is the simple case. A JUMP arm is the common one:
+			// `if c { x = 1 }; y = 2` makes the then-arm a jump to the join,
+			// because the code after the if has to run either way.
+			//
+			// Without this every `if` in the middle of a function cost two
+			// files, and a run of independent one-line ifs -- which is exactly
+			// how the reference data pack writes `execute … if …` -- turned
+			// into a chain of blocks. 21 lines of data pack became 46 lines
+			// across 16 files.
+			//
+			// A jump arm is folded the same way, and the jump itself is kept:
+			// the guard runs the ops only when the condition holds, and then
+			// the arm still has to reach the join.
 			if _, isRet := target.Term.(ir.Return); !isRet {
-				continue
+				if _, isJump := target.Term.(ir.Jump); !isJump {
+					continue
+				}
 			}
 			if len(target.Ops) == 0 || len(target.Ops) > maxInlineOps {
 				continue
@@ -166,13 +250,22 @@ func inlineLeafArms(fn *ir.Function) bool {
 // only a win while the arm is small; beyond this the call is cheaper.
 const maxInlineOps = 12
 
-// canInline reports whether a straight-line op sequence is safe to duplicate.
-// Raw commands are excluded because they may have side effects the IR cannot
-// reason about (tag changes, kills, entity spawning).
+// canInline reports whether a straight-line op sequence is safe to fold into a
+// guard.
+//
+// `Raw` is allowed: the ops are not duplicated into a place where they might
+// run twice, they are wrapped in a `Guarded`, which runs them only when the
+// condition holds. That is the same execution the separate block had.
+//
+// It used to be excluded on the grounds that a raw command may have side
+// effects the IR cannot reason about -- which is true, and irrelevant: the
+// side effect happens exactly as often as before. The exclusion made every
+// `if` whose body contains a tellraw, a tag change or a kill cost an extra
+// file, and those are the bodies authors actually write.
 func canInline(ops []ir.Op) bool {
 	for _, op := range ops {
 		switch op.(type) {
-		case ir.Set, ir.Copy, ir.Arith, ir.Add, ir.Remove:
+		case ir.Set, ir.Copy, ir.Arith, ir.Add, ir.Remove, ir.Raw:
 		case ir.Guarded:
 		default:
 			return false
@@ -367,6 +460,30 @@ func rotatePostTest(fn *ir.Function) bool {
 
 // threadEmptyJumps removes jumps whose target is empty, by adopting the
 // target's terminator. This is what makes chained linear merges converge.
+
+// foldSameTargetBranch turns `branch c then=b else=b` into `jump b`.
+//
+// Inlining a then-arm leaves exactly this shape: the arm's ops are guarded
+// and folded into the branch block, and both edges still name the join. The
+// condition no longer selects between two destinations, so the branch is
+// only a conditional call in the rendering -- the backend emits
+// `function b if c` and `function b unless c`, which calls the join TWICE.
+//
+// It also costs a second call per `if`: a run of independent one-line ifs
+// became one extra `function` line each, which is most of the gap between the
+// data pack's flat `execute … if …` and GGM's output.
+func foldSameTargetBranch(fn *ir.Function) bool {
+	changed := false
+	for _, b := range fn.Blocks {
+		br, ok := b.Term.(ir.Branch)
+		if !ok || br.Then != br.Else {
+			continue
+		}
+		b.Term = ir.Jump{Target: br.Then}
+		changed = true
+	}
+	return changed
+}
 func threadEmptyJumps(fn *ir.Function) bool {
 	changed := false
 	for _, b := range fn.Blocks {

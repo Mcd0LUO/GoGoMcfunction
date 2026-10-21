@@ -16,6 +16,59 @@
 
 ---
 
+## [0.24.0] - 2026-10-21
+
+### 新增 `-ir`：打印优化后的 IR
+
+从生成的 `.mcfunction` 反推 CFG 形状是猜。合并过的块和内联过的块产出的命令很像，
+但两者决定了「这个优化是不是 bug」。
+
+```
+$ ggm -ir -O 2 x.ggm
+program t:a: 1 funcs, 3 consts, 2 objs
+  fn t:a/f [exported]
+    b0:
+      copy @s t0 = @s x
+      arith @s t0 -= #1 ggm.c
+      guarded [t0 == 0] set @s y = 1
+      -> jump b1
+```
+
+每个块、每条 op、每个终结符都打印，`Raw` 连 `Args`/`Writes`/`Reads` 一起。
+
+### 修掉 `if` 的代码膨胀
+
+这是移植实测里最严重的问题。三个独立的单命令 `if`：
+
+```ggm
+if x == 1 { y = 1 }
+if x == 2 { y = 2 }
+if x == 3 { y = 3 }
+```
+
+**之前：7 个文件 23 行。现在：3 个文件 12 行。** 数据包同一段是 9 行。
+
+三个原因叠在一起：
+
+1. `inlineLeafArms` 只处理以 `Return` 结尾的臂。`if` 后面还有语句时臂是 `Jump`，
+   所以一个都内联不了。
+2. `canInline` 排除 `Raw`，而 `tellraw`、`scoreboard tag`、`kill` 全是 `Raw`——
+   也就是作者真正会写的那些命令。排除的理由是「可能有副作用」，但 `Guarded`
+   只在条件成立时执行，副作用发生的次数和之前完全一样。
+3. 内联后留下 `branch c then=b else=b`——两臂指向同一个块。后端据此渲染出
+   `function b if c` 和 `function b unless c`，**把同一个块调用了两次**，
+   每个 `if` 多一行。
+
+第 3 条是真正的 bug，不是膨胀：条件已经不选目的地了，却还在做条件调用。
+
+实测：`rpg/projectile/player/cycle` 从 16 文件 46 行降到 **3 文件 26 行**
+（数据包 1 文件 21 行）。
+
+### `matches` 的容器不再限于三个
+
+`@s.ActiveEffects matches n"{Id:12b}"` 之前报「expected a quoted objective name」——
+白名单只有 `SelectedItem`/`Item`/`Inventory`，那三个是 `decode` 关心的容器，
+不是 `matches` 该关心的。`matches` 只需要知道往哪指，模式本身说明了其余。
 ## [0.23.0] - 2026-10-21
 
 ### 新增：`<selector>."objective"` 读别的实体的分数

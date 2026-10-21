@@ -244,6 +244,10 @@ func (p *parser) parseCond() (Expr, error) {
 	// `@s.Item matches n"..."` starts with a selector, which is not an
 	// expression form anywhere else in the grammar. Trying the container first
 	// and rewinding keeps `@s` usable as a plain selector elsewhere.
+	// Tried before any other selector form: `@s.ActiveEffects matches n"..."`
+	// is a condition, while `@s."objective"` is a score read. The `matches`
+	// keyword is what distinguishes them, and tryMatchContainer rewinds when it
+	// is absent.
 	if p.cur().Kind == AT {
 		save := p.i
 		if c, sel, err := p.tryMatchContainer(); err == nil {

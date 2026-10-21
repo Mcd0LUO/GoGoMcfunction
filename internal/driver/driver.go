@@ -41,6 +41,12 @@ type Output struct {
 	NeedsCycle string
 	// HasCycle reports whether NeedsCycle was actually generated.
 	HasCycle bool
+	// IR is the optimised program, kept so `-ir` can show the shape the back
+	// end was given. Reading a wrong answer out of generated .mcfunction is
+	// guesswork: a merged block and an inlined one produce similar commands
+	// from very different CFGs, and which one happened decides whether an
+	// optimisation is a bug.
+	IR *ir.Program
 }
 
 // Options configures a compilation.
@@ -240,7 +246,7 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 			}
 		}
 	}
-	out := &Output{Files: files, Order: order, Skipped: optimize.Skipped(opt.Level)}
+	out := &Output{Files: files, Order: order, Skipped: optimize.Skipped(opt.Level), IR: prog}
 	out.NeedsConstInit = bootPath(srcFiles[0].Namespace)
 	out.NeedsCycle = cyclePath(srcFiles[0].Namespace)
 	out.HasCycle = prog.Lookup(out.NeedsCycle) != nil
