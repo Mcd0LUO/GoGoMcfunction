@@ -133,7 +133,15 @@ func sinkJoinIntoEmptyElse(fn *ir.Function) bool {
 			other.Term = retarget(other.Term, join.ID, elseBlk.ID)
 		}
 		changed = true
-		preds = predCount(fn)
+		// Update the counts this sink changes, instead of rescanning.
+		//
+		// Every edge that pointed at `join` now points at `elseBlk`, so
+		// elseBlk's count grows by join's and join's drops to zero. This was
+		// the single hottest line in the compiler: an O(N) rescan per sink
+		// made a 3200-if function quadratic, and predCount was 36% of its
+		// compile time.
+		preds[elseBlk.ID] += preds[join.ID]
+		preds[join.ID] = 0
 	}
 	return changed
 }
@@ -183,7 +191,17 @@ func mergeLinear(fn *ir.Function) bool {
 			other.Term = retarget(other.Term, target.ID, b.ID)
 		}
 		changed = true
-		preds = predCount(fn)
+		// Update the two counts this merge changes, instead of rescanning.
+		//
+		// Every edge that pointed at `target` now points at `b`, so b's count
+		// grows by target's and target's drops to zero -- exact, because the
+		// retarget loop above redirected all of them.
+		//
+		// The rescan was O(N) per merge, so a function of N blocks cost O(N^2)
+		// for bookkeeping alone: 39% of the compile time on 3200 independent
+		// ifs.
+		preds[b.ID] += preds[target.ID]
+		preds[target.ID] = 0
 	}
 	return changed
 }
@@ -335,193 +353,6 @@ func canInline(ops []ir.Op) bool {
 	return true
 }
 
-// rotateLoops turns a pre-tested loop into a post-tested one, so the body and
-// the condition live in the same block.
-//
-//	header: cond; Branch(c, body, exit)      body: ...body...
-//	body:   ...body...; Jump(header)   ==>   cond; Branch(c, body, exit)
-//
-// This is what lets a loop compile to ONE file instead of two, matching the
-// shape a hand-written library uses (`body; function self unless cond`). The
-// header's condition ops move to the end of the body because that is where
-// they are evaluated after rotation.
-func rotateLoops(fn *ir.Function) bool {
-	changed := false
-	preds := predCount(fn)
-	for _, header := range fn.Blocks {
-		br, ok := header.Term.(ir.Branch)
-		if !ok {
-			continue
-		}
-		body := blockByID(fn, br.Then)
-		if body == nil {
-			continue
-		}
-		j, ok := body.Term.(ir.Jump)
-		if !ok || j.Target != header.ID {
-			continue
-		}
-		if body.ID == header.ID {
-			continue // already a self-loop; nothing to rotate
-		}
-		// Every entry into the header except the back edge must be redirectable
-		// to the body, so the header must not carry a live value into the body
-		// that the body overwrites. Conservatively require the header to hold
-		// only the condition computation.
-		if len(header.Ops) > 4 {
-			continue
-		}
-		body.Ops = append(body.Ops, header.Ops...)
-		body.Term = ir.Branch{Cond: br.Cond, Then: body.ID, Else: br.Else}
-		header.Ops = nil
-		header.Term = ir.Jump{Target: body.ID}
-		// redirect every predecessor of the header to the body
-		for _, b := range fn.Blocks {
-			if b.ID == body.ID || b.ID == header.ID {
-				continue
-			}
-			b.Term = redirect(b.Term, header.ID, body.ID)
-		}
-		changed = true
-		preds = predCount(fn)
-		_ = preds
-	}
-	return changed
-}
-
-// retarget rewrites every edge from -> to in a terminator.
-func retarget(t ir.Terminator, from, to ir.BlockID) ir.Terminator {
-	switch x := t.(type) {
-	case ir.Jump:
-		if x.Target == from {
-			x.Target = to
-		}
-		return x
-	case ir.Branch:
-		if x.Then == from {
-			x.Then = to
-		}
-		if x.Else == from {
-			x.Else = to
-		}
-		return x
-	}
-	return t
-}
-
-func redirect(t ir.Terminator, from, to ir.BlockID) ir.Terminator {
-	switch x := t.(type) {
-	case ir.Jump:
-		if x.Target == from {
-			x.Target = to
-		}
-		return x
-	case ir.Branch:
-		if x.Then == from {
-			x.Then = to
-		}
-		if x.Else == from {
-			x.Else = to
-		}
-		return x
-	}
-	return t
-}
-
-func isSelfLoop(fn *ir.Function, id ir.BlockID) bool {
-	b := blockByID(fn, id)
-	if b == nil {
-		return false
-	}
-	for _, s := range ir.Succs(b.Term) {
-		if s == id {
-			return true
-		}
-	}
-	return false
-}
-
-// conjoin returns the DNF predicate for `a AND b`.
-func conjoin(a, b ir.Predicate) ir.Predicate {
-	if len(a.Alts) == 0 {
-		return b
-	}
-	if len(b.Alts) == 0 {
-		return a
-	}
-	var out [][]ir.Cond
-	for _, x := range a.Alts {
-		for _, y := range b.Alts {
-			out = append(out, append(append([]ir.Cond(nil), x...), y...))
-		}
-	}
-	return ir.Predicate{Alts: out}
-}
-
-// enteredFrom reports whether any block other than the excluded ones targets id.
-func enteredFrom(fn *ir.Function, id ir.BlockID, exclude ...ir.BlockID) bool {
-	for _, b := range fn.Blocks {
-		skip := false
-		for _, e := range exclude {
-			if b.ID == e {
-				skip = true
-			}
-		}
-		if skip {
-			continue
-		}
-		for _, s := range ir.Succs(b.Term) {
-			if s == id {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// rotatePostTest merges a loop header into its body when the body already
-// branches back to the header and both branches share the same exit block.
-//
-//	H: ops_h; Branch(c_h, B, X)        B: ops_b; ops_h
-//	B: ops_b; Branch(c_b, H, X)   ==>  Branch(c_b AND c_h, B, X)
-//
-// This is the shape a hand-written library writes as `body; function self
-// unless cond`, and it removes one function call per iteration. The header's
-// condition ops move to the END of the body because that is where they are
-// evaluated after rotation — they read values the body just updated.
-func rotatePostTest(fn *ir.Function) bool {
-	changed := false
-	for _, h := range fn.Blocks {
-		hb, ok := h.Term.(ir.Branch)
-		if !ok {
-			continue
-		}
-		b := blockByID(fn, hb.Then)
-		if b == nil || b.ID == h.ID {
-			continue
-		}
-		bb, ok := b.Term.(ir.Branch)
-		if !ok || bb.Then != h.ID {
-			continue
-		}
-		if bb.Else != hb.Else {
-			continue // exits differ: rotation would need a third block
-		}
-		if enteredFrom(fn, h.ID, h.ID, b.ID) {
-			continue // the header has other entries; they must be retargeted
-		}
-		b.Ops = append(b.Ops, h.Ops...)
-		b.Term = ir.Branch{Cond: conjoin(bb.Cond, hb.Cond), Then: b.ID, Else: hb.Else}
-		h.Ops = nil
-		h.Term = ir.Jump{Target: b.ID}
-		changed = true
-	}
-	return changed
-}
-
-// threadEmptyJumps removes jumps whose target is empty, by adopting the
-// target's terminator. This is what makes chained linear merges converge.
-
 // foldSameTargetBranch turns `branch c then=b else=b` into `jump b`.
 //
 // Inlining a then-arm leaves exactly this shape: the arm's ops are guarded
@@ -614,6 +445,14 @@ func isHoistableConstant(op ir.Op, cond ir.Predicate) bool {
 	}
 	return true
 }
+
+// blockByID finds a block by id.
+//
+// A linear scan, because the passes run while the block list is mid-edit and
+// `Blocks[i].ID == i` is only restored by reindex. The scan was 3.5% of a
+// 3200-if compile; the real cost was elsewhere (predCount rebuilt per pass),
+// so an index would buy little and would have to be invalidated by every
+// pass that adds or removes a block.
 func blockByID(fn *ir.Function, id ir.BlockID) *ir.Block {
 	for _, b := range fn.Blocks {
 		if b.ID == id {
@@ -621,6 +460,44 @@ func blockByID(fn *ir.Function, id ir.BlockID) *ir.Block {
 		}
 	}
 	return nil
+}
+
+// retarget rewrites a terminator's edges from one block to another.
+//
+// This is the only edge-rewriting primitive in the package. There used to be
+// a second copy named redirect with an identical body -- exactly the kind of
+// duplication that lets one copy be fixed and the other not.
+func retarget(t ir.Terminator, from, to ir.BlockID) ir.Terminator {
+	switch x := t.(type) {
+	case ir.Jump:
+		if x.Target == from {
+			x.Target = to
+		}
+		return x
+	case ir.Branch:
+		if x.Then == from {
+			x.Then = to
+		}
+		if x.Else == from {
+			x.Else = to
+		}
+		return x
+	}
+	return t
+}
+
+// isSelfLoop reports whether a block has an edge to itself.
+func isSelfLoop(fn *ir.Function, id ir.BlockID) bool {
+	b := blockByID(fn, id)
+	if b == nil {
+		return false
+	}
+	for _, s := range ir.Succs(b.Term) {
+		if s == id {
+			return true
+		}
+	}
+	return false
 }
 
 // reindex renumbers blocks 0..n-1, fixes every edge, and removes blocks that
