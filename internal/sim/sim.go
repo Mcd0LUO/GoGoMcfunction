@@ -10,6 +10,7 @@
 package sim
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,9 +20,32 @@ import (
 	"strings"
 )
 
+// ErrUnavailable marks a missing gomc binary.
+//
+// Tests use it to tell "the runtime is not installed" from "the compiler
+// generated the wrong program". Without the distinction a machine without
+// gomc reports every semantic test as a failure, which reads as a broken
+// compiler rather than a missing dependency.
+var ErrUnavailable = errors.New("gomc runtime unavailable")
+
 // Runtime locates the gomc binary. Set GGM_GOMC to override.
+//
+// The override is CHECKED, not trusted. Returning it unchecked meant a
+// GGM_GOMC pointing at a path that does not exist got past NewWorld and
+// failed later, inside the first run, as `fork/exec ... cannot find the
+// path` -- a message about the test environment that looked like a test
+// failure.
 func Runtime() (string, error) {
 	if p := os.Getenv("GGM_GOMC"); p != "" {
+		if filepath.IsAbs(p) {
+			if _, err := os.Stat(p); err != nil {
+				return "", fmt.Errorf("%w: GGM_GOMC is set to %q, which cannot be read: %v", ErrUnavailable, p, err)
+			}
+			return p, nil
+		}
+		if _, err := exec.LookPath(p); err != nil {
+			return "", fmt.Errorf("%w: GGM_GOMC is set to %q, which is not on PATH", ErrUnavailable, p)
+		}
 		return p, nil
 	}
 	candidates := []string{
@@ -39,7 +63,7 @@ func Runtime() (string, error) {
 			return c, nil
 		}
 	}
-	return "", fmt.Errorf("gomc runtime not found; set GGM_GOMC to the gomc binary")
+	return "", fmt.Errorf("%w: not found; set GGM_GOMC to the gomc binary", ErrUnavailable)
 }
 
 // World is a temporary 1.12.2 save populated with generated functions.
