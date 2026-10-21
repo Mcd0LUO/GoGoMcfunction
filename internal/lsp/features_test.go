@@ -303,3 +303,68 @@ func TestSemanticErrorReachesTheEditor(t *testing.T) {
 		t.Fatalf("E_UNKNOWN_CALLEE was not among the published diagnostics: %+v", got)
 	}
 }
+
+// A rename must reach every use, and must not reach a same-named stranger.
+//
+// The edits come from the recorded RESOLUTIONS, not from a text search. A
+// text search would rename a local called `score` in every function of the
+// module; this only renames the one the cursor resolved to.
+func TestRenameIsScopedToTheSymbol(t *testing.T) {
+	dir := t.TempDir()
+	aSrc := "namespace t:r\nobj X\nfn score(v: int) -> int { v }\n[export]\nfn one() { X = score(1) }\n"
+	bSrc := "namespace t:r\n[export]\nfn two() -> int { let score = 2  score }\n"
+	writeFiles(t, dir, map[string]string{"a.ggm": aSrc, "b.ggm": bSrc})
+	sess := newSession(t, dir)
+	aPath := filepath.Join(dir, "a.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(aPath), Text: aSrc},
+	})
+
+	var edit WorkspaceEdit
+	sess.ask(70, "textDocument/rename", RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(aPath)},
+		Position:     Position{Line: 2, Character: 4}, // the declaration of score
+		NewName:      "points",
+	}, &edit)
+
+	var total int
+	for _, edits := range edit.Changes {
+		total += len(edits)
+	}
+	if total < 2 {
+		t.Fatalf("rename produced %d edits; the declaration and its call both need one", total)
+	}
+	bURI := uriFromPath(filepath.Join(dir, "b.ggm"))
+	if edits, ok := edit.Changes[bURI]; ok {
+		t.Fatalf("rename touched b.ggm, where `score` is an unrelated local: %+v", edits)
+	}
+	for _, edits := range edit.Changes {
+		for _, e := range edits {
+			if e.NewText != "points" {
+				t.Fatalf("an edit carries %q", e.NewText)
+			}
+		}
+	}
+}
+
+// A shorthand names a fake player rather than a declaration, so there is
+// nothing to rename and the client must be told so.
+func TestRenameRefusesAShorthand(t *testing.T) {
+	dir := t.TempDir()
+	src := "namespace t:r2\nobj X\n[export]\nfn f() { X = ghost.score }\n"
+	writeFiles(t, dir, map[string]string{"c.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "c.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+	var got any
+	sess.ask(71, "textDocument/rename", RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     Position{Line: 3, Character: 14},
+		NewName:      "other",
+	}, &got)
+	if got != nil {
+		t.Fatalf("rename answered for a holder.objective shorthand: %v", got)
+	}
+}

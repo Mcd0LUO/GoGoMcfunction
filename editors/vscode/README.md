@@ -34,6 +34,10 @@ in it and the squiggles appear as you type.
 | Hover | The declaration under the cursor, its signature and where it lives |
 | Go to definition | From a use to the declaration, including locals and params |
 | Completion | Names in the module, filtered by the fragment under the cursor |
+| Outline | The declarations in this file |
+| Find references | Every use of the symbol under the cursor |
+| Signature help | The call being typed, and which argument you are on |
+| Rename | Every use of the symbol, and no same-named stranger |
 
 Hover and jump both report the KIND of a name, which matters here: an
 objective, an extern and a class field look identical at a use site and mean

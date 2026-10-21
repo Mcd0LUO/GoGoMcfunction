@@ -94,6 +94,7 @@ type ServerCapabilities struct {
 	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
 	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
 	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
+	RenameProvider         bool                    `json:"renameProvider,omitempty"`
 	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 }
 
@@ -317,4 +318,28 @@ type FileEvent struct {
 // DidChangeWatchedFilesParams reports filesystem changes the editor noticed.
 type DidChangeWatchedFilesParams struct {
 	Changes []FileEvent `json:"changes"`
+}
+
+// TextEdit replaces a range with new text.
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+// TextDocumentEdit groups edits for one document.
+type TextDocumentEdit struct {
+	TextDocument VersionedTextDocumentIdentifier `json:"textDocument"`
+	Edits        []TextEdit                      `json:"edits"`
+}
+
+// WorkspaceEdit is the result of a rename: edits across several files.
+type WorkspaceEdit struct {
+	Changes map[DocumentURI][]TextEdit `json:"changes,omitempty"`
+}
+
+// RenameParams names the symbol to rename and its new name.
+type RenameParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	NewName      string                 `json:"newName"`
 }

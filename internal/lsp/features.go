@@ -496,3 +496,74 @@ func (s *Server) handleWatchedFiles(p DidChangeWatchedFilesParams) {
 		s.recompile(path)
 	}
 }
+
+// handlePrepareRename reports whether a symbol can be renamed at a position.
+//
+// Answering null disables the rename UI for that spot, which is right for a
+// holder.objective shorthand: it names a fake player, not a declaration, so a
+// rename would either do nothing or silently retarget a different score.
+func (s *Server) handlePrepareRename(p PositionParams) (any, error) {
+	path, _, ns, line, col, ok := s.locate(p)
+	if !ok {
+		return nil, nil
+	}
+	ix := s.indexFor(ns)
+	if ix == nil {
+		return nil, nil
+	}
+	sym, ok := ix.At(path, line, col)
+	if !ok || sym.Kind == symbols.KShorthand {
+		return nil, nil
+	}
+	return tokenRange(line, col, runeCount(lastSegmentOf(sym.Name))), nil
+}
+
+// handleRename returns the edits that rename a symbol everywhere it is used.
+//
+// The edits come from Occurrences, which matches by the RESOLVED declaration
+// rather than by text. A rename therefore cannot touch a same-named symbol in
+// another function, which is the failure a text search produces.
+//
+// Renaming the declaration of a function also has to move its call sites, and
+// those are recorded as resolutions of the same symbol, so one pass covers
+// both.
+func (s *Server) handleRename(p RenameParams) (any, error) {
+	path, _, ns, line, col, ok := s.locate(PositionParams{
+		TextDocument: p.TextDocument,
+		Position:     p.Position,
+	})
+	if !ok || p.NewName == "" {
+		return nil, nil
+	}
+	ix := s.indexFor(ns)
+	if ix == nil {
+		return nil, nil
+	}
+	sym, ok := ix.At(path, line, col)
+	if !ok || sym.Kind == symbols.KShorthand {
+		return nil, nil
+	}
+
+	changes := map[DocumentURI][]TextEdit{}
+	add := func(file string, atLine, atCol int, name string) {
+		if atLine <= 0 {
+			return
+		}
+		u := uriFromPath(file)
+		changes[u] = append(changes[u], TextEdit{
+			Range:   tokenRange(atLine, atCol, runeCount(name)),
+			NewText: p.NewName,
+		})
+	}
+	for _, occ := range ix.Occurrences(sym) {
+		add(occ.File, occ.Pos.Line, occ.Pos.Col, occ.Name)
+	}
+	// The declaration itself, when the symbol has one in the index.
+	if sym.Pos.Line > 0 && len(ix.Lookup(sym.Name)) > 0 {
+		add(sym.File, sym.Pos.Line, sym.Pos.Col, lastSegmentOf(sym.Name))
+	}
+	if len(changes) == 0 {
+		return nil, nil
+	}
+	return &WorkspaceEdit{Changes: changes}, nil
+}

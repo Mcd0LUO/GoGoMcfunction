@@ -121,6 +121,7 @@ func (s *Server) dispatch(m *msg) error {
 				CompletionProvider:     &CompletionOptions{TriggerCharacters: []string{"."}},
 				DocumentSymbolProvider: true,
 				ReferencesProvider:     true,
+				RenameProvider:         true,
 				SignatureHelpProvider:  &SignatureHelpOptions{TriggerCharacters: []string{"(", ","}},
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
@@ -238,6 +239,28 @@ func (s *Server) dispatch(m *msg) error {
 		// A request this server answers synchronously cannot be cancelled
 		// mid-flight, and ignoring the notification is correct.
 		return nil
+
+	case "textDocument/prepareRename":
+		var p PositionParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handlePrepareRename(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/rename":
+		var p RenameParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleRename(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
 
 	case "textDocument/signatureHelp":
 		var p PositionParams
