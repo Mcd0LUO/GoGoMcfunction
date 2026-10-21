@@ -452,6 +452,17 @@ func parseSelector(text string) *mc.Selector {
 // together. Panicking here is better than emitting a command with a literal
 // %s in it, which 1.12.2 would reject and which would take the whole function
 // file down with it.
+// spliceLocations replaces the placeholders in a Raw command's text.
+//
+// Two forms, because a location appears in two grammatical roles:
+//
+//	%s  an OPERAND:  `scoreboard players set @s temp1`
+//	%o  an OBJECTIVE inside a selector:  `@s[score_temp1_min=1]`
+//
+// Using %s for the selector case produced `score_@s temp1_min=1`, which is not
+// a selector. Both are needed: a location must never be written into the text
+// directly, because optimisation renames temporaries and a name baked into a
+// string cannot be renamed with the op that writes it.
 func spliceLocations(text string, args []ir.Loc) string {
 	if len(args) == 0 {
 		return text
@@ -459,23 +470,32 @@ func spliceLocations(text string, args []ir.Loc) string {
 	var sb strings.Builder
 	i := 0
 	for {
-		j := strings.Index(text, "%s")
+		js := strings.Index(text, "%s")
+		jo := strings.Index(text, "%o")
+		j, objOnly := js, false
+		if jo >= 0 && (js < 0 || jo < js) {
+			j, objOnly = jo, true
+		}
 		if j < 0 {
 			sb.WriteString(text)
 			break
 		}
 		if i >= len(args) {
-			panic("ir.Raw: more %s than Args")
+			panic("ir.Raw: more placeholders than Args")
 		}
 		sb.WriteString(text[:j])
-		sb.WriteString(args[i].Holder)
-		sb.WriteString(" ")
-		sb.WriteString(args[i].Obj)
+		if objOnly {
+			sb.WriteString(args[i].Obj)
+		} else {
+			sb.WriteString(args[i].Holder)
+			sb.WriteString(" ")
+			sb.WriteString(args[i].Obj)
+		}
 		text = text[j+2:]
 		i++
 	}
 	if i != len(args) {
-		panic("ir.Raw: more Args than %s")
+		panic("ir.Raw: more Args than placeholders")
 	}
 	return sb.String()
 }

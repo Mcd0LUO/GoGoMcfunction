@@ -185,9 +185,18 @@ func (l *Lowerer) lowerEncode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 		// Both bounds on the guard. `score_return=3` alone means `<= 3`, so
 		// dropping the lower bound would fire this command for every value at
 		// or below it -- the over-match that makes 1.12.2 selectors dangerous.
-		guard := fmt.Sprintf("@s[score_%s_min=%d,score_%s=%d]", src.Obj, v, src.Obj, v)
-		fb.Emit(cur, ir.Raw{Text: fmt.Sprintf("entitydata %s %s",
-			guard, nbtMatch(s.Container, 0, fd.Path, packBits(v, fd.Bits), true))})
+		//
+		// The objective name is spliced in, not baked in: it is a location, and
+		// a location written into command text cannot be renamed with the op
+		// that reads it. Baking it here meant the objective was invisible to
+		// usedObjectives, so it was never declared and 1.12.2 discarded every
+		// one of these entitydata commands.
+		fb.Emit(cur, ir.Raw{
+			Text: fmt.Sprintf("entitydata @s[score_%%o_min=%d,score_%%o=%d] %s",
+				v, v, nbtMatch(s.Container, 0, fd.Path, packBits(v, fd.Bits), true)),
+			Args:  []ir.Loc{src, src},
+			Reads: []ir.Loc{src},
+		})
 	}
 }
 

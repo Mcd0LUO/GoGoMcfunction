@@ -161,20 +161,30 @@ type Say struct{ Text string }
 
 func (c Say) Line() string { return "say " + c.Text }
 
+// itoa renders an int in decimal.
+//
+// The magnitude is computed in uint64 rather than by negating, because
+// `-MinInt64` overflows back to MinInt64 -- still negative, so the digit loop
+// below would not run at all, `i` would stay at the end of the buffer, and
+// the `i--` for the sign would index out of range. The buffer is sized for
+// the widest 64-bit value including the sign.
 func itoa(v int) string {
 	if v == 0 {
 		return "0"
 	}
 	neg := v < 0
+	var u uint64
 	if neg {
-		v = -v
+		u = uint64(-(v + 1)) + 1
+	} else {
+		u = uint64(v)
 	}
-	var b [12]byte
+	var b [21]byte
 	i := len(b)
-	for v > 0 {
+	for u > 0 {
 		i--
-		b[i] = byte('0' + v%10)
-		v /= 10
+		b[i] = byte('0' + u%10)
+		u /= 10
 	}
 	if neg {
 		i--

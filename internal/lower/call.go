@@ -117,8 +117,14 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 			return
 		}
 		obj := l.rawString(call, 3)
-		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s %s %s %s %s",
-			target, verb, stat, target, obj)})
+		// The objective is written by this command, so it has to be declared.
+		// Without the Writes it was invisible to usedObjectives and 1.12.2
+		// discarded the binding: the score it names stayed undeclared, so every
+		// later write to it was dropped too, with no diagnostic.
+		fb.Emit(block, ir.Raw{
+			Text:   fmt.Sprintf("stats entity %s %s %s %s %s", target, verb, stat, target, obj),
+			Writes: []ir.Loc{{Holder: target, Obj: obj}},
+		})
 		return
 	}
 	// Every command builtin goes through one table. Only two things differ

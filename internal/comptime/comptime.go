@@ -56,8 +56,16 @@ func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 		// constant score. Hand-expanding them is not a language feature, it is
 		// the absence of one.
 		if call, ok := s.X.(syntax.Call); ok && call.Name == "cmd" {
+			// Check the arity BEFORE indexing. `cmd()` with no arguments panicked
+			// with "index out of range [0] with length 0" -- a crash in place of
+			// the diagnostic already written on the next line.
+			if len(call.Args) != 1 {
+				bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",
+					"cmd takes one compile-time string")
+				return nil
+			}
 			text, ok := Str(call.Args[0])
-			if !ok || len(call.Args) != 1 {
+			if !ok {
 				bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",
 					"cmd takes one compile-time string")
 				return nil

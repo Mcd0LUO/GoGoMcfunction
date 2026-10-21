@@ -790,13 +790,18 @@ func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {
 }
 
 func (l *Lowerer) fieldObj(class, field string) string {
+	// Truncate by RUNE, not byte.
+	//
+	// `short[:6]` on a Chinese class name cuts a multi-byte character in half
+	// and produces an invalid UTF-8 byte (E5 80 was observed). The objective
+	// name then contains bytes 1.12.2 cannot store, and nothing reported it.
 	short := class
-	if len(short) > 6 {
-		short = short[:6]
+	if r := []rune(short); len(r) > 6 {
+		short = string(r[:6])
 	}
 	f := field
-	if len(f) > 8 {
-		f = f[:8]
+	if r := []rune(f); len(r) > 8 {
+		f = string(r[:8])
 	}
 	return l.tgt.FitObjective(short + "." + f)
 }
