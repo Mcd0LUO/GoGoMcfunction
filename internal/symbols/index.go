@@ -179,7 +179,6 @@ func (ix *Index) addFile(file string, f *syntax.File) {
 			Type:   funcType(fn.Name, fn.Params, fn.RetType),
 			Detail: funcDetail(fn),
 			Params: paramTexts(fn.Params)})
-		ix.addBody(file, fn.Name, fn.Params, fn.Body, "")
 	}
 	for _, cl := range f.Classes {
 		ix.declare(Symbol{Name: cl.Name, Kind: KClass, File: file,
@@ -199,14 +198,30 @@ func (ix *Index) addFile(file string, f *syntax.File) {
 				Type:   funcType(full, m.Params, ""),
 				Detail: methodDetail(m),
 				Params: paramTexts(m.Params)})
-			ix.addBody(file, full, m.Params, m.Body, cl.Name)
+		}
+	}
+
+	// Bodies are walked in a SECOND pass, after every declaration in the file
+	// exists.
+	//
+	// They used to be walked as each declaration was added, which meant a
+	// function calling a class method resolved against a table that did not
+	// have the method yet -- the call compiled, and hover and go-to-definition
+	// on it answered nothing. Declaration order in a file must not decide
+	// whether the index can see a name.
+	for _, fn := range f.Funcs {
+		ix.addBody(file, fn.Name, fn.Params, fn.Body, "", f.Namespace)
+	}
+	for _, cl := range f.Classes {
+		for _, m := range cl.Methods {
+			ix.addBody(file, cl.Name+"/"+m.Name, m.Params, m.Body, cl.Name, f.Namespace)
 		}
 	}
 }
 
 // addBody records the locals of one function and the meaning of every
 // identifier inside it.
-func (ix *Index) addBody(file, owner string, params []syntax.Param, body []syntax.Stmt, class string) {
+func (ix *Index) addBody(file, owner string, params []syntax.Param, body []syntax.Stmt, class, ns string) {
 	scope := map[string]Symbol{}
 	for _, p := range params {
 		// A parameter has no position of its own: Param carries a name and a
@@ -233,9 +248,12 @@ func (ix *Index) addBody(file, owner string, params []syntax.Param, body []synta
 		if call.Name == "" {
 			return
 		}
+		// The span covers the WHOLE callee spelling, not just its last segment:
+		// a qualified call is `ns:Class/method`, and measuring from its first
+		// column with the last segment's length put the range over `ns:Cl`.
 		at := occ{file: file, line: call.P.Line, col: call.P.Col,
-			end: call.P.Col + runeLen(lastSegment(call.Name))}
-		for _, candidate := range calleeCandidates(call.Name, class) {
+			end: call.P.Col + runeLen(call.Name)}
+		for _, candidate := range calleeCandidates(call.Name, class, ns) {
 			if s, ok := ix.resolveDecl(candidate, ""); ok {
 				ix.occ[at] = s
 				return
@@ -310,12 +328,19 @@ func (ix *Index) resolveDecl(name, class string) (Symbol, bool) {
 //
 // Inside a class a bare name may mean a sibling method; otherwise it is a
 // function in this module; otherwise it is fully qualified.
-func calleeCandidates(name, class string) []string {
+func calleeCandidates(name, class, ns string) []string {
 	var out []string
 	if class != "" && !strings.Contains(name, "/") && !strings.Contains(name, ":") {
 		out = append(out, class+"/"+name)
 	}
 	out = append(out, name)
+	// A method declared in this module is indexed under `Class/method`, but
+	// called from outside the class as `ns:Class/method`. Without this the
+	// fully qualified spelling resolved to nothing, so hover and
+	// go-to-definition were blank on a call that compiles.
+	if ns != "" && strings.HasPrefix(name, ns+"/") {
+		out = append(out, strings.TrimPrefix(name, ns+"/"))
+	}
 	return out
 }
 

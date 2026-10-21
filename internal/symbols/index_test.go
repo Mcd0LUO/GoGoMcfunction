@@ -141,3 +141,47 @@ func TestDeclarationsResolveAtTheirName(t *testing.T) {
 		})
 	}
 }
+
+// A class method called from outside the class resolves.
+//
+// Two things were wrong and both were invisible while the call compiled: the
+// method is indexed as Class/method but called as ns:Class/method, and bodies
+// were walked while declarations were still being added, so a function could
+// not see a class declared later in the same file. Declaration order must not
+// decide whether the index can see a name.
+const classSrc = "namespace t:c\n" +
+	"obj X\n" +
+	"class Hero {\n" +
+	"    var hp: int = 20\n" +
+	"    fn heal(n: int) -> int { hp + n }\n" +
+	"}\n" +
+	"[export]\n" +
+	"fn run() {\n" +
+	"    X = t:c/Hero/heal(3)\n" +
+	"}\n"
+
+func buildClass(t *testing.T) *Index {
+	t.Helper()
+	f, err := syntax.Parse(classSrc)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": classSrc})
+}
+
+func TestQualifiedMethodCallResolves(t *testing.T) {
+	ix := buildClass(t)
+	s, ok := ix.At("a.ggm", 9, 20)
+	if !ok {
+		t.Fatal("the call did not resolve")
+	}
+	if s.Kind != KMethod || s.Name != "Hero/heal" {
+		t.Fatalf("resolved to %s %q", s.Kind, s.Name)
+	}
+	if defs := ix.Lookup("Hero/heal"); len(defs) != 1 {
+		t.Fatalf("%d declarations for Hero/heal", len(defs))
+	}
+	if occ := ix.Occurrences(s); len(occ) != 1 {
+		t.Fatalf("%d occurrences of the method call", len(occ))
+	}
+}
