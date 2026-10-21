@@ -232,6 +232,22 @@ func inlineLeafArms(fn *ir.Function) bool {
 			if len(target.Ops) == 0 || len(target.Ops) > maxInlineOps {
 				continue
 			}
+			// An existence or block probe cannot become a Guarded op.
+			//
+			// `guarded [exists …] cmd` would have to render as
+			// `execute <sel> ~ ~ ~ <cmd>`, which is a FAN-OUT: it runs the
+			// command once per matching entity. An existence test must run it
+			// at most once, and only `function F if <sel>` has that meaning --
+			// an inlined op is not a function.
+			//
+			// The renderer used to look only at Cond.Alts and emit NOTHING for
+			// such a guard, so inlining silently deleted the body:
+			// `if any<@e[tag=x]> { y = 1 }` produced no command at all and no
+			// diagnostic. Keeping the arm as a Branch is what makes it
+			// renderable.
+			if br.Cond.Exist != nil || br.Cond.Block != nil {
+				continue
+			}
 			if !canInline(target.Ops) {
 				continue
 			}
