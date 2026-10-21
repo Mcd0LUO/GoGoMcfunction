@@ -22,9 +22,9 @@ func comparisonShape() *ir.Program {
 	// Names must carry the prefix Tmp emits: isTempName recognises that
 	// prefix and nothing else, so a bare `t8` here would be an author's
 	// objective and the coalescer would leave it alone.
-	diff := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "8"}
-	res := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "10"}
-	carried := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "9"}
+	diff := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "8" + ir.TempSuffix}
+	res := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "10" + ir.TempSuffix}
+	carried := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "9" + ir.TempSuffix}
 
 	fb.Emit(0,
 		ir.Copy{Dst: carried, Src: ir.Loc{Holder: "@s", Obj: "a1"}},

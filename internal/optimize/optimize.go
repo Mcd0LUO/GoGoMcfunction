@@ -151,7 +151,7 @@ func (SelfAssign) Run(p *ir.Program) *ir.Program {
 		for _, b := range fn.Blocks {
 			var kept []ir.Op
 			for _, op := range b.Ops {
-				if c, ok := op.(ir.Copy); ok && c.Dst == c.Src {
+				if selfAssign(op) {
 					continue
 				}
 				kept = append(kept, op)
@@ -160,6 +160,27 @@ func (SelfAssign) Run(p *ir.Program) *ir.Program {
 		}
 	}
 	return p
+}
+
+// selfAssign reports whether an op writes a location to itself, recursing
+// through Guarded.
+//
+// The guarded case is not cosmetic: inlining wraps an arm's ops in
+// `Guarded{...}`, so `for e in entities<...> where cond { x = x + 1 }` produced
+//
+//	guarded [t == 0] copy x = x
+//	guarded [t == 0] arith x += 1
+//
+// -- a command per iteration that reads a score and writes it back unchanged.
+// The top-level-only check never saw it.
+func selfAssign(op ir.Op) bool {
+	switch o := op.(type) {
+	case ir.Copy:
+		return o.Dst == o.Src
+	case ir.Guarded:
+		return selfAssign(o.Inner)
+	}
+	return false
 }
 
 // ── DeadStore ───────────────────────────────────────────────────────────
@@ -246,7 +267,10 @@ func isTempName(obj string) bool {
 	if !strings.HasPrefix(obj, ir.TempPrefix) {
 		return false
 	}
-	rest := obj[len(ir.TempPrefix):]
+	if !strings.HasSuffix(obj, ir.TempSuffix) {
+		return false
+	}
+	rest := obj[len(ir.TempPrefix) : len(obj)-len(ir.TempSuffix)]
 	if rest == "" {
 		return false
 	}
@@ -404,7 +428,7 @@ func interferenceRename(fn *ir.Function, base int) (map[string]string, int) {
 	for n, c := range colour {
 		// Same prefix Tmp emits. A bare `t0` here was an ordinary name an
 		// author could declare, and isTempName then treated it as scratch.
-		rename[n] = ir.TempPrefix + itoa(base+c)
+		rename[n] = ir.TempPrefix + itoa(base+c) + ir.TempSuffix
 	}
 	return rename, maxColour + 1
 }

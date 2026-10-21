@@ -83,11 +83,11 @@ func (b *FuncBuilder) SetTerm(id BlockID, t Terminator) {
 //
 // A leading `#` cannot appear in an author's objective: `#` starts the
 // constant pool's fake-player names, and the lexer does not allow it in an
-// identifier.
+// identifier. The suffix keeps the name from looking like an author's `t1`.
 func (b *FuncBuilder) Tmp() string {
 	n := b.prog.tmpN
 	b.prog.tmpN++
-	return fmt.Sprintf("%s%d", TempPrefix, n)
+	return fmt.Sprintf("%s%d%s", TempPrefix, n, TempSuffix)
 }
 
 // Const returns the fake-player holder for a literal.

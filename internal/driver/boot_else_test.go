@@ -63,10 +63,10 @@ func TestElseIsTestedBeforeThen(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(body), "\n")
 	ifLine, elseLine := -1, -1
 	for i, l := range lines {
-		if strings.Contains(l, "unless @s[score_#t") {
+		if strings.Contains(l, "unless @s[score_t") {
 			elseLine = i
 		}
-		if strings.Contains(l, "if @s[score_#t") && !strings.Contains(l, "unless") {
+		if strings.Contains(l, "if @s[score_t") && !strings.Contains(l, "unless") {
 			ifLine = i
 		}
 	}

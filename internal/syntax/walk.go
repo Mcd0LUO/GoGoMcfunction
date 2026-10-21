@@ -79,6 +79,12 @@ func walkStmt(s Stmt, v Visitor) {
 	case BroadcastStmt:
 		Walk(x.Sel, v)
 		Walk(x.Value, v)
+	case DecodeStmt:
+		// A decode carries no expression, but leaving the case out made the
+		// walker incomplete: any future check that walks the tree -- literal
+		// range today, something else tomorrow -- silently skips decode
+		// statements, and a silently skipped check is worse than no check.
+	case EncodeStmt:
 	}
 }
 
@@ -98,6 +104,16 @@ func Walk(e Expr, v Visitor) {
 	case Unary:
 		if x.Op == MINUS {
 			if lit, ok := x.X.(IntLit); ok {
+				// Report the folded value only. `-2147483648` is a legal int32 and
+				// 1.12.2 accepts `scoreboard players set @s X -2147483648` -- the
+				// constant pool's `#2147483648` entry is skipped by the runtime,
+				// not fatal, and the value still lands.
+				//
+				// Reporting the MAGNITUDE too looks safer and is not: it rejects a
+				// value the target accepts, which is the one thing a range check
+				// must never do. The magnitude only reaches a command when the
+				// expression is NOT a folded literal -- `y * -2147483648` -- and
+				// that path reports through the ordinary IntLit case below.
 				if v.IntLit != nil {
 					v.IntLit(-lit.Value, x.P)
 				}

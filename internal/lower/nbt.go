@@ -134,6 +134,18 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 	// scoreboard commands do -- a sentinel must use `set`, or it would be added
 	// to the ladder's result instead of replacing it.
 	for _, c := range s.Cases {
+		// The case value becomes a scoreboard operand, so it must fit a score.
+		//
+		// The general literal check (driver.checkLiterals) walks the AST for
+		// IntLit nodes, and a case value is a plain int on DecodeCase -- not an
+		// IntLit -- so a value like 2147483648 reached the command unchanged and
+		// 1.12.2 wrapped it silently.
+		if !l.tgt.FitsScore(c.Val) {
+			l.diags.Error(posOf(c.P), "E_INT_RANGE",
+				"decode value %d is outside the %s score range [%d, %d]",
+				c.Val, l.tgt.Name, l.tgt.ScoreMin, l.tgt.ScoreMax)
+			continue
+		}
 		fb.Emit(cur, ir.Raw{Text: fmt.Sprintf("scoreboard players %s @s %s %d %s",
 			c.Op, dst.Obj, c.Val, c.NBT)})
 	}

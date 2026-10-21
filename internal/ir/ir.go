@@ -302,12 +302,25 @@ const NoSelfHolder = "#ggm.reg"
 // ConstObjective is the objective every literal lives on.
 const ConstObjective = "ggm.c"
 
-// TempPrefix starts every compiler-allocated scratch objective: `#t0`, `#t1`.
+// TempPrefix starts every compiler-allocated scratch objective: `t0.ggm`,
+// `t1.ggm`.
 //
-// `#` cannot begin an author's identifier, so no declaration can collide with
-// a temporary. Plain `t0` could: an author's `obj t1` was taken for a scratch
-// slot, renamed by the coalescer, and the write vanished with no diagnostic.
-const TempPrefix = "#t"
+// An author's identifier cannot contain a dot at the end like this, so no
+// declaration can collide with a temporary. Plain `t0` could: an author's
+// `obj t1` was taken for a scratch slot, renamed by the coalescer, and the
+// write vanished with no diagnostic.
+//
+// The shape is `t<n>.ggm` rather than `#t<n>` because an objective name also
+// appears inside a SELECTOR: `execute @s[score_t0.ggm_min=1]`. A leading `#`
+// is legal in 1.12.2 and is what the constant pool's fake players use, but
+// GoMcRuntime's selector parser rejects it -- `Entity
+// '@s[score_#t0_min=1]' cannot be found` -- so every guarded command silently
+// failed to run. Since a guarded command is how `if` is emitted, that broke
+// `if` entirely on the runtime this project verifies against.
+const TempPrefix = "t"
+
+// TempSuffix ends every compiler-allocated scratch objective.
+const TempSuffix = ".ggm"
 
 // ConstName is the canonical fake-player name for a literal.
 // Negative values use an 'n' instead of '-' for portability across versions.

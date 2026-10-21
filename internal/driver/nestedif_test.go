@@ -37,10 +37,10 @@ func TestNestedIfKeepsTheOuterCondition(t *testing.T) {
 			}
 			// No line may both test t0 and write it.
 			for _, line := range strings.Split(joined, "\n") {
-				if !strings.Contains(line, "score_#t0") {
+				if !strings.Contains(line, "score_t0") {
 					continue
 				}
-				if strings.Contains(line, " #t0 ") || strings.HasSuffix(line, " #t0") {
+				if strings.Contains(line, " t0 ") || strings.HasSuffix(line, " t0") {
 					t.Fatalf("a guarded command writes the register its own guard reads:\n  %s\n\n%s", line, joined)
 				}
 			}

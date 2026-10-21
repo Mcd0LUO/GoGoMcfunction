@@ -23,7 +23,8 @@ func TestAndBecomesOneSelector(t *testing.T) {
 		"}\n"
 	files := compile(t, src, optimize.O2)
 	body := files["t:v/f"]
-	if !strings.Contains(body, "score_#t0_min=0") || !strings.Contains(body, "score_#t1=0") {
+	// Temporaries carry the compiler's suffix: t0.ggm, t1.ggm.
+	if !strings.Contains(body, "score_t0.ggm_min=0") || !strings.Contains(body, "score_t1.ggm=0") {
 		t.Fatalf("both conditions must be in one selector:\n%s", body)
 	}
 	// One guarded command, not two calls.

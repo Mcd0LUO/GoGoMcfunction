@@ -513,9 +513,18 @@ func splitArgs(sel string) []string {
 	return out
 }
 
-// Validate checks a rendered line against a crude 1.12.2 grammar. A malformed
+// Validate checks a rendered line against the 1.12.2 grammar. A malformed
 // command makes the WHOLE function file fail to load, silently.
-func Validate(line string) error {
+func Validate(line string) error { return ValidateFor(target.V1_12_2, line) }
+
+// ValidateFor checks a rendered line against a specific target's grammar.
+//
+// The target is a parameter rather than a fixed V1_12_2 reference because
+// this is the one place a version fact would otherwise be invisible to the
+// --target flag: every other check in the pipeline is handed opt.Target, and
+// a port that changed the selector grammar would keep validating against
+// 1.12.2 while claiming to target something else.
+func ValidateFor(t target.Target, line string) error {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 		return nil
@@ -524,7 +533,7 @@ func Validate(line string) error {
 		return fmt.Errorf("function commands must not start with '/': %s", trimmed)
 	}
 	for _, arg := range selectorArgsIn(trimmed) {
-		if !target.V1_12_2.SelectorArgOK(arg) {
+		if !t.SelectorArgOK(arg) {
 			return fmt.Errorf("invalid selector argument %q in: %s", arg, trimmed)
 		}
 	}

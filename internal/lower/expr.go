@@ -231,6 +231,18 @@ func (l *Lowerer) unary(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, x synt
 	t := fb.TmpLoc()
 	switch x.Op {
 	case syntax.MINUS:
+		// A negated LITERAL becomes one negative constant.
+		//
+		// Negation used to be `copy x; x *= -1` for every operand. For a
+		// literal that is both wasteful and wrong at the boundary: the
+		// magnitude goes into the constant pool, and `-2147483648` needs a
+		// `#2147483648` entry that no score can hold. 1.12.2 skips the line
+		// rather than failing, so the pool ends up with a dead entry and the
+		// value only survives because a different path writes it.
+		if v, ok := constInt(x.X); ok {
+			fb.Emit(block, ir.Set{Dst: t, Value: -v})
+			return t, nil
+		}
 		fb.Emit(block, ir.Copy{Dst: t, Src: src})
 		fb.Emit(block, ir.Arith{Dst: t, Op: "*=", Src: fb.Const(-1)})
 	case syntax.NOT:

@@ -8,6 +8,7 @@ package lower
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
@@ -623,10 +624,14 @@ func (l *Lowerer) lowerObjs(f *syntax.File) {
 			continue
 		}
 		seen[od.Name] = pos
-		if n := l.tgt.ObjectiveNameLimit; n > 0 && len(od.Name) > n {
+		// Characters, not bytes. 1.12.2 truncates a Java String by code unit, so
+		// `Count.残照花魄` is legal at 10 characters even though it is 18 bytes in
+		// UTF-8. Measuring bytes rejected every Chinese objective name -- and the
+		// message said "is 18 characters", so the number it printed was wrong too.
+		if n := l.tgt.ObjectiveNameLimit; n > 0 && utf8.RuneCountInString(od.Name) > n {
 			l.diags.Error(pos, "E_OBJECTIVE_NAME",
 				"objective %q is %d characters; %s truncates at %d, so it collides with any name sharing that prefix",
-				od.Name, len(od.Name), l.tgt.Name, n)
+				od.Name, utf8.RuneCountInString(od.Name), l.tgt.Name, n)
 		}
 		if xd, ok := l.externs[od.Name]; ok {
 			l.diags.Error(pos, "E_OBJECTIVE_CONFLICT",

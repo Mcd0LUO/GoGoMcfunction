@@ -377,7 +377,30 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 		localN: &l.localN, class: ctx.class, fields: ctx.fields,
 		loopVar: s.Name,
 	}
-	end := l.lowerSeq(bctx, bb, 0, s.Body)
+	// `where <cond>` is the body's guard.
+	//
+	// It used to be parsed and then never read: the loop compiled, ran, and
+	// applied its body to every matched entity while the author's filter was
+	// simply absent. Nothing reported it, because a dropped condition is not a
+	// malformed program -- it is a different one.
+	//
+	// The guard lives INSIDE the fanned-out body, not in the `execute`, because
+	// the condition is about the matched entity: `where hp > 0` means this
+	// entity's hp, and `@s` is that entity only once inside the body.
+	entry := ir.BlockID(0)
+	if s.Where != nil {
+		cond, err := l.lowerCond(bctx, bb, 0, s.Where)
+		if err != nil {
+			l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+		} else {
+			guard := bb.NewBlock()
+			body := bb.NewBlock()
+			bb.SetTerm(0, ir.Branch{Cond: cond, Then: body, Else: guard})
+			bb.SetTerm(guard, ir.Return{})
+			entry = body
+		}
+	}
+	end := l.lowerSeq(bctx, bb, entry, s.Body)
 	if end != noFallThrough {
 		bb.SetTerm(end, ir.Return{})
 	}
@@ -448,11 +471,41 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 	}
 	fb.SetTerm(cur, ir.Branch{Cond: test(cur), Then: body, Else: after})
 
-	bodyEnd := l.lowerSeq(ctx, fb, body, s.Body)
-	if bodyEnd != noFallThrough {
-		fb.Emit(bodyEnd, ir.Add{Dst: ctx.loc(i), Value: 1})
-		fb.SetTerm(bodyEnd, ir.Branch{Cond: test(bodyEnd), Then: body, Else: after})
+	// `where <cond>` filters the ITERATION, not the range: the counter still
+	// advances and the body is skipped.
+	//
+	// It used to be parsed and never read, so `for i in 0..n where c { }` ran
+	// its body n times with the author's filter simply absent. Nothing reported
+	// it -- a dropped condition is not a malformed program, it is a different
+	// one. The fanned-out form had the same hole; leaving the range form behind
+	// would mean two spellings of `where` behaving differently.
+	//
+	// The guard goes INSIDE the loop body, before the author's statements, and
+	// both paths converge on the increment. Putting it in the head test instead
+	// would stop the loop at the first skipped iteration rather than skipping
+	// that one -- a different meaning, and the more surprising of the two.
+	// The increment-and-retest block, shared by the body's exit and by the
+	// guard's skip edge. One block means one copy of the back edge.
+	step := fb.NewBlock()
+	bodyStart := body
+	if s.Where != nil {
+		cond, err := l.lowerCond(ctx, fb, body, s.Where)
+		if err != nil {
+			l.diags.Error(posOf(s.P), "E_COND", "%s", err)
+		} else {
+			keep := fb.NewBlock()
+			fb.SetTerm(body, ir.Branch{Cond: cond, Then: keep, Else: step})
+			bodyStart = keep
+		}
 	}
+	bodyEnd := l.lowerSeq(ctx, fb, bodyStart, s.Body)
+	if bodyEnd != noFallThrough {
+		fb.SetTerm(bodyEnd, ir.Jump{Target: step})
+	}
+	// `step` always runs: from the body's exit, or from the guard's skip edge.
+	// It increments, re-tests, and either re-enters the body or leaves.
+	fb.Emit(step, ir.Add{Dst: ctx.loc(i), Value: 1})
+	fb.SetTerm(step, ir.Branch{Cond: test(step), Then: body, Else: after})
 	return after
 }
 

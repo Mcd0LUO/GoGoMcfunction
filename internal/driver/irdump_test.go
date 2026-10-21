@@ -71,7 +71,7 @@ func TestIndependentIfsCollapse(t *testing.T) {
 	}
 	// And no block may be called twice for one condition.
 	for name, body := range files {
-		if strings.Contains(body, "if @s[score_#t") && strings.Contains(body, "unless @s[score_#t") {
+		if strings.Contains(body, "if @s[score_t") && strings.Contains(body, "unless @s[score_t") {
 			t.Fatalf("%s calls the same join both ways:\n%s", name, body)
 		}
 	}

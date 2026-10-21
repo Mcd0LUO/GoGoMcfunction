@@ -253,7 +253,7 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	files, order := mcfunction.Render(prog, mcfunction.Options{Target: opt.Target, Comments: opt.Comments})
 	for p, body := range files {
 		for _, line := range splitLines(body) {
-			if err := mcfunction.Validate(line); err != nil {
+			if err := mcfunction.ValidateFor(opt.Target, line); err != nil {
 				bag.Error(diag.Pos{}, "E_BAD_COMMAND", "%s: %s", p, err)
 			}
 		}
