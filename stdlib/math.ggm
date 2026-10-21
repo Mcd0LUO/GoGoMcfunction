@@ -13,7 +13,7 @@
 //     sqrt(144)              // 调用本文件内的函数
 //     std:math/sqrt(144)     // 从别的文件调用
 //
-// 库函数标了 #[export]，否则编译器在库内部看不到调用者，
+// 库函数标了 [export]，否则编译器在库内部看不到调用者，
 // 会给每一个都报 W_UNREACHABLE_FN。
 namespace std:math
 
@@ -31,8 +31,8 @@ const LCG_A = 1103515245
 const LCG_C = 1234
 const LCG_M = 67108864
 
-#[export]
-#[wrapping]
+[export]
+[wrapping]
 fn lcg_step(s: int) -> int {
     (LCG_A * s + LCG_C) % LCG_M
 }
@@ -41,14 +41,14 @@ fn lcg_step(s: int) -> int {
 //
 // 种子先加后取步，所以连续两次调用一定得到不同的数——
 // 若先取步再存回原值，两次调用会返回同一个数。
-#[export]
+[export]
 fn lcg_next() -> int {
     let next = SEED + LCG_C
     SEED = next
     lcg_step(next)
 }
 
-#[export]
+[export]
 fn seed(v: int) {
     SEED = v
 }
@@ -57,7 +57,7 @@ fn seed(v: int) {
 //
 // rem_euclid 而不是 %：1.12.2 的 % 向零截断，负数会得到负余数，
 // 那样 rand 会返回 lo 以下的数。
-#[export]
+[export]
 fn rand(lo: int, hi: int) -> int {
     let span = hi - lo + 1
     let x = lcg_next()
@@ -65,17 +65,17 @@ fn rand(lo: int, hi: int) -> int {
 }
 
 // 千分比判定：p / scale 的概率为真。
-#[export]
+[export]
 fn chance(scale: int, p: int) -> bool {
     rand(1, scale) <= p
 }
 
-#[export]
+[export]
 fn is_happen_fix100(p: int) -> bool {
     chance(100, p)
 }
 
-#[export]
+[export]
 fn is_happen_fix1000(p: int) -> bool {
     chance(1000, p)
 }
@@ -97,7 +97,7 @@ fn is_happen_fix1000(p: int) -> bool {
 // 起始值写 `x / 2 + x % 2` 而不是 `(x + 1) / 2`，两者都是上取整，
 // 但后者在 x = 2147483647 时 x+1 先回绕成负数，整个迭代跑飞
 // （实测返回 2147483647 而不是 46340）。
-#[export]
+[export]
 fn sqrt(n: int) -> int {
     let x = n
     let y = x / 2 + x % 2
@@ -122,7 +122,7 @@ fn sqrt(n: int) -> int {
 //
 // 循环状态放在假玩家上（sort.rank / sort.key）：while 的预算挂在执行者 @s，
 // 而这里每轮都要对一整组实体扇出，被扇出的实体没有那份预算。
-#[export]
+[export]
 fn sort_asc() {
     sort.rank = 0
     while any<@e[tag=math.sort]>, budget 64 {
@@ -143,13 +143,14 @@ fn sort_asc() {
 }
 
 // 降序：把排序键取反后复用升序，再把键取反回来。
-#[export]
+[export]
 fn sort_desc() {
     @e[tag=math.sort] math = 0 - math
     sort_asc()
     @e[tag=math.sort] math = 0 - math
 }
 
-on load {
+[load]
+fn on_load() {
     SEED = 12345
 }

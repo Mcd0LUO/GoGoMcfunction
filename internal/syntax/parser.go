@@ -71,14 +71,12 @@ func (p *parser) expectName() (Token, error) {
 
 // nameable reports whether a keyword may also serve as a name.
 //
-// A method called tick is the natural spelling next to @tick, and 1.12.2
-// itself allows any path segment, so refusing it made the specification's
-// own example uncompilable. These five are only keywords inside "on ..."
-// and after "@", and none of them can be followed by "(" in valid syntax,
-// so treating them as names elsewhere is unambiguous.
+// `selector` and `wrapping` are attributes, not reserved words, so a function
+// may be called either of them. 1.12.2 allows any path segment, and refusing
+// them would make the attribute and the name fight over one spelling.
 func nameable(k Kind) bool {
 	switch k {
-	case TICK, SPAWN, DEATH, LOAD, EVERY:
+	case SELECTOR, WRAPPING:
 		return true
 	}
 	return false
@@ -120,23 +118,26 @@ func (p *parser) expectIdent() (Token, error) {
 
 func (p *parser) parseFile() (*File, error) {
 	f := &File{P: p.cur().Pos}
-	// Attributes preceding a fn/class. The position is kept so an
-	// unrecognised attribute can be reported where it was written.
-	attrs := map[string]Pos{}
+	// Attributes are a prefix on the declaration they apply to, not a
+	// separate statement: `[load, every("5s")] fn f() { }`. They used to be
+	// two spellings (`[wrapping]` and `[selector(...)]`) and one `on ...`
+	// form, which meant three syntaxes for one idea.
+	var attrs []Attr
 	for {
 		p.skipNewlines()
 		t := p.cur()
 		if t.Kind == EOF {
 			break
 		}
-		switch t.Kind {
-		case HASH:
-			name, pos, err := p.parseAttr()
+		if t.Kind == LBRACK {
+			a, err := p.parseAttrs()
 			if err != nil {
 				return nil, err
 			}
-			attrs[name] = pos
+			attrs = append(attrs, a...)
 			continue
+		}
+		switch t.Kind {
 		case NAMESPACE:
 			p.next()
 			n, err := p.parsePath()
@@ -181,7 +182,7 @@ func (p *parser) parseFile() (*File, error) {
 			}
 			f.Externs = append(f.Externs, d)
 		case FN:
-			if err := checkAttrs(attrs, funcAttrs, "fn"); err != nil {
+			if err := checkAttrs(attrs, "fn"); err != nil {
 				return nil, err
 			}
 			fd, err := p.parseFunc(attrs)
@@ -189,10 +190,9 @@ func (p *parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Funcs = append(f.Funcs, *fd)
-			attrs = map[string]Pos{}
-		case LBRACK:
-			// [selector(...)] class X
-			if err := checkAttrs(attrs, classAttrs, "class"); err != nil {
+			attrs = nil
+		case CLASS:
+			if err := checkAttrs(attrs, "class"); err != nil {
 				return nil, err
 			}
 			cd, err := p.parseClass(attrs)
@@ -200,13 +200,7 @@ func (p *parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Classes = append(f.Classes, *cd)
-			attrs = map[string]Pos{}
-		case ON:
-			od, err := p.parseOn()
-			if err != nil {
-				return nil, err
-			}
-			f.Ons = append(f.Ons, *od)
+			attrs = nil
 		case OBJ:
 			od, err := p.parseObj()
 			if err != nil {
@@ -225,81 +219,99 @@ func (p *parser) parseFile() (*File, error) {
 	}
 	// An attribute that never reached a declaration would otherwise be
 	// dropped without a word.
-	for name, pos := range attrs {
-		return nil, &Error{Pos: pos, Msg: fmt.Sprintf("attribute #[%s] does not precede a declaration", name)}
+	if len(attrs) > 0 {
+		return nil, &Error{Pos: attrs[0].P, Msg: fmt.Sprintf("attribute [%s] does not precede a declaration", attrs[0].Name)}
 	}
 	return f, nil
 }
 
-// funcAttrs are the attributes understood on a fn.
+// Attr is one attribute in a declaration's attribute list.
 //
-// wrapping is the only one, and it is accepted rather than acted on:
-// 1.12.2 scoreboard arithmetic always wraps at 32 bits, which is exactly
-// what the attribute asks for. It becomes load-bearing once a range
-// analysis can prove overflow and warn without it.
-var funcAttrs = map[string]bool{"wrapping": true, "export": true}
+// Attributes used to be two different spellings -- `[wrapping]` and
+// `[selector(...)]` -- plus a separate `on ...` statement, so the same idea
+// had three syntaxes and a reader had to know which one went with which
+// declaration. There is now one: a comma-separated list in square brackets
+// before fn or class.
+type Attr struct {
+	Name string
+	Args []Expr
+	P    Pos
+}
 
-// classAttrs are the attributes understood on a class.
-var classAttrs = map[string]bool{}
-
-// checkAttrs rejects an attribute the parser does not implement.
-//
-// Silently ignoring a directive is worse than rejecting it: the author
-// goes on believing it took effect, and a typo becomes a behaviour
-// change nobody can see.
-func checkAttrs(attrs map[string]Pos, known map[string]bool, what string) error {
-	for name, pos := range attrs {
-		if !known[name] {
-			return &Error{Pos: pos, Msg: fmt.Sprintf("unknown attribute #[%s] on %s", name, what)}
+// parseAttrs reads `[a, b(...), c]`, or returns nil when the next token is
+// not `[`, leaving the cursor alone.
+func (p *parser) parseAttrs() ([]Attr, error) {
+	if p.cur().Kind != LBRACK {
+		return nil, nil
+	}
+	open := p.next()
+	var out []Attr
+	for {
+		p.skipNewlines()
+		if p.cur().Kind == RBRACK {
+			p.next()
+			return out, nil
 		}
+		if p.cur().Kind == EOF {
+			return nil, &Error{Pos: open.Pos, Msg: "unterminated attribute list"}
+		}
+		n, err := p.expectNameLike()
+		if err != nil {
+			return nil, err
+		}
+		a := Attr{Name: n.Text, P: n.Pos}
+		if p.cur().Kind == LPAREN {
+			p.next()
+			for p.cur().Kind != RPAREN {
+				e, err := p.parseExpr()
+				if err != nil {
+					return nil, err
+				}
+				a.Args = append(a.Args, e)
+				if p.cur().Kind == COMMA {
+					p.next()
+				}
+			}
+			p.next()
+		}
+		out = append(out, a)
+		if p.cur().Kind == COMMA {
+			p.next()
+		}
+	}
+}
+
+// DeclAttrs are the attributes this build understands on a fn or a class.
+//
+// `spawn` is only meaningful on a class and `every` on both, but the split is
+// checked where it matters rather than here: a single table keeps the error
+// message one sentence instead of two.
+var DeclAttrs = map[string]bool{
+	"load": true, "every": true, "spawn": true,
+	"selector": true, "wrapping": true, "export": true,
+}
+
+// checkAttrs rejects an attribute the compiler does not implement.
+//
+// Silently ignoring a directive is worse than rejecting it: the author goes on
+// believing it took effect, and a typo becomes a behaviour change nobody can
+// see.
+func checkAttrs(attrs []Attr, what string) error {
+	seen := map[string]Pos{}
+	for _, a := range attrs {
+		if !DeclAttrs[a.Name] {
+			return &Error{Pos: a.P, Msg: fmt.Sprintf("unknown attribute [%s] on %s", a.Name, what)}
+		}
+		// A repeated attribute is almost always a typo, and keeping the last
+		// one would make [every("1s"), every("5s")] look like two schedules
+		// while only one of them ever ran.
+		if prev, dup := seen[a.Name]; dup {
+			return &Error{Pos: a.P, Msg: fmt.Sprintf("attribute [%s] appears twice (first at %s)", a.Name, prev)}
+		}
+		seen[a.Name] = a.P
 	}
 	return nil
 }
-
-func (p *parser) parseAttr() (string, Pos, error) {
-	start := p.cur().Pos
-	if _, err := p.expect(HASH); err != nil {
-		return "", start, err
-	}
-	if _, err := p.expect(LBRACK); err != nil {
-		return "", start, err
-	}
-	name := p.cur().Text
-	if p.cur().Kind == IDENT || p.cur().Kind == BUDGET || p.cur().Kind == WRAPPING {
-		p.next()
-	} else {
-		return "", start, &Error{Pos: p.cur().Pos, Msg: "expected attribute name"}
-	}
-	// optional (args)
-	depth := 0
-	for p.cur().Kind != RBRACK || depth > 0 {
-		if p.cur().Kind == EOF {
-			return "", start, &Error{Pos: p.cur().Pos, Msg: "unterminated attribute"}
-		}
-		if p.cur().Kind == LPAREN {
-			depth++
-		}
-		if p.cur().Kind == RPAREN {
-			depth--
-		}
-		p.next()
-	}
-	p.next() // ]
-	return name, start, nil
-}
-
-// parseObj reads `obj <name> [<criteria>] ["<display>"]`.
-//
-// The three forms map onto the three fields of 1.12.2's
-// `scoreboard objectives add <name> <criteria> [<display>]`:
-//
-//	obj wp.damage1                          -> dummy, no display
-//	obj Eq.Defence "防御"                    -> dummy + display
-//	obj post_damage stat.damageDealt "造成"  -> criteria + display
-//
-// A second bare word is the criteria; a string is the display. Distinguishing
-// them by token kind rather than by position keeps the two optional arguments
-// from needing a placeholder when only the display is given.
 func (p *parser) parseObj() (*ObjDecl, error) {
 	t, err := p.expect(OBJ)
 	if err != nil {
@@ -706,7 +718,7 @@ func join(parts []string, sep string) string {
 	return out
 }
 
-func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
+func (p *parser) parseFunc(attrs []Attr) (*FuncDecl, error) {
 	t, err := p.expect(FN)
 	if err != nil {
 		return nil, err
@@ -732,36 +744,86 @@ func (p *parser) parseFunc(attrs map[string]Pos) (*FuncDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, wrapping := attrs["wrapping"]
-	_, export := attrs["export"]
-	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Wrapping: wrapping, Export: export, P: t.Pos}, nil
+	every, err := everyTicks(attrs)
+	if err != nil {
+		return nil, err
+	}
+	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Attrs: attrs, EveryTicks: every, P: t.Pos}, nil
 }
 
-// parseMethod parses one method, with or without its tick annotation.
+// everyTicks resolves [every("...")] into a tick count.
 //
-// The documented spelling is @tick, and it did not parse at all: the class
-// body only knew the bare word, which no reader of the specification would
-// write. Both are accepted, because the annotation reads as a modifier
-// while the bare word reads as a broken sentence.
-func (p *parser) parseMethod() (Method, error) {
-	start := p.cur().Pos
-	tick := false
-	if p.cur().Kind == AT {
-		p.next()
-		if p.cur().Kind != TICK {
-			return Method{}, &Error{Pos: start, Msg: "only @tick is allowed on a method"}
+// The duration is a STRING literal rather than a unit-suffixed number. That
+// is what lets the lexer forget durations entirely: `1tick` inside a string
+// is just text, so `tick` never has to be a keyword in that position, and
+// there is exactly one implementation of the unit table.
+//
+// Only literals are accepted. A period decides the name of the dispatcher
+// function and of its counter objective, so it has to be known at compile
+// time -- a const would be known too, but accepting it invites a value that
+// is only constant in some build.
+func everyTicks(attrs []Attr) (int, error) {
+	for _, a := range attrs {
+		if a.Name != "every" {
+			continue
 		}
-		p.next()
-		tick = true
-	} else if p.cur().Kind == TICK {
-		p.next()
-		tick = true
+		if len(a.Args) != 1 {
+			return 0, &Error{Pos: a.P, Msg: "every takes one argument: a duration string like \"5s\" or \"1tick\""}
+		}
+		lit, ok := a.Args[0].(StringLit)
+		if !ok {
+			return 0, &Error{Pos: a.P, Msg: "every takes a string literal, because a period has to be known before the program runs"}
+		}
+		n, ok := ParseDuration(lit.Value)
+		if !ok {
+			return 0, &Error{Pos: a.P, Msg: fmt.Sprintf("%q is not a duration I can schedule; the smallest unit is one game tick, so use tick(s), s or m", lit.Value)}
+		}
+		return n, nil
 	}
-	fd, err := p.parseFunc(map[string]Pos{})
+	return 0, nil
+}
+
+// selectorArg reads [selector(@e[...])].
+//
+// The selector arrives as an expression: `@e[tag=x]` lexes as AT, IDENT,
+// LBRACK, ... and parseSelectorLiteral already knows how to reassemble that
+// shape, so the class declaration reuses it rather than scanning text.
+func selectorArg(attrs []Attr) (string, error) {
+	for _, a := range attrs {
+		if a.Name != "selector" {
+			continue
+		}
+		if len(a.Args) != 1 {
+			return "", &Error{Pos: a.P, Msg: "selector takes one argument: a selector like @e[tag=mob]"}
+		}
+		id, ok := a.Args[0].(Ident)
+		if !ok {
+			return "", &Error{Pos: a.P, Msg: "selector takes a selector literal"}
+		}
+		return id.Name, nil
+	}
+	return "", nil
+}
+
+// parseMethod parses one method with its attribute list.
+func (p *parser) parseMethod() (Method, error) {
+	attrs, err := p.parseAttrs()
 	if err != nil {
 		return Method{}, err
 	}
-	return Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, Tick: tick, P: start}, nil
+	p.skipNewlines()
+	if err := checkAttrs(attrs, "method"); err != nil {
+		return Method{}, err
+	}
+	every, err := everyTicks(attrs)
+	if err != nil {
+		return Method{}, err
+	}
+	fd, err := p.parseFunc(attrs)
+	if err != nil {
+		return Method{}, err
+	}
+	return Method{Name: fd.Name, Params: fd.Params, Body: fd.Body, Attrs: attrs, EveryTicks: every, P: fd.P}, nil
 }
 
 func (p *parser) parseParams() ([]Param, error) {
@@ -790,39 +852,7 @@ func (p *parser) parseParams() ([]Param, error) {
 	return out, nil
 }
 
-func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
-	if _, err := p.expect(LBRACK); err != nil {
-		return nil, err
-	}
-	if _, err := p.expect(SELECTOR); err != nil {
-		return nil, err
-	}
-	if _, err := p.expect(LPAREN); err != nil {
-		return nil, err
-	}
-	sel := ""
-	depth := 1
-	for depth > 0 {
-		if p.cur().Kind == EOF {
-			return nil, &Error{Pos: p.cur().Pos, Msg: "unterminated selector"}
-		}
-		if p.cur().Kind == LPAREN {
-			depth++
-		}
-		if p.cur().Kind == RPAREN {
-			depth--
-			if depth == 0 {
-				p.next()
-				break
-			}
-		}
-		sel += p.cur().Text
-		p.next()
-	}
-	if _, err := p.expect(RBRACK); err != nil {
-		return nil, err
-	}
-	p.skipNewlines()
+func (p *parser) parseClass(attrs []Attr) (*ClassDecl, error) {
 	ct, err := p.expect(CLASS)
 	if err != nil {
 		return nil, err
@@ -831,7 +861,15 @@ func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	cd := &ClassDecl{Name: name.Text, Selector: sel, P: ct.Pos}
+	sel, err := selectorArg(attrs)
+	if err != nil {
+		return nil, err
+	}
+	every, err := everyTicks(attrs)
+	if err != nil {
+		return nil, err
+	}
+	cd := &ClassDecl{Name: name.Text, Selector: sel, Attrs: attrs, EveryTicks: every, P: ct.Pos}
 	if _, err := p.expect(LBRACE); err != nil {
 		return nil, err
 	}
@@ -869,24 +907,12 @@ func (p *parser) parseClass(attrs map[string]Pos) (*ClassDecl, error) {
 				}
 			}
 			cd.Fields = append(cd.Fields, FieldDecl{Name: n.Text, Type: typ, Init: init, P: n.Pos})
-		case FN, AT, TICK:
+		case FN, LBRACK:
 			m, err := p.parseMethod()
 			if err != nil {
 				return nil, err
 			}
 			cd.Methods = append(cd.Methods, m)
-		case ON:
-			p.next()
-			ev := p.cur()
-			if ev.Kind != SPAWN && ev.Kind != DEATH {
-				return nil, &Error{Pos: ev.Pos, Msg: "a class hook is on spawn or on death"}
-			}
-			p.next()
-			body, err := p.parseBlock()
-			if err != nil {
-				return nil, err
-			}
-			cd.Events = append(cd.Events, ClassEvent{Event: ev.Text, Body: body, P: ev.Pos})
 		default:
 			return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf("unexpected %s in class body", p.cur().Kind)}
 		}
@@ -1028,57 +1054,6 @@ func (p *parser) parseExtern() (ExternDecl, error) {
 		return d, err
 	}
 	d.Objective = obj
-	return d, nil
-}
-
-func (p *parser) parseOn() (*OnDecl, error) {
-	t, err := p.expect(ON)
-	if err != nil {
-		return nil, err
-	}
-	d := &OnDecl{P: t.Pos}
-	switch p.cur().Kind {
-	case LOAD:
-		p.next()
-		d.Event = "load"
-	case TICK:
-		// `on tick` was removed. It ran with no executor, so every @s write
-		// in its body was silently discarded -- and it was the one entry the
-		// game actually drives, so the mistake was invisible: the program
-		// loaded, the function ran, and nothing happened.
-		//
-		// The replacement is `on every 1tick`, which runs inside the clock
-		// entity's fan-out and therefore HAS an executor. It is not a rename:
-		// the two differ in whether @s exists.
-		return nil, &Error{Pos: t.Pos, Msg: "on tick was removed: it ran with no executor, so every @s write in it was discarded. Write on every 1tick, which runs inside the clock's fan-out and has an executor"}
-	case EVERY:
-		p.next()
-		// One DURATION token, so the unit may be a keyword (`tick`) without
-		// the parser having to glue tokens together.
-		tok, err := p.expect(DURATION)
-		if err != nil {
-			return nil, &Error{Pos: p.cur().Pos, Msg: fmt.Sprintf(
-				"on every needs a duration literal like 5s, 10ticks or 1m; got %s. The game tick is the smallest unit this targets", p.cur().Kind)}
-		}
-		d.Event = "every"
-		d.Every = tok.Text
-		// 1.12.2 runs 20 game ticks per second, and a tick is the only unit
-		// the engine has. Anything else parses but cannot be scheduled, so it
-		// is reported here rather than becoming an entry that never fires.
-		ticks, ok := ParseDuration(d.Every)
-		if !ok {
-			return nil, &Error{Pos: tok.Pos, Msg: fmt.Sprintf(
-				"%q is not a duration I can schedule; the smallest unit is one game tick, so use tick(s), s or m", d.Every)}
-		}
-		d.EveryTicks = ticks
-	default:
-		return nil, &Error{Pos: p.cur().Pos, Msg: "expected load or every after on"}
-	}
-	body, err := p.parseBlock()
-	if err != nil {
-		return nil, err
-	}
-	d.Body = body
 	return d, nil
 }
 
@@ -1538,7 +1513,7 @@ func (p *parser) parsePrimary() (Expr, error) {
 			return nil, &Error{Pos: t.Pos, Msg: "entities<...> needs a selector"}
 		}
 		return id, nil
-	case TICK, SPAWN, DEATH, LOAD, EVERY:
+	case SELECTOR, WRAPPING:
 		// A nameable keyword can only start an expression as a call.
 		p.next()
 		if p.cur().Kind != LPAREN {

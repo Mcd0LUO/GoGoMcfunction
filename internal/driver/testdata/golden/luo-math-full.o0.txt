@@ -2,7 +2,7 @@
 
 === luo:math/boot ===
 function luo:math/comptime
-function luo:math/load
+function luo:math/on_load
 === luo:math/chance ===
 scoreboard players operation @s l6 = @s a0
 scoreboard players operation @s l7 = @s a1
@@ -85,7 +85,7 @@ scoreboard players operation @s return = #1103515245 ggm.c
 scoreboard players operation @s return *= @s a0
 scoreboard players operation @s return += #1234 ggm.c
 scoreboard players operation @s return %= #67108864 ggm.c
-=== luo:math/load ===
+=== luo:math/on_load ===
 scoreboard players set seed math 12345
 === luo:math/rand ===
 scoreboard players operation @s l3 = @s a0

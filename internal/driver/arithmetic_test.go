@@ -20,7 +20,7 @@ const LCG_A = 1103515245
 const LCG_C = 1234
 const LCG_M = 67108864
 
-#[wrapping]
+[wrapping]
 fn advance(s: int) -> int {
   (LCG_A * s + LCG_C) % LCG_M
 }

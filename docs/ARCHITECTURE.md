@@ -267,7 +267,7 @@ func (t Target) Condition(obj string, c ir.Cond) string
 | 临时槽全程序唯一 | 槽位膨胀，产物比手写多 10% | 活跃区间分配（§5 的 regalloc） |
 | 常量池在 lower 时累积 | 未引用的常量也被生成（当前 183 条里 178 条浪费） | 从最终 IR 收集（§5 的 constpool） |
 | `backend.Validate` 太弱 | 只查 `/` 前缀 | 用 `en_us.lang` 的 usage 做真校验 |
-| 无预算分析 | `#[budget]` 是信任而非验证 | IR 上的成本模型 |
+| 无预算分析 | `[budget]` 是信任而非验证 | IR 上的成本模型 |
 | 深层嵌套文件数增长 | 每个分支一个文件 | 块合并 + 尾调用内联 |
 
 ---

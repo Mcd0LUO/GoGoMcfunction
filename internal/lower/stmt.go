@@ -173,6 +173,7 @@ func (l *Lowerer) externTarget(ctx *fnCtx, d syntax.ExternDecl, p syntax.Pos) ir
 	}
 	return l.entityScore(ctx, obj, p)
 }
+
 // lowerIf emits a branch, both arms, and a join holding the remainder.
 //
 // The remainder is lowered EXACTLY ONCE, into the join block. Passing it down

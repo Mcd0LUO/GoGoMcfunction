@@ -9,11 +9,11 @@
 
 ## 0. 公理
 
-1. **`@s` 是唯一执行主体，且它不是到处都有。** `on load` 与 `<ns>/cycle` 都没有
-   执行者（1.12.2 从命令方块 / `gameLoopFunction` 调用函数时不给实体）；
-   `on every`、`@tick fn`、`on spawn`、`for e in entities<…>` 都有，因为它们在
-   某个 `execute` 的扇出体内。在没有执行者的地方写实体分数是**编译错误**，
-   因为 1.12.2 会静默丢弃那条命令。
+1. **`@s` 是唯一执行主体，且它不是到处都有。** `[load]` 函数与 `<ns>/cycle` 都
+   没有执行者（1.12.2 从命令方块 / `gameLoopFunction` 调用函数时不给实体）；
+   `[every(...)]`、`[spawn]`、`for e in entities<…>` 都有，因为它们在某个
+   `execute` 的扇出体内。在没有执行者的地方写实体分数是**编译错误**，因为
+   1.12.2 会静默丢弃那条命令。
 2. **「多」有两条路，成本差一个数量级**：扇出 `for e in entities<sel>` 是 N 次调用，
    广播写 `@sel f = v` 是一条命令写 N 个实体。字面可辨。
 3. **没有栈。** 递归只有一种：有界自递归。每个循环都必须写 `budget <n>` 或
@@ -34,7 +34,6 @@
 字符串    "..."  '...'
 NBT 值    n"..."                               // SNBT，编译期解析
 NBT 路径  p"..."                               // 从物品根起算的键路径
-时长      [0-9]+("tick"|"ticks"|"s"|"sec"|"second"|"s"…)   // 5s / 1tick / 2min
 换行      语句分隔符（与分号等价）
 ```
 
@@ -42,15 +41,18 @@ NBT 路径  p"..."                               // 从物品根起算的键路�
 
 ```
 namespace comptime const extern obj nbt
-fn class selector on
+fn class
 let if else while for loop in step
 return self true false none
 entities where budget wrapping
 bits enum decode encode over
 ```
 
-另有五个词是**普通标识符**，只在特定位置当关键字用，所以拿它们当变量名也可以在
+另有四个词是**普通标识符**，只在特定位置当关键字用，所以拿它们当变量名也可以在
 别处用：`add` / `set`（在 `decode` 块里）、`matches`（在条件里）、`from`（在 `decode` 里）。
+
+**时长不是词法单位**，它是 `[every("5s")]` 里的一个字符串。所以 `1tick` 里
+的 `tick` 不必是关键字，单位表也只有一处实现（`syntax.ParseDuration`）。
 
 ---
 
@@ -63,7 +65,7 @@ bits enum decode encode over
 
 ---
 
-## 3. 顶层声明（8 种）
+## 3. 顶层声明（7 种）
 
 ```
 namespace luo:math                        // 每文件一个
@@ -81,12 +83,82 @@ fn rand(lo: int, hi: int) -> int { ... }  // 普通函数，同 tick 内完成
 [selector(@e[type=zombie,tag=mob.monster])]
 class Monster { var hp: int = 40; ... }   // 谓词 + 字段 + 方法
 
-on load { ... }                           // 入口
-on tick { ... }
-on every 5s { ... }
-
 obj wp.damage1                            // 声明一个 objective，编译器负责创建
 ```
+
+**没有 `on` 家族。** 入口是 `fn` 或 `class` 上的**属性**，见 3.3。
+
+### 属性
+
+属性是声明前的一个方括号列表，逗号分隔，可带参数：
+
+```ggm
+[load]
+fn on_load() { }
+
+[every("5s")]
+fn heartbeat() { }
+
+[selector(@e[tag=mob]), every("1tick")]
+class Monster {
+    var hp: int = 40
+
+    [spawn]
+    fn spawned() { hp = 40 }
+
+    [every("100ticks")]
+    fn regen() { hp = hp + 10 }
+}
+
+[wrapping, export]
+fn lcg_step(s: int) -> int { (LCG_A * s + LCG_C) % LCG_M }
+```
+
+| 属性 | 用在 | 含义 |
+|---|---|---|
+| `[load]` | fn | 世界加载时调用一次，**无 `@s`** |
+| `[every("...")]` | fn / class 方法 | 每 N tick 调用一次 |
+| `[spawn]` | class 方法 | 实体首次出现时调用一次 |
+| `[selector(...)]` | class | 成员判定谓词 |
+| `[wrapping]` | fn | 关闭溢出警告（尚未生效，见第 5 节） |
+| `[export]` | fn | 库函数，抑制 `W_UNREACHABLE_FN` |
+
+**属性是遍历的，不是内联的。** 编译期读属性列表，生成 P 值和 void 函数——只消
+除属性或加新属性即可，不需要改语言语法。
+
+### 3.3 入口
+
+一个模块只有两个需要接线的入口，都是编译器生成的：
+
+```mcfunction
+# <ns>/boot —— 世界加载时，由命令方块调用一次
+function <ns>/comptime
+function <ns>/on_load
+function std:lib/comptime
+function std:lib/on_load
+
+# <ns>/cycle —— gameLoopFunction 指向这里
+function <ns>/make_clock unless @e[tag=ggm.clock]
+execute @e[tag=ggm.clock,c=1] ~ ~ ~ function <ns>/on_cycle
+```
+
+`boot` 汇总**所有文件**的 `[load]` 函数和常量池。仅靠每文件一个 `<ns>/load`
+是不可行的：用户只挂一个，库的初始化永远不会跑，且无任何提示。
+
+`cycle` 里**没有 `@s`**——`gameLoopFunction` 不给执行实体。它只负责让时钟实体
+存在，然后交给 `execute` 扇出：
+
+```mcfunction
+# <ns>/make_clock
+summon armor_stand ~ ~ ~ {Tags:["ggm.clock"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}
+
+# <ns>/on_cycle —— @s = 时钟实体
+scoreboard players add @s p.100 1
+function <ns>/every/100t if @s[score_p.100_min=100,score_p.100=100]
+```
+
+时钟实体就是参考包的 `TickTimer`，不是新发明：1.12.2 上这是唯一能凭空造出
+执行者的办法。
 
 ### 3.1 `fn`
 
@@ -95,7 +167,7 @@ fn name(p1: int, p2: int) -> int { body }
 ```
 
 无 `pure` / `task` / 效果标注。**一个 `fn` 只有一种：同 tick 内跑完。**
-跨 tick 靠 `class` + `@tick`（见 3.2），不靠 `wait`。
+跨 tick 靠 `class` + `[every(...)]`（见 3.2），不靠 `wait`。
 
 ### 3.2 `class`
 
@@ -105,141 +177,126 @@ class Monster {
     var hp: int = 40                 // 必须有初始化器
     var timer: int = 0
 
-    on spawn { }                     // summon 后自动执行
-    on death { }
+    [spawn]                          // summon 后自动执行一次
+    fn spawned() { hp = 40 }
 
-    @tick fn tick() { ... }          // 由调度器扇出
+    [every("1tick")]                 // 由调度器扇出
+    fn tick() { timer += 1 }
+
     fn deal(dmg: int) { hp -= dmg }
 }
 ```
 
 - `selector` 是这个类的**成员判定谓词**。`Monster` 与 `@e[type=zombie,tag=mob.monster]` 是同一件事的两面。
-- 字段 = `@s` 上的 objective，默认前缀 `M.`（`M.hp`）。
-- **跨 tick 的唯一写法**：一个类实例就是一个协程的状态。`spawn CastTimer()` = `summon` 一个带 tag 的实体。
+- 字段 = `@s` 上的 objective，名字是 `<类名>.<字段名>`，截断到 16 字符（`Monster.hp` → `Monste.hp`）。
+- **跨 tick 的唯一写法**：一个类实例就是一个协程的状态。
 
 ```
 // 「20 tick 后执行」——不需要 wait
+[selector(@e[tag=cast.timer])]
 class CastTimer {
     var timer: int = 0
-    @tick fn tick() {
+    [every("1tick")]
+    fn tick() {
         timer += 1
         if timer >= 20 { fire(); kill(self) }
     }
 }
 ```
 
+`[death]` 不存在：1.12.2 无法观察一个已经消失的实体，唯一正确的实现需要影子实体。
+与其留一个永远报错的属性，不如不写。
+
 ### 3.3 入口
 
 | 写法 | 生成 | 有 `@s`？ |
 |---|---|---|
-| `on load` | `luo:math/load`，由 `boot` 调用 | **没有** |
-| `on every 5s` | `luo:math/every/5s`，由周期链驱动 | 有（时钟实体） |
-| `@tick fn` in class | `execute <selector> ~ ~ ~ function 类名/tick` | 有（被扇出的实例） |
-| `on spawn` in class | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 | 有（被扇出的实例） |
+| `[load]` | 函数体保留作者的名字，由 `boot` 调用 | **没有** |
+| `[every("5s")]` | 函数体保留作者的名字，由周期链调用 | 有（时钟实体） |
+| `[every(...)]` on class method | `execute <selector> ~ ~ ~ function 类/方法` | 有（被扇出的实例） |
+| `[spawn]` on class method | 扇出到`<selector> 且没有标记标签`的实体，函数体先打标签再执行 | 有（被扇出的实例） |
 
-#### 两个模块级入口：`boot` 和 `cycle`
+#### 周期：一个周期一个调度器
 
-1.12.2 **没有 load 事件**，也**没有「每 tick 自动跑」的函数**，除非把名字挂到
-`gamerule gameLoopFunction`。所以一个模块只生成两个入口，用户各接一次：
-
-```mcfunction
-# <ns>/boot —— 世界加载时跑一次，接到命令方块
-function <ns>/comptime
-function <ns>/load
-function std:lib/comptime
-function std:lib/load
-
-# <ns>/cycle —— gameLoopFunction 指向这里
-function <ns>/make_clock unless @e[tag=ggm.clock]
-execute @e[tag=ggm.clock,c=1] ~ ~ ~ function <ns>/on_cycle
-```
-
-**为什么必须汇总**：一个模块可能有多个文件（`app.ggm` + `stdlib/math.ggm`），
-各自都写了 `on load`。若每文件各生成一个 `<ns>/load`，用户只会挂自己那一个，
-**库的初始化永远不跑**，且没有任何提示。
-
-#### `cycle` 里没有 `@s`，`on_cycle` 里有
-
-`gameLoopFunction` 调用函数时没有执行实体。所以 `cycle` 自己不做任何算术，
-它只负责让时钟实体存在，然后交给 `execute` 扇出：
+周期的**身份是 tick 数**，不是写法。`[every("5s")]` 与 `[every("100ticks")]`
+是同一个周期：一个计数器 `p.100`、一个调度器 `every/100t`。按写法命名会得到两个
+互相漂移的计数器，而各自单独看都正确。
 
 ```mcfunction
-# <ns>/make_clock
-summon armor_stand ~ ~ ~ {Tags:["ggm.clock"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}
-
-# <ns>/on_cycle —— @s = 时钟实体
-scoreboard players add @s p.1 1
-function <ns>/every/1tick if @s[score_p.1_min=1,score_p.1=1]
+# <ns>/every/100t —— 两个声明共用这一个文件
+scoreboard players set @s p.100 0
+function app:slow
+function app:also_slow
 ```
 
-时钟实体就是参考包里的 `TickTimer`。它不是新发明，是 1.12.2 上唯一能
-凭空造出执行者的办法。
+同一周期的多个声明按**命令行文件顺序、再按源文件顺序**排进同一个调度器。
 
-> **`on tick` 已删除（0.17.0）。** 它看起来像「每 tick 有执行者」，实际是
-> 「每 tick 没有执行者」——这个错觉让它比没有入口更危险。替代写法是
-> `on every 1tick`，区别不在拼写，在于后者在时钟实体的扇出体内。
+周期之间是**链**不是扇出：只有不被更小周期整除的那些从 `on_cycle` 驱动，
+其余由最近的更小周期按**比值**计数驱动。
 
-#### `on load` 里不能写实体分数
+```mcfunction
+# on_cycle 驱动 2t 和 5t；1s 由 5t 驱动（20/5=4），3s 由 1s 驱动（3）
+scoreboard players add @s p.5 1
+function <ns>/every/5t if @s[score_p.5_min=5,score_p.5=5]
+```
+
+**`1tick` 直接内联进 `on_cycle`**：每 tick 计数到 1 的计数器是两条废命令加一个
+恒真判断。所以没有 `p.1`，也没有 `every/1t`。
+
+#### `[load]` 里不能写实体分数
 
 ```ggm
 obj counter
-on load { counter = 7 }        // E_NO_SELF_CONTEXT
+[load]
+fn on_load() { counter = 7 }   // E_NO_SELF_CONTEXT
 ```
 
 `obj` 声明的 objective、类字段、`extern x: int = @s.x` 都是**执行者的**分数。
-`on load` 从命令方块进来，`@s` 什么都不指，`set @s counter 7` 会被 1.12.2
+`[load]` 从命令方块进来，`@s` 什么都不指，`set @s counter 7` 会被 1.12.2
 静默丢弃。所以这是编译错误，不是警告。
 
 ```ggm
 extern SEED: int = seed.math   // 假玩家，任何上下文都存在
-on load { SEED = 12345 }       // 可以
+[load]
+fn on_load() { SEED = 12345 }  // 可以
 ```
 
 编译器自己的寄存器（`t0`、`l0`）在无执行者的函数里搬到假玩家 `#ggm.reg`，
-所以 `on load` 里仍能做算术——只是**作者的**数据不能假装挂在实体上。
+所以 `[load]` 里仍能做算术——只是**作者的**数据不能假装挂在实体上。
 
-> **实现状态（0.17.0）**：`@tick`、`on spawn`、字段、方法解析、方法参数都已实现。
->
-> `on every N` **有真正的相位门**：每个周期一个计数器 `p.<ticks>`，
-> 由 `on_cycle` 每 tick 递增，到达上界时调用该周期的入口；
-> 入口**先把自己归零**，所以下一次恰好是一个周期之后。
->
-> 时长支持 `ticks` / `s` / `m`，其它单位直接报错——一个排不了期的入口
-> 比没有入口更糟。
+#### 同时触发时，取交集
 
-**时长是一个词法单位**（`DURATION`），不是一个整数加一个标识符。
-所以单位里可以有 `tick` 这个关键字：`on every 1tick` 与 `on every 5s` 同样合法。
+```ggm
+[load, every("5s")]
+fn mixed() { hp = 1 }          // E_NO_SELF_CONTEXT
+```
+
+一个函数若同时是 `[load]` 和 `[every]`，`@s` 的可用性是两种上下文的**交集**。
+交集里有「没有」，所以没有。这是纯局部规则，不需要调用图分析。
+> **实现状态（0.18.0）**：`[load]`、`[every(...)]`、`[spawn]`、`[selector(...)]`、
+> `[wrapping]`、`[export]`、字段、方法解析、方法参数都已实现。
+>
+> `[every(...)]` **有真正的相位门**：每个周期一个计数器 `p.<ticks>`，
+> 由 `on_cycle` 每 tick 递增，到达上界时调用该周期的调度器；
+> 调度器**先把自己归零**，所以下一次恰好是一个周期之后。
+>
+> 时长支持 `tick(s)` / `s(ecs)` / `m(in)`，其它单位直接报错——一个排不了期的
+> 入口比没有入口更糟。
+
+**时长是一个字符串字面量**，不是词法单位：`[every("1tick")]`、`[every("5s")]`。
 
 > 这不是可有可无的润色。当初时长是 `INT + IDENT` 两个 token，解析器手工拼接，
-> 于是 `1tick` **根本写不出来**——绕过办法是让单复数承载语义（`1ticks`）。
-> 时长本来就该是字面量，和十六进制整数一样归词法管。
+> 于是 `1tick` **根本写不出来**——绕过办法是让单复数承载语义（`1ticks`），
+> 再后来干脆加了一个 `DURATION` 词法单位。
+>
+> 字符串更省：`tick` 不必是关键字，词法器不必知道单位表，`[every(...)]` 也不必
+> 和别的属性用两套括号。单位到 tick 的换算只剩一处（`syntax.ParseDuration`）。
 
 **亚 tick 时长直接报错**，不四舍五入。1.12.2 的最小单位就是游戏刻，
 把 `120ms` 悄悄变成 3 tick 会让周期按作者从未要求的节奏触发。
 
-单位到 tick 的换算只有一处（`syntax.ParseDuration`）。第二处实现曾经产生过
-「`5s` 和 `100ms` 都是 p.100、两个周期共用一个计数器」的 bug。
-> `on death` **有非空体时报错**——1.12.2 无法观察已经消失的实体，正确实现需要一个
-> 影子实体，假装能做到只会产出一个永不触发的处理器。空体是占位符，接受。
-> 字段 objective 名按 16 字符截断，所以类名前 6 个字符相同的两个类会撞车，
-> 由 `E_FIELD_COLLISION` 报出。
-
-#### 周期链
-
-多个 `on every` 时，**只有最短的那个由 `on_cycle` 驱动**，其余由「最近的、
-能整除它的更短周期」驱动：
-
-```
-on_cycle → 1ticks
-1ticks   → 2ticks(2) 3ticks(3) 5ticks(5)
-5ticks   → 1s(4)
-1s       → 3s(3) 5s(5)
-```
-
-括号里是**比值**，不是绝对时长：`5ticks` 驱动 `1s` 只需数到 4（20/5），
-因为它的计数器每 5 tick 才加一次。
-
-代价是 7 个周期 8 条边，而不是 7 个周期各挂一个每 tick 计数器（21 次判断）。
+**周期只接受字面量**。周期决定调度器函数名和计数器 objective 名，两者都在
+编译期定死，所以值必须编译期已知。
 
 ### 3.4 `extern` —— 绑定已经存在的分数
 
@@ -347,7 +404,7 @@ loop  i > 0, budget 32 { }     // 先做一次，再判
 没有这个上界，一个写错的条件就是无限递归——它不会报错，只会卡死服务器。
 
 为什么不写 `#[budget(N)]`：它是循环的**操作数**，不是可选修饰，而 `#[…]` 在 GGM 里
-是属性语法（`#[wrapping]`）。必填的东西打扮成可选的，读者会以为可以省。
+是属性语法（`[wrapping]`）。必填的东西打扮成可选的，读者会以为可以省。
 
 ### 4.2 条件
 
@@ -514,9 +571,9 @@ reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 **字面量作 `operation` 操作数时自动物化**为 `#ggm.const.<值>` 常量
 （1.12.2 的 `operation` 右操作数必须是记分板名字，不能是字面量）。
 
-`#[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。
+`[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。
 
-> **实现状态（2026-10-19）**：`W_WRAP_UNPROVEN` 尚未实现，因此 `#[wrapping]`
+> **实现状态（2026-10-19）**：`W_WRAP_UNPROVEN` 尚未实现，因此 `[wrapping]`
 > 目前**被接受但无作用**——1.12.2 的计分板算术本来就按 32 位回绕，注解所要求的
 > 行为就是默认行为。它真正生效的时机是范围分析落地、未标注的函数能报出溢出警告时。
 >
@@ -584,11 +641,14 @@ no-op 比缺功能更糟。**
 | `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
 | `E_UNKNOWN_CALLEE` | 调用了本模块里不存在的函数 |
 | `E_FIELD_COLLISION` | 两个字段截断后落在同一个 objective 上 |
-| `E_HOOK_UNSUPPORTED` | `on death` 有非空函数体（需要影子实体） |
 | `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
 | `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
 | `E_NO_BUDGET` | `while` / `loop` 没有 `cap <n>` 上界 |
-| `E_NO_SELF_CONTEXT` | 在无执行者的函数（`on load`）里读写实体分数 |
+| `E_NO_SELF_CONTEXT` | 在无执行者的函数（`[load]`）里读写实体分数 |
+| `E_LOAD_PARAMS` | `[load]` 函数带参数——世界加载时没人能给它 |
+| `E_ATTR_UNKNOWN` | 属性不在 `DeclAttrs` 里（如 `[death]`、`[wraping]`） |
+| `E_ATTR_DUP` | 同一个属性写了两次 |
+| `E_EVERY_ARG` | `every` 的参数不是时长字符串字面量 |
 | `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
 | `E_ARITY` | 调用实参个数与声明不符 |
 | `E_ASSIGN_TARGET` | 赋值目标不是可写位置 |
@@ -613,7 +673,7 @@ no-op 比缺功能更糟。**
 | `E_FIELD_BITS` | `bits` 不在 1..30（`bits=32` 时最高位 `2^31` 超出 int32） | 无，可直接实现 |
 | `E_ENCODE_RANGE` | `over` 的上下界超出字段能表示的范围（会静默截断） | 无，可直接实现 |
 | `W_FIELD_UNUSED` | 字段声明了但既没 `decode` 也没 `encode` | 无，可直接实现 |
-| `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` | 值域分析 |
+| `W_WRAP_UNPROVEN` | 可能溢出且未标 `[wrapping]` | 值域分析 |
 | `W_DIV_ZERO` | 除数可能为 0 | 值域分析 |
 | `E_NO_SELF_CONTEXT`（调用图部分） | 无 `@s` 处**调用**需要 `@s` 的函数 | 调用图上的 `@s` 可用性分析 |
 | `E_TYPE_MISMATCH` | `int` / `bool` 混用 | 类型检查（当前只有 `int`） |
@@ -664,7 +724,7 @@ const LCG_A = 1103515245
 const LCG_C = 1234
 const LCG_M = 67108864
 
-#[wrapping]
+[wrapping]
 fn lcg_step(s: int) -> int { (LCG_A * s + LCG_C) % LCG_M }
 
 fn rand(lo: int, hi: int) -> int {

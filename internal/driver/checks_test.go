@@ -111,7 +111,7 @@ func TestUncalledFunctionWarns(t *testing.T) {
 
 // Entry points are never called from the module and must not be reported.
 func TestEntryPointsAreNotReportedAsUncalled(t *testing.T) {
-	src := "namespace t:c\non load { }\non every 1tick { }\non every 5s { }\n"
+	src := "namespace t:c\n[load]\nfn l() { }\n[every(\"1tick\")]\nfn a() { }\n[every(\"5s\")]\nfn b() { }\n"
 	ds := diagsOf(src, driver.Options{})
 	if hasDiag(ds, "W_UNREACHABLE_FN") {
 		t.Fatalf("entry point reported as uncalled: %v", ds)

@@ -26,7 +26,7 @@ const LCG_A = 1103515245
 const LCG_C = 1234
 const LCG_M = 67108864
 
-#[wrapping]
+[wrapping]
 fn lcg_step(s: int) -> int {
   (LCG_A * s + LCG_C) % LCG_M
 }
@@ -43,7 +43,7 @@ fn rand(lo: int, hi: int) -> int {
   lo + rem_euclid(x, span)
 }
 
-on load {
+[load] fn loadfn() {
   SEED = 12345
 }
 `
@@ -77,7 +77,7 @@ func TestRandMatchesReference(t *testing.T) {
 	for i := range argSets {
 		argSets[i] = map[string]int{"a0": 1, "a1": 100}
 	}
-	got := h.CallSeq("t:r/load", "t:r/rand", argSets)
+	got := h.CallSeq("t:r/loadfn", "t:r/rand", argSets)
 	want := refRand(12345, 1, 100, n)
 	for i := range want {
 		if got[i] != want[i] {
@@ -98,7 +98,7 @@ func TestRandMatchesReferenceAtEveryLevel(t *testing.T) {
 			for i := range argSets {
 				argSets[i] = map[string]int{"a0": 1, "a1": 1000}
 			}
-			got := h.CallSeq("t:r/load", "t:r/rand", argSets)
+			got := h.CallSeq("t:r/loadfn", "t:r/rand", argSets)
 			want := refRand(12345, 1, 1000, n)
 			for i := range want {
 				if got[i] != want[i] {

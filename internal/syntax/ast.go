@@ -166,16 +166,30 @@ type Param struct {
 
 // FuncDecl is a `fn` declaration.
 type FuncDecl struct {
-	Name     string
-	Params   []Param
-	RetType  string
-	Body     []Stmt
-	Wrapping bool
-	// Export marks a function a library offers to other files. Without it a
-	// library's functions look uncalled from inside the library, and
-	// W_UNREACHABLE_FN would fire on every one of them.
-	Export bool
-	P      Pos
+	Name    string
+	Params  []Param
+	RetType string
+	Body    []Stmt
+	Attrs   []Attr
+	// EveryTicks is the period in game ticks when [every("...")] is present,
+	// or 0 when it is not. Resolved at parse time so that every later stage
+	// compares numbers rather than re-parsing duration text -- two copies of
+	// that conversion had already drifted once, making 5s and 100ms share a
+	// counter.
+	EveryTicks int
+	P          Pos
+}
+
+// Has reports whether the declaration carries an attribute.
+func (d FuncDecl) Has(name string) bool { return hasAttr(d.Attrs, name) }
+
+func hasAttr(attrs []Attr, name string) bool {
+	for _, a := range attrs {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // FieldDecl is a class field: an objective on @s.
@@ -186,22 +200,19 @@ type FieldDecl struct {
 	P    Pos
 }
 
-// Method is a class method. Tick marks @tick fan-out.
+// Method is a class method.
 type Method struct {
 	Name   string
 	Params []Param
 	Body   []Stmt
-	Tick   bool
-	P      Pos
+	Attrs  []Attr
+	// EveryTicks is the period when [every("...")] is present, 0 otherwise.
+	EveryTicks int
+	P          Pos
 }
 
-// ClassEvent is an entity lifecycle hook on a class.
-type ClassEvent struct {
-	// Event is "spawn" or "death".
-	Event string
-	Body  []Stmt
-	P     Pos
-}
+// Has reports whether the method carries an attribute.
+func (m Method) Has(name string) bool { return hasAttr(m.Attrs, name) }
 
 // ClassDecl is a class: selector predicate + objective namespace + methods.
 type ClassDecl struct {
@@ -209,9 +220,15 @@ type ClassDecl struct {
 	Selector string
 	Fields   []FieldDecl
 	Methods  []Method
-	Events   []ClassEvent
-	P        Pos
+	Attrs    []Attr
+	// EveryTicks is set when the class itself declares [every("...")], which
+	// runs the selector fan-out once per period even if no method says so.
+	EveryTicks int
+	P          Pos
 }
+
+// Has reports whether the class carries an attribute.
+func (c ClassDecl) Has(name string) bool { return hasAttr(c.Attrs, name) }
 
 // EmitStep is one command produced inside a comptime block.
 type EmitStep struct {
@@ -236,19 +253,6 @@ type ExternDecl struct {
 	In        []struct{ Param, Reg string }
 	Out       string
 	P         Pos
-}
-
-// OnDecl is an entry point.
-type OnDecl struct {
-	Event string // load | every
-	Every string // duration text, when Event == "every", e.g. "5s"
-	// EveryTicks is that duration in game ticks (20 per second), or 0 when the
-	// unit is not one the compiler knows. The lowerer drives the entry from
-	// the tick entry point with a counter, so it needs the number, not the
-	// text.
-	EveryTicks int
-	Body       []Stmt
-	P          Pos
 }
 
 // ObjDecl is an `obj` declaration: an objective the compiler must create.
@@ -337,6 +341,5 @@ type File struct {
 	NBTFields []NBTField
 	Funcs     []FuncDecl
 	Classes   []ClassDecl
-	Ons       []OnDecl
 	P         Pos
 }

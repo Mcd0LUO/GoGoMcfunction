@@ -40,9 +40,6 @@ func WalkFile(f *File, v Visitor) {
 			WalkStmts(m.Body, v)
 		}
 	}
-	for _, on := range f.Ons {
-		WalkStmts(on.Body, v)
-	}
 }
 
 // WalkStmts visits every node of a statement list.

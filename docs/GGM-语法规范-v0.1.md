@@ -10,7 +10,7 @@
 
 1. **`@s` 是唯一的执行主体。** 一切命令都在某个实体上下文里跑。没有 `@s` 的地方（`on load`）不能调用需要 `@s` 的函数——这是编译错误，不是运行时意外。
 2. **三种「多」必须语法可区分**：扇出（`execute ... function`，每个实体一次）、广播写（一条命令写 N 个实体）、迭代（`for e in entities<sel>`）。混淆它们是性能事故的唯一来源。
-3. **没有栈。** 递归只允许两种：`#[inline]` 展开，或带 `#[budget]` 的有界自递归。
+3. **没有栈。** 递归只允许两种：`[inline]` 展开，或带 `[budget]` 的有界自递归。
 4. **预算是语义。** `maxCommandChainLength` 超限后**静默丢弃**后续命令，所以成本必须能静态标注和检查。
 5. **选择器是区间不是相等。** 用户写 `==`，编译器发射 `_min=N,=N`。这一条不可绕过。
 
@@ -268,7 +268,7 @@ for i in 0..10 step 2 {
 }
 
 // 2. 有界运行时循环：自递归 + 递减计数器
-for i in 0..n {                 // n 是运行时值，必须带 #[budget]
+for i in 0..n {                 // n 是运行时值，必须带 [budget]
     spawn_one(i)
 }
 
@@ -386,13 +386,13 @@ x % 1024
 #[nbt_bits] var flags: int
 
 // 显式回绕（LCG 需要）
-#[wrapping] pure fn lcg_next(s: int) -> int {
+[wrapping] pure fn lcg_next(s: int) -> int {
     (1103515245 * s + 1234) % 67108864
 }
 ```
 
-`#[wrapping]` 关闭溢出检查。若函数内出现 `% M` 且编译器能证明 `M | 2^32`
-（即 M 是 2 的幂），则允许省略 `#[wrapping]`——这是 LCG 唯一合法的免检查路径，
+`[wrapping]` 关闭溢出检查。若函数内出现 `% M` 且编译器能证明 `M | 2^32`
+（即 M 是 2 的幂），则允许省略 `[wrapping]`——这是 LCG 唯一合法的免检查路径，
 其余情况报 `W_WRAP_UNPROVEN`。
 
 ### 6.4 复合条件与短路
@@ -556,7 +556,7 @@ let v = pool_sample_unique(dice, math) using team dice.sampled
 | `E_NO_SELF_CONTEXT` | 无 `@s` 处调用需要 `@s` 的函数 | error |
 | `E_WAIT_IN_FN` | `fn` 内使用 `wait` | error |
 | `E_PURE_CALLS_FN` | `pure` 调用 `fn` / `task` | error |
-| `E_NO_BUDGET` | `while` / 运行时 `for` 无 `#[budget]` | error |
+| `E_NO_BUDGET` | `while` / 运行时 `for` 无 `[budget]` | error |
 | `E_NOT_EXHAUSTIVE` | `match` 未穷尽 | error |
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | error |
 | `E_UNINIT_FIELD` | `class` 字段无初始化器 | error |
@@ -564,7 +564,7 @@ let v = pool_sample_unique(dice, math) using team dice.sampled
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 或 `&&` 含副作用 | error |
 | `E_TYPE_MISMATCH` | `int` / `fixed` 混用 | error |
 | `E_NOT_IMPLEMENTED` | 保留关键字 | error |
-| `W_WRAP_UNPROVEN` | 可能溢出且未标 `#[wrapping]` | warning |
+| `W_WRAP_UNPROVEN` | 可能溢出且未标 `[wrapping]` | warning |
 | `W_FIXED_OVERFLOW` | 定点乘法可能溢出 int32 | warning |
 | `W_DIV_ZERO` | 除数可能为 0 | warning |
 | `W_BUDGET_ESTIMATE` | 预算估计超出实际 2 倍 | warning |
@@ -592,7 +592,7 @@ const LCG_A = 1103515245
 const LCG_C = 1234
 const LCG_M = 67108864
 
-#[wrapping]
+[wrapping]
 pure fn lcg_next(s: int) -> int { (LCG_A * s + LCG_C) % LCG_M }
 
 fn rand(lo: int, hi: int) -> int requires lo <= hi {
@@ -638,10 +638,10 @@ fn sort_asc() {
 
 ## 13. 与 `luo/math` 现实的差距（需先打的 5 个补丁）
 
-1. **`while` + `#[budget]`** —— §5.5
+1. **`while` + `[budget]`** —— §5.5
 2. **`for e in entities<>` + 集合缩小** —— §5.6
 3. **广播写 `@sel f = v`** —— §7
-4. **`#[wrapping]` + 2 的幂取模证明** —— §6.3
+4. **`[wrapping]` + 2 的幂取模证明** —— §6.3
 5. **兼容层 `extern var` + `comptime` 常量池** —— §9
 
 已确认的 4 个原库 bug（不进语言，进迁移报告）：
@@ -660,7 +660,7 @@ fn sort_asc() {
 | P1 | 类型检查 + 效果检查 + `extern fn` + `comptime emit_const` | `luo/math` 的 `sqrt` `is_happen` 可编译并逐字节匹配 |
 | P2 | `class` + `@tick` + 调度器 + 状态机 | `Monster` 类可跑，相位不漂移 |
 | P3 | `while` + `for entities` + 广播写 + `sort` | `luo/math/sort` 迁移完成 |
-| P4 | 预算分析 + `#[wrapping]` + 错误信息打磨 | 全部检查项有测试 |
+| P4 | 预算分析 + `[wrapping]` + 错误信息打磨 | 全部检查项有测试 |
 
 ---
 

@@ -114,10 +114,20 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	// Every file contributes its on-load bodies and its constant pool to ONE
 	// module-level boot function. Per-file entries cannot work: the user
 	// wires a single function to the world, and nothing would call a
-	// library's <lib>/load. The library's initialisation would simply never
+	// library's <ns>/load. The library's initialisation would simply never
 	// run, silently -- which is the same failure as an undeclared objective.
 	type bootPart struct{ path, what string }
 	var bootParts []bootPart
+	// Periods are collected from every file and merged by TICK COUNT.
+	//
+	// `[every("5s")]` and `[every("100ticks")]` are the same period, so
+	// they must share one counter and one dispatcher. Keying on the written
+	// text instead would produce two counters that drift apart, and each
+	// would look correct in isolation -- the kind of failure this compiler
+	// exists to make impossible.
+	periods := map[int][]lower.PeriodEntry{}
+	var periodOrder []int
+	var spawns []lower.SpawnEntry
 	var prog *ir.Program
 	for i, file := range srcFiles {
 		checkLiterals(file, opt.Target, bag)
@@ -165,14 +175,20 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 				bootParts = append(bootParts, bootPart{file.Namespace + "/comptime", "the constant pool"})
 			}
 		}
-		// A file's on-load body is an ordinary function, so boot can call it
-		// by name. Its own name stays <ns>/load, which is what the source
-		// said; boot is the new, module-wide entry.
-		for _, od := range file.Ons {
-			if od.Event == "load" {
-				bootParts = append(bootParts, bootPart{file.Namespace + "/load", "on load"})
-			}
+		// A [load] function is an ordinary function, so boot calls it by
+		// name. Its own name is the author's, which is what makes two [load]
+		// functions in one module possible at all: they no longer compete for
+		// one generated id.
+		for _, p := range res.Loads {
+			bootParts = append(bootParts, bootPart{p, "[load]"})
 		}
+		for _, pe := range res.Periods {
+			if _, seen := periods[pe.Ticks]; !seen {
+				periodOrder = append(periodOrder, pe.Ticks)
+			}
+			periods[pe.Ticks] = append(periods[pe.Ticks], pe)
+		}
+		spawns = append(spawns, res.Spawns...)
 
 		if prog == nil {
 			prog = res.Program
@@ -184,6 +200,9 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		prog.Funcs = append(prog.Funcs, res.Program.Funcs...)
 		prog.Consts = append(prog.Consts, res.Program.Consts...)
 	}
+
+	// The module-wide clock, if anything is scheduled.
+	buildClock(prog, srcFiles[0].Namespace, periods, periodOrder, spawns)
 
 	// The module-wide boot: the ONE function to run when the world loads.
 	//
@@ -228,6 +247,164 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	return out, bag.Sorted()
 }
 
+// buildClock generates the module's timer: cycle, make_clock, on_cycle, and
+// one dispatcher per period.
+//
+// 1.12.2 offers exactly one automatic hook -- `gamerule gameLoopFunction` --
+// and it calls a function with NO executor, so @s there names nothing and
+// every command mentioning it is discarded without an error. The hand-written
+// data packs work around that by summoning one marker entity and running the
+// tick body inside `execute @e[tag=...]`; this is the same shape, generated.
+//
+//	cycle       what gameLoopFunction names; no executor, does no arithmetic
+//	make_clock  summons the marker unless it already exists
+//	on_cycle    runs with @s = the clock entity
+//	every/<n>t  one dispatcher per period, entered from on_cycle or another
+//	            period
+//
+// Periods form a CHAIN rather than a fan-out: only the periods no smaller
+// period divides are driven from on_cycle, and each drives the next by
+// counting the RATIO. Driving all of them from on_cycle would cost one
+// counter and one guarded call per period per tick.
+func buildClock(prog *ir.Program, ns string, periods map[int][]lower.PeriodEntry, order []int, spawns []lower.SpawnEntry) {
+	if len(periods) == 0 && len(spawns) == 0 {
+		return
+	}
+	path := func(name string) string { return ns + "/" + name }
+
+	mk := prog.NewFunc(path("make_clock"))
+	mk.Func().Exported = true
+	mk.Emit(0, ir.Raw{Text: "summon armor_stand ~ ~ ~ {Tags:[\"" + clockTag +
+		"\"],Marker:1b,Invisible:1b,NoGravity:1b,Invulnerable:1b,PersistenceRequired:1b}"})
+
+	// on_cycle: @s is the clock entity here, so this is where ordinary code
+	// can live. Spawn hooks run FIRST, so an entity that appeared this tick
+	// is initialised before its tick body sees it.
+	onCycle := prog.NewFunc(path("on_cycle"))
+	onCycle.Func().Exported = true
+	for _, sp := range spawns {
+		onCycle.Emit(0, ir.FanOut{Selector: sp.Selector, Path: sp.Path})
+	}
+	// The one-tick period IS the cycle, so it is inlined rather than given a
+	// counter: a counter that reaches 1 every tick is two wasted commands and
+	// a guard that is always true.
+	for _, pe := range periods[1] {
+		if pe.Selector == "" {
+			onCycle.Emit(0, ir.Call{Path: pe.Path})
+		} else {
+			onCycle.Emit(0, ir.FanOut{Selector: pe.Selector, Path: pe.Path})
+		}
+	}
+	for _, ticks := range roots(order, periods) {
+		emitPeriodDrive(onCycle, 0, path, ticks, ticks, periods)
+	}
+	onCycle.SetTerm(0, ir.Return{})
+
+	for _, ticks := range order {
+		if ticks == 1 {
+			continue
+		}
+		buildDispatcher(prog, path, ticks, periods)
+	}
+
+	cyc := prog.NewFunc(path("cycle"))
+	cyc.Func().Exported = true
+	cyc.Emit(0, ir.Raw{Text: fmt.Sprintf("function %s unless @e[tag=%s]", path("make_clock"), clockTag)})
+	cyc.Emit(0, ir.Raw{Text: fmt.Sprintf("execute @e[tag=%s,c=1] ~ ~ ~ function %s", clockTag, path("on_cycle"))})
+}
+
+// roots lists the periods on_cycle drives directly: those no smaller period
+// divides. 1 is never a root because on_cycle IS the one-tick period.
+func roots(order []int, periods map[int][]lower.PeriodEntry) []int {
+	var out []int
+	for _, t := range order {
+		if t == 1 {
+			continue
+		}
+		divided := false
+		for _, other := range order {
+			if other < t && t%other == 0 {
+				divided = true
+				break
+			}
+		}
+		if !divided {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// downstream lists the periods a given one drives.
+//
+// A period drives another when it divides it and no CLOSER period also
+// divides it -- otherwise the intermediate would advance twice.
+func downstream(order []int, from int) []int {
+	var out []int
+	for _, t := range order {
+		if t <= from || t%from != 0 {
+			continue
+		}
+		closer := false
+		for _, mid := range order {
+			if mid > from && mid < t && t%mid == 0 {
+				closer = true
+				break
+			}
+		}
+		if !closer {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// periodCounter names a period's counter objective.
+//
+// Keyed on the TICK COUNT, never on the written duration: `5s` and
+// `100ticks` are one period, so they must be one counter. `p.<ticks>` also
+// stays inside the 16-character objective limit for any period a program
+// would write.
+func periodCounter(ticks int) string { return fmt.Sprintf("p.%d", ticks) }
+
+// emitPeriodDrive appends the counter increment and guarded call for a period.
+func emitPeriodDrive(fb *ir.FuncBuilder, block ir.BlockID, path func(string) string, ticks, ratio int, periods map[int][]lower.PeriodEntry) {
+	obj := periodCounter(ticks)
+	fb.Emit(block, ir.Add{Dst: ir.Loc{Holder: ir.SelfHolder, Obj: obj}, Value: 1})
+	fb.Emit(block, ir.Raw{Text: fmt.Sprintf(
+		"function %s if @s[score_%s_min=%d,score_%s=%d]",
+		path(fmt.Sprintf("every/%dt", ticks)), obj, ratio, obj, ratio)})
+}
+
+// buildDispatcher emits one period's entry: reset the counter, run every body
+// registered for this period, then drive the periods it divides.
+//
+// The reset comes FIRST and unconditionally. Putting it after the bodies
+// meant an early `return` in one of them skipped it, and the period then
+// fired every tick forever.
+func buildDispatcher(prog *ir.Program, path func(string) string, ticks int, periods map[int][]lower.PeriodEntry) {
+	fb := prog.NewFunc(path(fmt.Sprintf("every/%dt", ticks)))
+	fb.Func().Exported = true
+	fb.Emit(0, ir.Set{Dst: ir.Loc{Holder: ir.SelfHolder, Obj: periodCounter(ticks)}, Value: 0})
+	for _, pe := range periods[ticks] {
+		if pe.Selector == "" {
+			fb.Emit(0, ir.Call{Path: pe.Path})
+		} else {
+			fb.Emit(0, ir.FanOut{Selector: pe.Selector, Path: pe.Path})
+		}
+	}
+	order := make([]int, 0, len(periods))
+	for t := range periods {
+		order = append(order, t)
+	}
+	for _, down := range downstream(order, ticks) {
+		emitPeriodDrive(fb, 0, path, down, down/ticks, periods)
+	}
+	fb.SetTerm(0, ir.Return{})
+}
+
+// clockTag marks the entity that carries the module's clock.
+const clockTag = "ggm.clock"
 
 // bootPath is the module-wide load entry.
 //
@@ -237,6 +414,7 @@ func bootPath(ns string) string { return ns + "/boot" }
 
 // cyclePath is the module-wide tick entry, the one gameLoopFunction names.
 func cyclePath(ns string) string { return ns + "/cycle" }
+
 // collectSigs records every function a file declares, qualified the way the
 // lowerer names them.
 func collectSigs(f *syntax.File, out map[string]int) {

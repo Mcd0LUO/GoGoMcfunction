@@ -16,6 +16,109 @@
 
 ---
 
+## [0.18.0] - 2026-10-21
+
+### 破坏性：`on` 家族删除，入口变成声明上的属性
+
+```ggm
+on load { seed.ready = 1 }
+on every 5s { counter = counter + 1 }
+[selector(@e[tag=mob])]
+class Monster {
+    on spawn { hp = 40 }
+    @tick fn tick() { hp = hp + 1 }
+}
+```
+
+现在是：
+
+```ggm
+[load]
+fn on_load() { seed.ready = 1 }
+
+[every("5s")]
+fn heartbeat() { counter = counter + 1 }
+
+[selector(@e[tag=mob])]
+class Monster {
+    var hp: int = 40
+
+    [spawn]
+    fn spawned() { hp = 40 }
+
+    [every("1tick")]
+    fn tick() { hp = hp + 1 }
+}
+```
+
+改动有四处，每一处都在**减少**语言里的东西：
+
+| 之前 | 之后 | 少了什么 |
+|---|---|---|
+| `on load` / `on tick` / `on every N` | `[load]` / `[every("N")]` | `on`、`load`、`tick`、`every` 四个关键字 |
+| `#[wrapping]` 与 `[selector(...)]` 两套括号 | 一套 `[a, b(...)]` | 一个词法单位 `#` |
+| 时长是词法单位 `DURATION` | 字符串字面量 `"5s"` | 整个 `DURATION` token、单位表和 `unitAhead()` |
+| `@tick fn` 方法 | `[every("1tick")] fn` 方法 | `@tick`，以及方法专用的一套语法 |
+
+属性是**遍历的**，不是内联的：编译期读列表，按名字分派。加一个属性不改语法。
+
+### `[death]` 删除
+
+它从来没能工作过：1.12.2 无法观察一个已经消失的实体，唯一正确的实现需要影子
+实体。留着它意味着一个永远报错的属性——一个**问题**，不是功能。
+现在写 `[death]` 报 `E_ATTR_UNKNOWN`，和拼错一样。
+
+### 周期的身份是 tick 数，不是写法
+
+```ggm
+[every("5s")]   fn slow() { }
+[every("100ticks")] fn also_slow() { }
+```
+
+两个声明，一个周期：一个计数器 `p.100`、一个调度器 `every/100t`，两个函数都
+在里面。之前按写法命名，会生成两个计数器互相漂移——而各自单独看都正确。
+
+调度器名从 `every/5s` 变成 `every/100t`，计数器从 `p.5s` 变成 `p.100`。
+
+### 周期链在模块级计算
+
+之前每个文件各自算链，所以 `a.ggm` 和 `b.ggm` 里都写 `[every("5s")]` 会各生成
+一个 `p.100`，两个调度器抢同一个计数器。现在周期和 `boot` 一样是模块级事实：
+收集所有文件的周期，按 tick 数合并，再统一生成时钟。
+
+### `[load]` 不再占用 `<ns>/load`
+
+入口函数保留作者写的名字。之前它被强制改名为 `<ns>/load`，于是同一模块里两个
+`on load` 必然撞车（`E_FN_COLLISION`），而那个名字也正是用户函数可能想用的名字。
+现在 `boot` 按名字调用每一个 `[load]` 函数。
+
+### `1tick` 内联进 `on_cycle`
+
+计数到 1 的计数器是两条废命令加一个恒真判断。`[every("1tick")]` 的函数体现在
+直接出现在 `on_cycle` 里，没有 `p.1`，也没有 `every/1t`。
+
+### 同时触发时取交集
+
+`[load, every("5s")]` 的函数**没有** `@s`：两种触发上下文里有一种没有，交集就
+是没有。这是纯局部规则，不需要调用图分析。
+
+### 新增诊断
+
+| 代码 | 触发 |
+|---|---|
+| `E_ATTR_UNKNOWN` | 属性不在表里（`[death]`、`[wraping]`） |
+| `E_ATTR_DUP` | 同一属性写了两次（`[every("1s"), every("5s")]`） |
+| `E_EVERY_ARG` | `every` 的参数不是时长字符串字面量 |
+| `E_LOAD_PARAMS` | `[load]` 函数带参数 |
+
+### 内部
+
+- `syntax.OnDecl`、`syntax.ClassEvent`、`Method.Tick`、`FuncDecl.Wrapping`、
+  `FuncDecl.Export` 全部删除，统一成 `[]Attr`。
+- `PeriodEntry` / `SpawnEntry` 成为 `lower.Result` 的一部分，由 driver 合并。
+- 时钟生成（`cycle` / `make_clock` / `on_cycle` / `every/<n>t`）从 `lower` 搬到
+  `driver`，因为它需要看见整个模块。
+- `syntax.ParseDuration` 是时长换算的唯一实现。
 ## [0.17.0] - 2026-10-21
 
 ### 破坏性：入口函数没有执行者，`on tick` 被删除
@@ -457,7 +560,7 @@ loop  i > 0, budget 32 { }
 （中间曾试过 `cap 64`，但那是在 GGM 已有的两个记号之间又加了第三个：
 `<…>` 是构造的参数，`#[…]` 是可选的修饰，而 `cap` 什么都不是。）
 
-`#[…]` 在 GGM 里是**属性**语法（`#[wrapping]`、`#[selector]`），含义是「可选的修饰」。
+`#[…]` 在 GGM 里是**属性**语法（`[wrapping]`、`[selector]`），含义是「可选的修饰」。
 而预算是循环的**操作数**——漏了直接报错。必填的东西打扮成可选的，读者会以为可以省；
 而省掉的后果是无限递归，1.12.2 不会报错，只会卡死服务器。
 
@@ -558,7 +661,7 @@ ggm -out data/functions  app.ggm  stdlib/math.ggm
 fn run() -> int { std:math/sqrt(144) }
 ```
 
-新增 `#[export]`：库函数在库内部看不到调用者，没有这个属性
+新增 `[export]`：库函数在库内部看不到调用者，没有这个属性
 每个都会报 `W_UNREACHABLE_FN`。
 
 **约定：调用方放第一个。** 合并后只有一份 `<ns>/init` 和一份常量池，
@@ -1006,7 +1109,7 @@ diff 里显形。详见 [docs/BASELINE.md](docs/BASELINE.md)。
   **命名空间和路径都转小写**。`fn Foo` 与 `fn foo` 因此是同一个函数
   （`Foo() + foo()` 曾返回 4），而 `fn init()` 会覆盖编译器生成的目标声明函数，
   让整个程序失去全部 objective。
-- 未知属性不再被静默接受。`#[wraping]`（拼错）原先照样通过，因为解析器只读
+- 未知属性不再被静默接受。`[wraping]`（拼错）原先照样通过，因为解析器只读
   `attrs["wrapping"]` 一项。
 
 ### 变更

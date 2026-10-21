@@ -2,7 +2,7 @@
 
 === luo:math/boot ===
 function luo:math/comptime
-function luo:math/load
+function luo:math/on_load
 === luo:math/comptime ===
 scoreboard players set #math.-1 math -1
 scoreboard players set #math.0 math 0
@@ -42,7 +42,7 @@ scoreboard players operation @s return = #1103515245 ggm.c
 scoreboard players operation @s return *= @s a0
 scoreboard players operation @s return += #1234 ggm.c
 scoreboard players operation @s return %= #67108864 ggm.c
-=== luo:math/load ===
+=== luo:math/on_load ===
 scoreboard players set seed math 12345
 === luo:math/sqrt ===
 scoreboard players operation @s l2 = @s a0

@@ -1,4 +1,4 @@
-# Baseline：ggm 0.17.0
+# Baseline：ggm 0.18.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -97,14 +97,19 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 
 - **`W_UNREACHABLE_FN` 会误报**：从命令方块或 `gameLoopFunction` 调用的函数会被标成无人调用。
   这是设计上的取舍，不是缺陷——消息里写明了这个出口。
-- **`on death` 只有空体能编译。** 非空体会报 `E_HOOK_UNSUPPORTED`——1.12.2 无法观察
-  已经消失的实体，正确实现需要影子实体，目前没做。
-- **`on spawn` 需要每 tick 调一次 `<ns>/spawn`**，否则实体永远不会被处理。
+- **`[death]` 不存在。** 1.12.2 无法观察已经消失的实体，正确实现需要影子实体。
+  与其留一个永远报错的属性，不如不写——它现在就是一个未知属性，报 `E_ATTR_UNKNOWN`。
+- **`[spawn]` 由 `on_cycle` 驱动**，所以世界必须每 tick 跑一次 `<ns>/cycle`，
+  否则实体永远不会被处理。
 - **入口只有两个，都要用户接线**：`<ns>/boot`（世界加载，命令方块）与 `<ns>/cycle`
   （`gamerule gameLoopFunction`）。1.12.2 没有 load 事件。
-- **`on load` 里没有 `@s`**，写实体分数报 `E_NO_SELF_CONTEXT`。用假玩家
+- **`[load]` 里没有 `@s`**，写实体分数报 `E_NO_SELF_CONTEXT`。用假玩家
   （`extern X: int = seed.x`）。
-- **`on tick` 已删除**，替代是 `on every 1tick`。
+- **`[load]` 函数不能带参数**（`E_LOAD_PARAMS`）：世界加载时没人能给它。
+- **同时触发取交集**：`[load, every("5s")]` 的函数没有 `@s`，因为两种上下文里
+  有一种没有。
+- **`on` 家族已删除**（`on load` / `on tick` / `on every` / `on spawn` / `on death`），
+  全部改成声明上的属性：`[load]`、`[every("...")]`、`[spawn]`。
 - **字段 objective 名截断到 16 字符**，类名前 6 字符相同的两个类会撞车（`E_FIELD_COLLISION`）。
 - **类选择器只能是 1.12.2 选择器语法**，编译器按字面拼接，不校验。
 - **规范第 7 节「计划中」那张表里的检查都不存在**（`W_WRAP_UNPROVEN`、

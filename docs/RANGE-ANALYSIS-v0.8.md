@@ -22,7 +22,7 @@
 
 这三个都在**值域分析的作用域之内**。如果先做值域分析而不先修它们，分析器会把 B 的差值槽当成「已知不溢出」而放过，把 C 的 `rem_euclid` 当成「取模不溢出」而放过 —— **检查器给出了错误的安全结论**，比没有检查器更危险。
 
-**建议顺序**：先修 A/B/C（各自 1–3 条测试即可钉死）→ 再做阶段 1（格 + 收窄 + 传递函数）→ 阶段 2（`#[range]`）在阶段 1 精度实测达标后再评估。
+**建议顺序**：先修 A/B/C（各自 1–3 条测试即可钉死）→ 再做阶段 1（格 + 收窄 + 传递函数）→ 阶段 2（`[range]`）在阶段 1 精度实测达标后再评估。
 
 ---
 
@@ -303,11 +303,11 @@ clamp.ggm:3:5: error: clamp is a builtin that this build does not implement in t
 
 **设计稿 3.4 的「值从哪来」表里，`clamp` 是最有用的一条来源（`:257`），而它不存在。** 这意味着阶段 1 的「值从哪来」在当前构建里**少了一半**。
 
-### 反例 6：`#[wrapping]` 的「2 的幂取模免标注」豁免是**不成立的**
+### 反例 6：`[wrapping]` 的「2 的幂取模免标注」豁免是**不成立的**
 
 语法规范 `docs/GGM-语法规范-v1.0.md:186`：
 
-> `#[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。
+> `[wrapping]` 注解关闭溢出检查（LCG 需要）；若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注。
 
 **这个豁免是错的。** 2 的幂取模**只有在乘加本身不溢出时**才等价。
 
@@ -325,7 +325,7 @@ clamp.ggm:3:5: error: clamp is a builtin that this build does not implement in t
     return/R = -2364649
 ```
 
-**所以 `lcg_step` 的 `#[wrapping]` 是必要的** —— 规范说的「2 的幂可免标注」在这个例子上**恰好是错的**。如果按规范豁免，`lcg_step` 就不标 `#[wrapping]`，而它**必须**标。
+**所以 `lcg_step` 的 `[wrapping]` 是必要的** —— 规范说的「2 的幂可免标注」在这个例子上**恰好是错的**。如果按规范豁免，`lcg_step` 就不标 `[wrapping]`，而它**必须**标。
 
 **这直接回答 Q5**：设计稿 3.6「`luo/math/lcg_step` 是唯一合法的用户——它的设计就是要回绕」**方向对但不完备**，而且 `luo-math.ggm:33` 的 `is_happen_fix1000` 是**第二个**必须标却没标的。
 
@@ -637,7 +637,7 @@ widen(old, new):
 
 ---
 
-## Q5 `#[wrapping]` 联动
+## Q5 `[wrapping]` 联动
 
 ### `W_WRAP_UNPROVEN` 的报出条件
 
@@ -646,7 +646,7 @@ widen(old, new):
 设计稿说：
 
 > - 函数体所有算术都能证明不溢出 → 不需要注解
-> - 有任一无法证明 → 报 `W_WRAP_UNPROVEN`，除非标了 `#[wrapping]`
+> - 有任一无法证明 → 报 `W_WRAP_UNPROVEN`，除非标了 `[wrapping]`
 
 **这会导致「不能证明就报」= 高误报率**（见下面的估算）。**建议改成「能证明会溢出才报」**：
 
@@ -659,14 +659,14 @@ widen(old, new):
 
 **理由**：⊤ 意味着「不知道」，不是「会溢出」。把「不知道」报成警告会产生海量误报（Q5 估算显示 `sqrt` 的 `n / x` 就是 ⊤ 形态）。**报告「能证明溢出」比「不能证明安全」有用得多**，因为前者是**确定的 bug**。
 
-**但是**：`#[wrapping]` 的语义是「关闭溢出检查」，如果 ⊤ 不报，那 `#[wrapping]` 就**几乎没用**（只在能证明溢出时压制警告）。这其实**正是它该有的样子**：`#[wrapping]` 用来声明「**这里就是要回绕**」，比如 `lcg_step`。
+**但是**：`[wrapping]` 的语义是「关闭溢出检查」，如果 ⊤ 不报，那 `[wrapping]` 就**几乎没用**（只在能证明溢出时压制警告）。这其实**正是它该有的样子**：`[wrapping]` 用来声明「**这里就是要回绕**」，比如 `lcg_step`。
 
 **所以最终建议**：
 
 | 情况 | 是否报 `W_WRAP_UNPROVEN` |
 |---|---|
 | 区间 ⊆ int32 | 否 |
-| 区间 ⊄ int32（**能证明溢出**） | **是**（除非 `#[wrapping]`） |
+| 区间 ⊄ int32（**能证明溢出**） | **是**（除非 `[wrapping]`） |
 | 区间 = ⊤（不知道） | **否**（阶段 1），但可另发一条 `W_RANGE_UNKNOWN` 之类的提示（**建议不做**，会是噪声） |
 
 ### 估算：`examples/luo-math-full.ggm`
@@ -724,7 +724,7 @@ TOTAL: wrap=5 cmpdiff=3 divzero=1 | reported (wrapping fns suppressed) = 6
 | 差值槽溢出（`cmpdiff`） | **3** | **3** |
 | 除零警告（`divzero`，无收窄） | **1** | **1** |
 | 除零警告（**有**收窄） | **0** | **0** |
-| `#[wrapping]` 压制后**实际报出** | **8** | **6** |
+| `[wrapping]` 压制后**实际报出** | **8** | **6** |
 
 **误报分析**（这是任务要求的核心）：
 
@@ -738,7 +738,7 @@ TOTAL: wrap=5 cmpdiff=3 divzero=1 | reported (wrapping fns suppressed) = 6
 | `sqrt`: 差值槽 `n < 4` | `n` ⊤ | **误报** |
 | `sqrt`: 差值槽 `abs(...) >= 1` | ⊤ | **误报** |
 | `sqrt`: `x + n / x` | `n / x` 的除数 `x` ⊤ → 结果 ⊤ | **误报** |
-| `lcg_step`: `LCG_A * s` | `s` 是参数 ⊤ | **误报**（但 `lcg_step` 有 `#[wrapping]`，被压制） |
+| `lcg_step`: `LCG_A * s` | `s` 是参数 ⊤ | **误报**（但 `lcg_step` 有 `[wrapping]`，被压制） |
 | `lcg_step`: `LCG_A * s + LCG_C` | 同上 | **误报**（被压制） |
 | `sqrt`: `n / x` 除零 | `x = n/4`，`n` ⊤ → `x` ⊤ | **真阳性**（`x` 确实可能是 0） |
 
@@ -749,7 +749,7 @@ TOTAL: wrap=5 cmpdiff=3 divzero=1 | reported (wrapping fns suppressed) = 6
 - 如果按设计稿 3.6 的「**不能证明安全就报**」：**`luo-math-full.ggm` 会产生 8 条 `W_WRAP_UNPROVEN` + 1 条 `W_DIV_ZERO`，其中 8 条全是误报，误报率 100%**。
 - 如果按我建议的「**能证明溢出才报**」：**产生 0 条 `W_WRAP_UNPROVEN`**（全是 ⊤），`W_DIV_ZERO` 1 条（`sqrt` 的 `n / x`，真阳性）。
 
-**`#[wrapping]` 的必要性**（设计稿 3.6 的验收标准「标了 `#[wrapping]` 的只有它，且它必须是必要的」）：
+**`[wrapping]` 的必要性**（设计稿 3.6 的验收标准「标了 `[wrapping]` 的只有它，且它必须是必要的」）：
 
 **它确实是必要的**，但**理由不是设计稿说的那个**。
 
@@ -768,7 +768,7 @@ fn is_happen_fix1000(p: int) -> bool {
 }
 ```
 
-**这与 `lcg_step` 的算式完全相同**（同一个 `LCG_A`/`LCG_C`/`LCG_M`），只是**没有标 `#[wrapping]`**。
+**这与 `lcg_step` 的算式完全相同**（同一个 `LCG_A`/`LCG_C`/`LCG_M`），只是**没有标 `[wrapping]`**。
 
 **实测确认两者算术恒等**（`chk2.go`，int32 语义）：
 
@@ -786,18 +786,18 @@ identical? true
 
 **结论**：
 
-1. **`luo-math.ggm` 的 `is_happen_fix1000` 是一个**漏标 `#[wrapping]`** 的 LCG 用户**。按设计稿 3.6 的验收标准（「只有它」），**仓库现状就已经不满足**。一旦 `W_WRAP_UNPROVEN` 实现，**它会报一条**（`SEED * LCG_A` 和 `SEED * LCG_A + LCG_C` 都会溢出）。
-2. **`luo-math-full.ggm` 里 `lcg_step` 是唯一带 `#[wrapping]` 的**（`grep` 确认：只有 `:20` 一处），而 `luo-math.ggm` 也有 `is_happen_fix1000` 这个第二用户。
+1. **`luo-math.ggm` 的 `is_happen_fix1000` 是一个**漏标 `[wrapping]`** 的 LCG 用户**。按设计稿 3.6 的验收标准（「只有它」），**仓库现状就已经不满足**。一旦 `W_WRAP_UNPROVEN` 实现，**它会报一条**（`SEED * LCG_A` 和 `SEED * LCG_A + LCG_C` 都会溢出）。
+2. **`luo-math-full.ggm` 里 `lcg_step` 是唯一带 `[wrapping]` 的**（`grep` 确认：只有 `:20` 一处），而 `luo-math.ggm` 也有 `is_happen_fix1000` 这个第二用户。
 3. **更根本的问题**：规范 `GGM-语法规范-v1.0.md:186` 说「若函数体内有 `% M` 且编译器能证明 M 是 2 的幂，则无需标注」——**这个豁免是错的**（Q2 反例 6）。`lcg_step` **必须**标。
 
 **所以设计稿 3.6 的验收标准要改成**：
 
-> `#[wrapping]` 的合法用户 = **任何做 LCG 类回绕运算的函数**。
+> `[wrapping]` 的合法用户 = **任何做 LCG 类回绕运算的函数**。
 > 当前仓库里有 **2 个**：`luo-math-full.ggm:21` 的 `lcg_step`（已标）和
 > `luo-math.ggm:33` 的 `is_happen_fix1000`（**漏标**）。
 > 「2 的幂取模免标注」的豁免**必须删除**。
 
-### 关于 `#[wrapping]` 目前的「无作用」
+### 关于 `[wrapping]` 目前的「无作用」
 
 `internal/syntax/parser.go:205-209` 的注释自陈：
 
@@ -807,7 +807,7 @@ identical? true
 
 **`syntax.FuncDecl.Wrapping` 这个字段在整个仓库里没有任何消费者**（`grep` 全库：只有 `ast.go:148` 定义、`parser.go:323` 赋值、**无读取**）。
 
-**所以 `#[wrapping]` 的「联动」需要新 plumbing**：
+**所以 `[wrapping]` 的「联动」需要新 plumbing**：
 
 1. `syntax.FuncDecl.Wrapping` → `ir.Function` 需要一个对应字段（**`ir.Function` 目前没有**，见 `ir.go:30-47`）
 2. 分析器按函数查这个标志
@@ -1086,7 +1086,7 @@ scoreboard players operation @s return = @s l0
 | 验收命令 | `go test -count=1 ./...` + `go run ./cmd/ggm -check examples\luo-math-full.ggm` 看诊断数 |
 | **影响 golden？** | **否** —— `golden_test.go:74-79` 只在 `d.Severity == 0`（Error）时 fail，**Warning 不影响**。**确认**：`renderBaseline` 遍历 diags，`if d.Severity == 0 { t.Fatalf }` —— Error 才失败。✓ |
 
-#### 第 4 步：`W_WRAP_UNPROVEN` + `#[wrapping]` 联动
+#### 第 4 步：`W_WRAP_UNPROVEN` + `[wrapping]` 联动
 
 | 项 | 内容 |
 |---|---|
@@ -1107,21 +1107,21 @@ scoreboard players operation @s return = @s l0
 
 **但这一步会让 `examples/luo-math-full.ggm` 的 `sqrt` 报差值槽警告**（`n < 4`，`n` ⊤ → 不报；`abs(x-prev)>=1` → ⊤ → 不报）。按「能证明溢出才报」的规则，**不报**。
 
-#### 第 6 步：`luo-math.ggm` 的 `is_happen_fix1000` 补 `#[wrapping]`
+#### 第 6 步：`luo-math.ggm` 的 `is_happen_fix1000` 补 `[wrapping]`
 
 | 项 | 内容 |
 |---|---|
-| 改哪些文件 | `examples/luo-math.ggm`（加一行 `#[wrapping]`） |
+| 改哪些文件 | `examples/luo-math.ggm`（加一行 `[wrapping]`） |
 | 验收命令 | `go test -count=1 ./internal/driver -run GoldenBaseline` |
-| **影响 golden？** | **否** —— `#[wrapping]` 不改变生成的命令（它只影响诊断）。**但** `luo-math.o*.txt` 的 golden **内容不变**。✓ |
+| **影响 golden？** | **否** —— `[wrapping]` 不改变生成的命令（它只影响诊断）。**但** `luo-math.o*.txt` 的 golden **内容不变**。✓ |
 
 **注意**：这一改**是示例代码的修改**，不是编译器改动。**但它是必要的** —— 否则 `W_WRAP_UNPROVEN` 一上线，仓库自己的示例就报警告。
 
-#### 阶段 2（`#[range]` 注解）—— 建议**推迟**
+#### 阶段 2（`[range]` 注解）—— 建议**推迟**
 
 理由：
 1. 阶段 1 的精度**尚未实测**（本次只调研，未实现）
-2. `#[range]` 需要**跨过程**的区间（参数区间在调用点检查），这已经是阶段 3 的雏形
+2. `[range]` 需要**跨过程**的区间（参数区间在调用点检查），这已经是阶段 3 的雏形
 3. 语法改动要**先改规范**（`HANDOVER.md:441`）
 
 **但阶段 2 有一个阶段 1 就要做的准备工作**：`syntax.Param`（`ast.go:137-140`）目前只有 `Name` 和 `Type`，**没有位置信息**（没有 `Pos`）—— 而 `W_WRAP_UNPROVEN` / `E_RANGE_VIOLATION` 都需要**报在参数的位置上**。**建议阶段 1 就给 `syntax.Param` 加 `Pos`**（纯加字段，不改语义）。
@@ -1217,7 +1217,7 @@ func renderBaseline(t *testing.T, src, filename string, level optimize.Level) st
 ### 错误 7（严重）：3.6「`luo/math/lcg_step` 是唯一合法的用户」被仓库自己的代码证伪
 
 - **位置**：`docs/DESIGN-v0.7.md:303`
-- **反例**：`examples/luo-math.ggm:33-37` 的 `is_happen_fix1000` 算式**与 `lcg_step` 完全相同**，但**没有** `#[wrapping]`。
+- **反例**：`examples/luo-math.ggm:33-37` 的 `is_happen_fix1000` 算式**与 `lcg_step` 完全相同**，但**没有** `[wrapping]`。
 - **实测恒等**：
   ```
   lcg_step(12345)          = -2364649
@@ -1233,9 +1233,9 @@ func renderBaseline(t *testing.T, src, filename string, level optimize.Level) st
 - **反例**：`lcg_step(12345)`
   - **精确数学**（2 的幂取模）：`13622895699525 mod 67108864` = **64744215**
   - **运行期（int32 回绕）**：**-2364649**
-  - **两者不同** → 「2 的幂所以不用标 `#[wrapping]`」**推不出来**
+  - **两者不同** → 「2 的幂所以不用标 `[wrapping]`」**推不出来**
 - **真机确认**：`return/R = -2364649`
-- **后果**：`lcg_step` **必须**标 `#[wrapping]`。这个豁免必须从规范里删掉。
+- **后果**：`lcg_step` **必须**标 `[wrapping]`。这个豁免必须从规范里删掉。
 
 ### 错误 9（中）：3.6 的验收标准「不能证明就报」会导致 **100% 误报**
 
@@ -1454,7 +1454,7 @@ cd $dst; go build ./...   # exit 0
 | `internal/lower/call.go:143` | `reservedCalls` —— **`clamp` 未实现** |
 | `internal/lower/call.go:370-383` | `min`/`max` → `ir.Arith{Op:"<"/">"}` |
 | `internal/lower/call.go:384-396` | `rem_euclid` —— **bug C 的根因** |
-| `internal/lower/lower.go:547-557` | `lowerFunc` —— `#[wrapping]` 标志该挂这里 |
+| `internal/lower/lower.go:547-557` | `lowerFunc` —— `[wrapping]` 标志该挂这里 |
 | `internal/syntax/parser.go:205-209` | `funcAttrs` —— `wrapping` 被接受但不消费 |
 | `internal/syntax/parser.go:323-324` | `wrapping` → `syntax.FuncDecl.Wrapping` |
 | `internal/syntax/ast.go:76-81` | `syntax.AssignStmt` —— **有 `Op` 字段** |

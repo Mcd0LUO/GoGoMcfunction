@@ -8,8 +8,7 @@
 // The compiler implements a subset of the language. So the binary being
 // at 0.1 does not mean the language is at 0.1, and the language being at
 // 1.0 does not mean every sentence of the specification is implemented --
-// several entries in its checklist are marked as planned, and class
-// methods other than the tick entry point are not reachable yet.
+// several entries in its checklist are marked as planned.
 //
 // Printing both, together, is the only way to say that without a
 // footnote. See docs/BASELINE.md for what each number currently covers.
@@ -21,7 +20,7 @@ package version
 // change in incompatible ways between minor releases; that is the point
 // of staying below 1.0. Every released version is a baseline: a git tag,
 // a golden output tree under testdata/golden, and a CHANGELOG entry.
-const Version = "0.17.0"
+const Version = "0.18.0"
 
 // SpecVersion is the language specification this build targets.
 const SpecVersion = "1.0"

@@ -63,7 +63,6 @@ func TestDeclarationCannotTakeAGeneratedName(t *testing.T) {
 func TestOtherCollisionsAreCaught(t *testing.T) {
 	cases := []struct{ name, src string }{
 		{"duplicate", "namespace t:a\nfn foo() -> int { 1 }\nfn foo() -> int { 2 }\n"},
-		{"two load", "namespace t:a\non load { }\non load { }\n"},
 		{"method vs field init", "namespace t:a\n[selector(@e)]\nclass C {\n  var hp: int = 1\n  fn init() { }\n}\n"},
 		{"class name case", "namespace t:a\n[selector(@e)]\nclass C { var hp: int = 1 }\n[selector(@e)]\nclass c { var hp: int = 1 }\n"},
 	}
@@ -74,6 +73,16 @@ func TestOtherCollisionsAreCaught(t *testing.T) {
 				t.Fatalf("no collision reported, got %v", got)
 			}
 		})
+	}
+}
+
+// Two [load] functions no longer collide, and that is the point of the
+// attribute: they are ordinary functions with the author's names, so a
+// module can have as many as it likes and boot calls every one.
+func TestTwoLoadFunctionsCoexist(t *testing.T) {
+	src := "namespace t:a\n[load]\nfn alpha() { seed.a = 1 }\n[load]\nfn beta() { seed.b = 2 }\n"
+	if got := diagCodes(src); contains(got, "E_FN_COLLISION") {
+		t.Fatalf("two [load] functions collided: %v", got)
 	}
 }
 

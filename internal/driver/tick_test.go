@@ -22,7 +22,7 @@ func TestCycleAdvancesOnRealRuntime(t *testing.T) {
 	const src = `namespace t:s
 
 obj ticks
-on every 1tick { ticks = ticks + 1 }
+[every("1tick")] fn tmp() { ticks = ticks + 1 }
 `
 	files := compile(t, src, optimize.O2)
 	w, err := sim.NewWorld(files)
@@ -57,7 +57,7 @@ func TestOnLoadRefusesEntityScores(t *testing.T) {
 	msgs := compileDiags(`namespace t:s
 
 obj counter
-on load { counter = 7 }
+[load] fn loadfn() { counter = 7 }
 `)
 	if !hasCode(msgs, "E_NO_SELF_CONTEXT") {
 		t.Fatalf("want E_NO_SELF_CONTEXT, got %v", msgs)
@@ -70,10 +70,13 @@ func TestOnLoadAcceptsFakePlayerGlobals(t *testing.T) {
 	files := compile(t, `namespace t:s
 
 extern SEED: int = seed.ticks
-on load { SEED = 12345 }
+[load]
+fn on_load() { SEED = 12345 }
 `, optimize.O2)
 
-	body := files["t:s/load"]
+	// The function keeps the author's name now; it used to be <ns>/load,
+	// which is exactly the generated name a user function could collide with.
+	body := files["t:s/on_load"]
 	if !strings.Contains(body, "scoreboard players set seed ticks 12345") {
 		t.Fatalf("the fake-player write is missing:\n%s", body)
 	}
@@ -84,9 +87,10 @@ on load { SEED = 12345 }
 // would say so.
 func TestBootReachesTheOnLoadBody(t *testing.T) {
 	files := compile(t, `namespace t:app
-on load { seed.a = 1 }
+[load]
+fn on_load() { seed.a = 1 }
 `, optimize.O2)
-	if got := files["t:app/boot"]; !strings.Contains(got, "function t:app/load") {
+	if got := files["t:app/boot"]; !strings.Contains(got, "function t:app/on_load") {
 		t.Fatalf("boot does not call the on-load body:\n%s", got)
 	}
 }

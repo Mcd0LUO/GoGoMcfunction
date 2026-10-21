@@ -40,10 +40,11 @@ comptime {
     }
 }
 
-on load {
+[load]
+fn on_load() {
 }
 
-#[export]
+[export]
 fn read() {
     // 每次探测前清零：上一次的成功数会污染这一次。
     temp4 = 0

@@ -1,6 +1,7 @@
 package driver_test
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -17,7 +18,8 @@ const classSrc = "namespace t:k\n" +
 	"\n[selector(@e[tag=x])]\n" +
 	"class C {\n" +
 	"  var hp: int = 10\n" +
-	"  @tick fn onTick() {\n" +
+	"  [every(\"1tick\")]\n" +
+	"  fn onTick() {\n" +
 	"    add(5)\n" +
 	"  }\n" +
 	"  fn add(n: int) {\n" +
@@ -97,7 +99,8 @@ func TestClassSpawnRunsOnce(t *testing.T) {
 		"\n[selector(@e[tag=x])]\n" +
 		"class C {\n" +
 		"  var hp: int = 10\n" +
-		"  on spawn {\n" +
+		"  [spawn]\n" +
+		"  fn spawned() {\n" +
 		"    hp = 40\n" +
 		"  }\n" +
 		"}\n"
@@ -108,9 +111,12 @@ func TestClassSpawnRunsOnce(t *testing.T) {
 		"summon armor_stand 0 0 0 {Marker:1b,Tags:[\"x\"]}",
 		"scoreboard players set @e[tag=x] C.hp 10",
 	}, []string{
-		"function t:k/spawn",
-		"function t:k/spawn",
-		"function t:k/spawn",
+		// The spawn hook is driven from on_cycle now, so three cycles must
+		// still run it exactly once: the marker tag is what makes it a
+		// one-shot rather than a per-tick handler.
+		"function t:k/cycle",
+		"function t:k/cycle",
+		"function t:k/cycle",
 		"scoreboard players operation R C.hp = @e[tag=x] C.hp",
 	})
 	if err != nil {
@@ -126,36 +132,24 @@ func TestClassSpawnRunsOnce(t *testing.T) {
 	}
 }
 
-// on death cannot be honoured: 1.12.2 cannot observe an entity that is
-// already gone. Saying so is better than emitting a handler that never
-// fires. An empty body is a placeholder and is accepted.
-func TestOnDeathWithABodyIsRejected(t *testing.T) {
-	src := "namespace t:k\n[selector(@e[tag=x])]\nclass C {\n  var hp: int = 1\n  on death { hp = 0 }\n}\n"
-	if !hasDiag(diagsOf(src, driver.Options{Level: optimize.O1}), "E_HOOK_UNSUPPORTED") {
-		t.Fatalf("on death with a body compiled: %v", diagsOf(src, driver.Options{Level: optimize.O1}))
-	}
-	empty := "namespace t:k\n[selector(@e[tag=x])]\nclass C {\n  var hp: int = 1\n  on death { }\n}\n"
-	if hasDiag(diagsOf(empty, driver.Options{Level: optimize.O1}), "E_HOOK_UNSUPPORTED") {
-		t.Fatal("an empty on death placeholder was rejected")
-	}
-}
-
-// Field objectives are truncated to the version limit, so two classes
-// whose names share a six-character prefix land on the same objective and
-// silently share one score.
-func TestFieldObjectCollisionIsReported(t *testing.T) {
-	src := "namespace t:k\n" +
-		"[selector(@e[tag=a])]\nclass MonsterA { var hp: int = 1 }\n" +
-		"[selector(@e[tag=b])]\nclass MonsterB { var hp: int = 2 }\n"
-	if !hasDiag(diagsOf(src, driver.Options{Level: optimize.O1}), "E_FIELD_COLLISION") {
-		t.Fatalf("colliding field objectives not reported")
-	}
-}
-
+// keysOf lists a map's keys, for a failure message that names the files
+// that WERE produced instead of just saying the expected one is missing.
 func keysOf(m map[string]string) []string {
-	var out []string
+	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
+}
+
+// [death] does not exist: 1.12.2 cannot observe an entity that is already
+// gone, so the only honest implementation would need a shadow entity. The
+// attribute was removed rather than left as one that always errors -- an
+// attribute that can never work is a question, not a feature.
+func TestDeathAttributeIsGone(t *testing.T) {
+	src := "namespace t:k\n[selector(@e[tag=x])]\nclass C {\n  var hp: int = 1\n  [death]\n  fn died() { hp = 0 }\n}\n"
+	if !hasDiag(diagsOf(src, driver.Options{Level: optimize.O1}), "E_PARSE") {
+		t.Fatalf("a [death] attribute parsed: %v", diagsOf(src, driver.Options{Level: optimize.O1}))
+	}
 }

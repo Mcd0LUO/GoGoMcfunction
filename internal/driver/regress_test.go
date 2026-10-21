@@ -22,7 +22,7 @@ func TestDeclaredObjectiveReadsItself(t *testing.T) {
 	files := compile(t, `namespace t:d
 
 obj ticks
-on every 1tick { ticks = 7 }
+[every("1tick")] fn tmp() { ticks = 7 }
 fn bump() -> int {
   ticks = ticks + 1
   ticks
@@ -63,7 +63,7 @@ fn bump() -> int {
 func TestHolderObjectiveAssignment(t *testing.T) {
 	files := compile(t, `namespace t:h
 obj t
-on every 1tick { seed.t = 9 }
+[every("1tick")] fn tmp() { seed.t = 9 }
 `, optimize.O0)
 
 	var saw bool
@@ -159,7 +159,7 @@ fn spin() -> int {
 // silently discarded, the exact failure `obj` exists to prevent.
 func TestBroadcastObjectiveIsDeclared(t *testing.T) {
 	files := compile(t, `namespace t:w
-on every 1tick {
+[every("1tick")] fn tmp() {
   @e[tag=x] fresh = 1
 }
 `, optimize.O2)
@@ -188,7 +188,7 @@ func TestFanOutBodyRunsPerEntity(t *testing.T) {
 
 obj m
 obj d
-on every 1tick { m = 42 }
+[every("1tick")] fn tmp() { m = 42 }
 
 fn run() -> int {
   d = 0
@@ -243,7 +243,7 @@ func TestFanOutBodyIsNotPruned(t *testing.T) {
 	files := compile(t, `namespace t:f
 obj m
 obj d
-on every 1tick { m = 1 }
+[every("1tick")] fn tmp() { m = 1 }
 fn run() -> int {
   d = 0
   for e in entities<@e[tag=x]> {
@@ -349,8 +349,7 @@ func TestOnEveryFiresOncePerPeriod(t *testing.T) {
 	const src = `namespace t:p
 
 obj beats
-on every 1tick { }
-on every 1s { beats = beats + 1 }
+[every("1s")] fn everyfn1() { beats = beats + 1 }
 `
 	files := compile(t, src, optimize.O2)
 	w, err := sim.NewWorld(files)
@@ -389,12 +388,12 @@ func TestOnEveryResetsBeforeAnEarlyReturn(t *testing.T) {
 obj beats
 fn helper() -> int { 1 }
 
-on every 2s { return }
+[every("2s")] fn everyfn2() { return }
 `, optimize.O2)
 
 	var entry string
 	for name, b := range files {
-		if strings.HasSuffix(name, "/every/2s") {
+		if strings.HasSuffix(name, "/every/40t") {
 			entry = b
 		}
 	}
@@ -411,7 +410,7 @@ on every 2s { return }
 // becoming an entry that never fires.
 func TestOnEveryRejectsUnknownUnits(t *testing.T) {
 	msgs := compileDiags(`namespace t:p
-on every 3fortnight { }
+[every("3fortnight")] fn everyfn3() { }
 `)
 	if !hasCode(msgs, "E_PARSE") {
 		t.Fatalf("want a parse error for an unschedulable duration, got %v", msgs)
@@ -420,25 +419,24 @@ on every 3fortnight { }
 
 // Periods form a CHAIN, not a fan-out.
 //
-// The tick entry drives only the fastest period. Every other period is driven
-// by the closest shorter period that divides it, so each counter counts to a
-// ratio rather than to an absolute duration:
+// on_cycle IS the one-tick period, so a [every("1tick")] body is inlined
+// there rather than given a counter that would read 1 every tick. Everything
+// else is driven by the closest shorter period that divides it, so each
+// counter counts a RATIO rather than an absolute duration:
 //
-//	tick  -> 1ticks
-//	1ticks -> 2ticks(2), 3ticks(3), 5ticks(5)
-//	5ticks -> 1s(20/5=4)
-//	1s     -> 3s(3), 5s(5)
+//	on_cycle -> 2ticks(2), 3ticks(3), 5ticks(5)
+//	5ticks   -> 1s(20/5=4)
+//	1s       -> 3s(3)
 //
-// Driving every period from the tick entry instead would cost one counter and
-// one guarded call per period per tick, which is what the chain avoids.
+// Driving every period from on_cycle instead would cost one counter and one
+// guarded call per period per tick, which is what the chain avoids.
 func TestPeriodChainShape(t *testing.T) {
 	files := compile(t, `namespace t:c
 obj n
-on every 1ticks { }
-on every 2ticks { }
-on every 5ticks { }
-on every 1s { }
-on every 3s { }
+[every("2ticks")] fn a() { }
+[every("5ticks")] fn b() { }
+[every("1s")] fn c() { }
+[every("3s")] fn d() { }
 `, optimize.O2)
 
 	read := func(suffix string) string {
@@ -450,37 +448,39 @@ on every 3s { }
 		return ""
 	}
 
-	// The clock entry drives exactly one period.
+	// The clock entry drives the periods no smaller period divides: 2 and 5
+	// ticks. 1s is driven by 5ticks, and 3s by 1s.
 	onCycle := read("/on_cycle")
-	if got := strings.Count(onCycle, "function t:c/every/"); got != 1 {
-		t.Errorf("the clock entry drives %d periods, want 1:\n%s", got, onCycle)
+	if got := strings.Count(onCycle, "function t:c/every/"); got != 2 {
+		t.Errorf("on_cycle drives %d periods, want 2:\n%s", got, onCycle)
 	}
 
-	// 5ticks drives 1s with ratio 4, not 20: the counter advances once per
+	// 5ticks drives 1s with ratio 4, not 20: its counter advances once per
 	// firing of 5ticks, so it only needs to reach 20/5.
-	five := read("/every/5ticks")
+	five := read("/every/5t")
 	if !strings.Contains(five, "score_p.20_min=4,score_p.20=4") {
-		t.Errorf("5ticks should drive 1s at ratio 4:\n%s", five)
+		t.Errorf("5t should drive 20t at ratio 4:\n%s", five)
 	}
 	if strings.Contains(five, "score_p.20_min=20") {
-		t.Errorf("5ticks uses the absolute period instead of the ratio:\n%s", five)
+		t.Errorf("5t uses the absolute period instead of the ratio:\n%s", five)
 	}
 
-	// 1ticks must not drive 1s directly: 5ticks sits between them.
-	one := read("/every/1ticks")
-	if strings.Contains(one, "every/1s") {
-		t.Errorf("1ticks drives 1s directly, skipping 5ticks:\n%s", one)
+	// 2t must not drive 20t directly: 5t sits between them.
+	two := read("/every/2t")
+	if strings.Contains(two, "every/20t") {
+		t.Errorf("2t drives 20t directly, skipping 5t:\n%s", two)
 	}
 }
 
-// Counter objectives are named from the tick count, so two periods that differ
-// only in how they are spelled share ONE counter. 5s and 5ticks both once read
-// p.100, and 1s read p.20 while 100ms also read p.100.
+// A period's identity is its TICK COUNT, never its spelling: `5s` and
+// `100ticks` are one period with one counter and one dispatcher. Keying on
+// the written text gave two counters that drifted apart, and each looked
+// correct in isolation.
 func TestPeriodCountersDoNotCollide(t *testing.T) {
 	files := compile(t, `namespace t:c
 obj n
-on every 5ticks { }
-on every 5s { }
+[every("5ticks")] fn everyfn9() { }
+[every("5s")] fn everyfn10() { }
 `, optimize.O2)
 
 	seen := map[string]string{}
@@ -506,7 +506,7 @@ on every 5s { }
 // cadence nobody asked for, so it is rejected instead.
 func TestSubTickDurationIsRejected(t *testing.T) {
 	msgs := compileDiags(`namespace t:c
-on every 100ms { }
+[every("100ms")] fn everyfn11() { }
 `)
 	if !hasCode(msgs, "E_PARSE") {
 		t.Fatalf("want a parse error for a sub-tick duration, got %v", msgs)
@@ -546,19 +546,26 @@ func TestDurationIsOneToken(t *testing.T) {
 }
 
 // The singular `tick` must work in source, which is what the single token buys.
-func TestOnEveryAcceptsSingularTick(t *testing.T) {
+// A one-tick period IS the cycle, so it is inlined there instead of getting a
+// counter that would read 1 every tick -- two wasted commands and a guard
+// that is always true.
+func TestOneTickPeriodIsInlinedIntoTheCycle(t *testing.T) {
 	files := compile(t, `namespace t:d
 obj n
-on every 1tick { n = 0 }
+[every("1tick")] fn tick_body() { n = n + 1 }
 `, optimize.O2)
 
-	var entry string
-	for name, b := range files {
-		if strings.HasSuffix(name, "/every/1tick") {
-			entry = b
-		}
+	entry, ok := files["t:d/on_cycle"]
+	if !ok {
+		t.Fatalf("no on_cycle was generated; files: %v", keysOf(files))
 	}
-	if !strings.Contains(entry, "scoreboard players set @s p.1 0") {
-		t.Errorf("on every 1tick did not produce a one-tick period:\n%s", entry)
+	if !strings.Contains(entry, "function t:d/tick_body") {
+		t.Errorf("the one-tick body is not called from on_cycle:\n%s", entry)
+	}
+	if strings.Contains(entry, "p.1") {
+		t.Errorf("the one-tick period still has a counter:\n%s", entry)
+	}
+	if _, ok := files["t:d/every/1t"]; ok {
+		t.Error("a dispatcher was generated for the one-tick period")
 	}
 }

@@ -67,9 +67,7 @@ func (l *Lexer) Lex() ([]Token, error) {
 				}
 				continue
 			}
-			if c == '#' && l.peekAt(1) == '[' {
-				break
-			}
+
 			break
 		}
 
@@ -116,17 +114,6 @@ func (l *Lexer) Lex() ([]Token, error) {
 			for unicode.IsDigit(l.peek()) {
 				l.advance()
 			}
-			// Digits followed immediately by a time unit are one duration
-			// literal. `5s` and `1tick` are single tokens; `5` alone stays an
-			// integer, and `5x` stays an integer followed by an identifier so
-			// every existing error reads the same.
-			if u := l.unitAhead(); u != "" {
-				for i := 0; i < len(u); i++ {
-					l.advance()
-				}
-				toks = append(toks, Token{Kind: DURATION, Text: string(l.src[start:l.i]), Pos: p})
-				continue
-			}
 			toks = append(toks, Token{Kind: INT, Text: string(l.src[start:l.i]), Pos: p})
 		case c == '"':
 			s, err := l.lexQuoted("string literal")
@@ -142,38 +129,6 @@ func (l *Lexer) Lex() ([]Token, error) {
 			toks = append(toks, t)
 		}
 	}
-}
-
-// durationUnits are the suffixes a duration literal may carry.
-//
-// Longest first: "seconds" must be tried before "s", or the lexer stops after
-// one character and the rest becomes an identifier.
-var durationUnits = []string{
-	"seconds", "second", "secs", "sec",
-	"minutes", "minute", "mins", "min",
-	"ticks", "tick",
-	"s", "m",
-}
-
-// unitAhead reports which duration unit starts at the current position, or "".
-func (l *Lexer) unitAhead() string {
-	rest := l.src[l.i:]
-	for _, u := range durationUnits {
-		if !strings.HasPrefix(string(rest), u) {
-			continue
-		}
-		// The character after the unit must not continue a word, or `5secx`
-		// would lex as 5sec followed by x.
-		if len(rest) > len(u) && isIdentChar(rune(rest[len(u)])) {
-			continue
-		}
-		return u
-	}
-	return ""
-}
-
-func isIdentChar(c rune) bool {
-	return unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_'
 }
 
 // lexQuoted reads a double-quoted literal, assuming the opening quote is the
