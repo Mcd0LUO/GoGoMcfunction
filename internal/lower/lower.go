@@ -526,6 +526,12 @@ type fnCtx struct {
 	path   string
 	params []string
 	scope  map[string]string
+	// loopVar names the entity @s is bound to inside a
+	// `for e in entities<...>` body. `execute <sel> ~ ~ ~ function <body>`
+	// rebinds @s to each matched entity, so `e.field` and `@s.field` are the
+	// same score. Without this, `e.field` fell through to the
+	// holder.objective shorthand and wrote a fake player named `e`.
+	loopVar string
 	// localN points at the module's local counter, not a per-function one.
 	//
 	// A local is an objective on @s, and @s is a single register file

@@ -302,6 +302,13 @@ const NoSelfHolder = "#ggm.reg"
 // ConstObjective is the objective every literal lives on.
 const ConstObjective = "ggm.c"
 
+// TempPrefix starts every compiler-allocated scratch objective: `#t0`, `#t1`.
+//
+// `#` cannot begin an author's identifier, so no declaration can collide with
+// a temporary. Plain `t0` could: an author's `obj t1` was taken for a scratch
+// slot, renamed by the coalescer, and the write vanished with no diagnostic.
+const TempPrefix = "#t"
+
 // ConstName is the canonical fake-player name for a literal.
 // Negative values use an 'n' instead of '-' for portability across versions.
 func ConstName(v int) string {

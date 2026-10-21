@@ -313,22 +313,35 @@ func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.B
 	//	function t:e/ne     unless @s[score_t3=0,score_t3_min=0]
 	//
 	// `unless @s[c]` means c does not hold, which is exactly the
-	// complement, and it runs in the CURRENT execution context -- the same
-	// entity the guarded calls would have resolved @s to.
+	// ORDER MATTERS: the negated call goes FIRST.
+	//
+	// Both calls name the same condition objective, and the arm they call
+	// may overwrite it -- a nested `if` recomputes the same temporary, and
+	// `@s` is one register file shared by the whole call stack. Emitting
+	//
+	//	function t:f$b1 if @s[score_t0=0]
+	//	function t:f$b2 unless @s[score_t0=0]
+	//
+	// ran $b1 first; $b1's body overwrote t0; the `unless` then tested the
+	// NEW value and fired its else arm unconditionally. Verified on the
+	// engine: `if arg1 == 1 { if arg1 == 5 { X = 1 } } else { Y = 2 }`
+	// set Y = 2 for arg1 = 1, 5 and 7 alike.
+	//
+	// The else arm never depends on the then arm having run, so testing it
+	// first is both correct and sufficient: the condition is still the one
+	// the branch computed.
 	if len(thenAlts) == 1 {
 		return []mc.Command{
-			mc.Function{Name: thenName, Cond: selectorFor(t, thenAlts[0])},
 			mc.Function{Name: elseName, Cond: selectorFor(t, thenAlts[0]), Negate: true},
+			mc.Function{Name: thenName, Cond: selectorFor(t, thenAlts[0])},
 		}
 	}
 	if len(elseAlts) == 1 {
 		return []mc.Command{
-			mc.Function{Name: thenName, Cond: selectorFor(t, elseAlts[0]), Negate: true},
 			mc.Function{Name: elseName, Cond: selectorFor(t, elseAlts[0])},
+			mc.Function{Name: thenName, Cond: selectorFor(t, elseAlts[0]), Negate: true},
 		}
 	}
-
-	// Both sides are disjunctions. Each alternative becomes its own
 	// guarded call. Rendering only the FIRST alternative would drop the
 	// rest and make that edge fire on a subset of the intended inputs --
 	// a silent wrong-answer bug.

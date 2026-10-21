@@ -9,6 +9,7 @@ package target
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
@@ -191,9 +192,17 @@ func isNumber(s string) bool {
 }
 
 // FitObjective truncates a name to the version's objective limit.
+//
+// The limit counts CHARACTERS, not bytes. 1.12.2 stores the name as a Java
+// String and truncates it by code unit, so `Count.残照花魄` is 10 characters
+// and legal even though it is 18 bytes in UTF-8. Measuring bytes rejected
+// every objective name containing Chinese, which is most of them in the
+// reference data pack -- and the rejection message called them characters,
+// so the number it printed was wrong too.
 func (t Target) FitObjective(name string) string {
-	if len(name) <= t.ObjectiveNameLimit {
+	if utf8.RuneCountInString(name) <= t.ObjectiveNameLimit {
 		return name
 	}
-	return name[:t.ObjectiveNameLimit]
+	r := []rune(name)
+	return string(r[:t.ObjectiveNameLimit])
 }

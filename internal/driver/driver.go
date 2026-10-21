@@ -135,6 +135,18 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	var periodOrder []int
 	var spawns []lower.SpawnEntry
 	var prog *ir.Program
+	// `init` first. It is where the back end puts every `objectives add` and
+	// the constant pool, and 1.12.2 discards a command that writes an
+	// objective that does not exist -- silently, with no error. So the order
+	// is not cosmetic: declarations must run before anything that uses them.
+	//
+	// It used to be missing entirely. `boot` called only the comptime and
+	// [load] bodies, so <ns>/init was generated and never called by anything:
+	// every scoreboard write in the program was discarded at runtime and
+	// nothing said so. The back end's own comment calls the declarations
+	// "a correctness requirement, not a nicety" and then put them in a
+	// function nothing reached.
+	bootParts = append(bootParts, bootPart{srcFiles[0].Namespace + "/init", "objective declarations"})
 	for i, file := range srcFiles {
 		checkLiterals(file, opt.Target, bag)
 		elsewhere := map[string]int{}

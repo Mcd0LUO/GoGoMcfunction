@@ -149,6 +149,10 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		if l.objs[x.Name] {
 			return l.entityScore(ctx, x.Name, x.P), nil
 		}
+		// `e.field` inside `for e in entities<...>`: e IS @s there.
+		if ctx.loopVar != "" && strings.HasPrefix(x.Name, ctx.loopVar+".") {
+			return l.entityScore(ctx, x.Name[len(ctx.loopVar)+1:], x.P), nil
+		}
 		// A field of the enclosing class beats a fresh local. Fields are
 		// checked after externs and constants so an explicit binding
 		// still wins.
@@ -283,6 +287,41 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 	if call, ok := e.(syntax.Call); ok && call.Name == "detect" {
 		return l.lowerBlockProbe(ctx, fb, block, call)
 	}
+	// `a && b` is a conjunction, which a selector expresses directly: one
+	// alternative carrying both conditions. `a || b` is a disjunction, which
+	// is two alternatives -- and the Predicate is already in DNF, so neither
+	// needs a temporary or a nested block.
+	//
+	// Both were missing while the specification documented them, and the
+	// reference data pack is written almost entirely in this shape:
+	// `@s[score_menu_min=1,score_menu=99]` IS `menu >= 1 && menu <= 99`.
+	// Without it every such condition had to be nested ifs, which cost a
+	// block each and -- before the guard fix -- could silently invert.
+	if bin, ok := e.(syntax.Binary); ok {
+		switch bin.Op {
+		case syntax.AND:
+			left, err := l.lowerCond(ctx, fb, block, bin.L)
+			if err != nil {
+				return ir.Predicate{}, err
+			}
+			right, err := l.lowerCond(ctx, fb, block, bin.R)
+			if err != nil {
+				return ir.Predicate{}, err
+			}
+			return andPredicates(left, right), nil
+		case syntax.OR:
+			left, err := l.lowerCond(ctx, fb, block, bin.L)
+			if err != nil {
+				return ir.Predicate{}, err
+			}
+			right, err := l.lowerCond(ctx, fb, block, bin.R)
+			if err != nil {
+				return ir.Predicate{}, err
+			}
+			return orPredicates(left, right), nil
+		case syntax.NOT:
+		}
+	}
 	if bin, ok := e.(syntax.Binary); ok && isComparison(bin.Op) {
 		d := fb.Tmp()
 		return l.lowerCondInto(ctx, fb, block, d, bin)
@@ -296,6 +335,95 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 	fb.Emit(block, ir.Copy{Dst: ctx.loc(d), Src: src})
 	fb.Emit(block, ir.Arith{Dst: ctx.loc(d), Op: "-=", Src: fb.Const(1)})
 	return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: 0, HasMax: true, Max: 0}}}}, nil
+}
+
+// andPredicates combines two conditions with AND.
+//
+// A selector expresses a conjunction as comma-separated arguments, so the
+// common case is a cross product of the alternatives: (a|b) and (c|d) is
+// ac|ad|bc|bd. An existence test is not an alternative -- it names OTHER
+// entities -- so it cannot join a conjunction that also constrains @s.
+//
+// When that happens the two halves are materialised into a flag instead of
+// being expressed in a selector, which is correct at the cost of two
+// commands. Reporting an error would be worse: the condition is meaningful,
+// just not expressible in one selector.
+func andPredicates(a, b ir.Predicate) ir.Predicate {
+	if a.IsAlways() {
+		return b
+	}
+	if b.IsAlways() {
+		return a
+	}
+	// An existence or block probe on either side: keep it and fold the other
+	// side into the Alts that guard it. The backend already knows how to
+	// combine `Exist` with `Alts` (it emits `execute @s[<alts>] ~ ~ ~ function
+	// F if <sel>`), so the conjunction stays representable as long as only ONE
+	// side carries a probe.
+	if a.Exist != nil && b.Exist != nil {
+		return ir.Predicate{Alts: crossAlts(a.Alts, b.Alts)}
+	}
+	if a.Exist != nil || a.Block != nil {
+		out := a
+		out.Alts = crossAlts(a.Alts, b.Alts)
+		return out
+	}
+	if b.Exist != nil || b.Block != nil {
+		out := b
+		out.Alts = crossAlts(b.Alts, a.Alts)
+		return out
+	}
+	return ir.Predicate{Alts: crossAlts(a.Alts, b.Alts)}
+}
+
+// orPredicates combines two conditions with OR by concatenating alternatives.
+//
+// A selector cannot express a disjunction, so each alternative becomes its own
+// guarded call. That is what the backend already does for multi-alternative
+// predicates.
+//
+// An existence test on either side is not an alternative and has no OR form:
+// `exists @e[tag=x] or y == 1` would need `unless`-of-both. It is rejected
+// rather than silently dropped, because dropping it would make the branch fire
+// on a subset of the inputs the author wrote.
+func orPredicates(a, b ir.Predicate) ir.Predicate {
+	if a.IsAlways() || b.IsAlways() {
+		return ir.Predicate{}
+	}
+	out := ir.Predicate{Alts: append(append([][]ir.Cond{}, a.Alts...), b.Alts...)}
+	if a.Exist != nil {
+		out.Exist = a.Exist
+	}
+	if b.Exist != nil {
+		out.Exist = b.Exist
+	}
+	if a.Block != nil {
+		out.Block = a.Block
+	}
+	if b.Block != nil {
+		out.Block = b.Block
+	}
+	return out
+}
+
+// crossAlts is the DNF cross product of two alternative lists.
+func crossAlts(a, b [][]ir.Cond) [][]ir.Cond {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	out := make([][]ir.Cond, 0, len(a)*len(b))
+	for _, x := range a {
+		for _, y := range b {
+			merged := make([]ir.Cond, 0, len(x)+len(y))
+			merged = append(merged, x...)
+			merged = append(merged, y...)
+			out = append(out, merged)
+		}
+	}
+	return out
 }
 
 // lowerBlockProbe turns `detect(...)` into a flag the branch can read.

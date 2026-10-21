@@ -7,6 +7,7 @@ package optimize
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
@@ -234,11 +235,22 @@ func isTempWrite(op ir.Op) bool {
 	return isTempName(d[0].Obj)
 }
 
+// isTempName reports whether an objective is one the compiler minted.
+//
+// The test is the prefix `Tmp` actually emits, not a guess at its shape. It
+// used to accept any `t` followed by digits -- which is also a perfectly
+// ordinary author name, so `obj t1` was renamed and merged with a real
+// temporary, and the function that assigned it disappeared at -O2 with no
+// diagnostic.
 func isTempName(obj string) bool {
-	if len(obj) < 2 || obj[0] != 't' {
+	if !strings.HasPrefix(obj, ir.TempPrefix) {
 		return false
 	}
-	for _, c := range obj[1:] {
+	rest := obj[len(ir.TempPrefix):]
+	if rest == "" {
+		return false
+	}
+	for _, c := range rest {
 		if c < '0' || c > '9' {
 			return false
 		}
@@ -390,7 +402,9 @@ func interferenceRename(fn *ir.Function, base int) (map[string]string, int) {
 	}
 	rename := map[string]string{}
 	for n, c := range colour {
-		rename[n] = "t" + itoa(base+c)
+		// Same prefix Tmp emits. A bare `t0` here was an ordinary name an
+		// author could declare, and isTempName then treated it as scratch.
+		rename[n] = ir.TempPrefix + itoa(base+c)
 	}
 	return rename, maxColour + 1
 }

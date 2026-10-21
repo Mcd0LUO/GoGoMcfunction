@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
@@ -44,7 +45,10 @@ func Verify(p *ir.Program, maxObjectiveLen int) []Violation {
 					if !l.Valid() {
 						add(fn.Path, "block %d: op with invalid location %+v", b.ID, l)
 					}
-					if maxObjectiveLen > 0 && len(l.Obj) > maxObjectiveLen {
+					// Characters, not bytes: 1.12.2 truncates a Java String by
+					// code unit, and a Chinese objective name is legal at 10
+					// characters while measuring 18 bytes.
+					if maxObjectiveLen > 0 && utf8.RuneCountInString(l.Obj) > maxObjectiveLen {
 						add(fn.Path, "block %d: objective %q exceeds %d characters", b.ID, l.Obj, maxObjectiveLen)
 					}
 				}

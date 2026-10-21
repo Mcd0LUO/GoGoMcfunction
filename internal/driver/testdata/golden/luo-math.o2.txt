@@ -1,6 +1,7 @@
-# files=9 commands=61
+# files=9 commands=62
 
 === luo:math/boot ===
+function luo:math/init
 function luo:math/comptime
 function luo:math/on_load
 === luo:math/comptime ===
@@ -10,6 +11,9 @@ scoreboard players set #math.1 math 1
 scoreboard players set #math.2 math 2
 scoreboard players set #math.3 math 3
 === luo:math/init ===
+scoreboard objectives add #t0 dummy ggm
+scoreboard objectives add #t1 dummy ggm
+scoreboard objectives add #t2 dummy ggm
 scoreboard objectives add a0 dummy ggm
 scoreboard objectives add l2 dummy ggm
 scoreboard objectives add l3 dummy ggm
@@ -18,9 +22,6 @@ scoreboard objectives add l5 dummy ggm
 scoreboard objectives add l9 dummy ggm
 scoreboard objectives add math dummy ggm
 scoreboard objectives add return dummy ggm
-scoreboard objectives add t0 dummy ggm
-scoreboard objectives add t1 dummy ggm
-scoreboard objectives add t2 dummy ggm
 scoreboard objectives add ggm.c dummy ggm
 scoreboard players set #2 ggm.c 2
 scoreboard players set #1234 ggm.c 1234
@@ -32,11 +33,11 @@ scoreboard players operation @s l5 *= #1103515245 ggm.c
 scoreboard players operation @s l5 += #1234 ggm.c
 scoreboard players operation @s l5 %= #67108864 ggm.c
 scoreboard players set @s l9 1000
-scoreboard players operation @s t1 = @s l5
-scoreboard players operation @s t1 -= @s a0
-scoreboard players set @s t2 0
-execute @s[score_t1=0] ~ ~ ~ scoreboard players set @s t2 1
-scoreboard players operation @s return = @s t2
+scoreboard players operation @s #t1 = @s l5
+scoreboard players operation @s #t1 -= @s a0
+scoreboard players set @s #t2 0
+execute @s[score_#t1=0] ~ ~ ~ scoreboard players set @s #t2 1
+scoreboard players operation @s return = @s #t2
 === luo:math/lcg_step ===
 scoreboard players operation @s return = #1103515245 ggm.c
 scoreboard players operation @s return *= @s a0
@@ -48,25 +49,25 @@ scoreboard players set seed math 12345
 scoreboard players operation @s l2 = @s a0
 scoreboard players operation @s l3 = @s l2
 scoreboard players operation @s l3 /= #2 ggm.c
-scoreboard players operation @s t0 = @s l2
-scoreboard players operation @s t0 %= #2 ggm.c
-scoreboard players operation @s l3 += @s t0
+scoreboard players operation @s #t0 = @s l2
+scoreboard players operation @s #t0 %= #2 ggm.c
+scoreboard players operation @s l3 += @s #t0
 scoreboard players set @s l4 64
-scoreboard players operation @s t0 = @s l3
-scoreboard players operation @s t0 -= @s l2
-function luo:math/sqrt$b1 if @s[score_t0=-1]
-function luo:math/sqrt$b2 unless @s[score_t0=-1]
+scoreboard players operation @s #t0 = @s l3
+scoreboard players operation @s #t0 -= @s l2
+function luo:math/sqrt$b2 unless @s[score_#t0=-1]
+function luo:math/sqrt$b1 if @s[score_#t0=-1]
 === luo:math/sqrt$b1 ===
 scoreboard players operation @s l2 = @s l3
 scoreboard players operation @s l3 = @s l2
-scoreboard players operation @s t0 = @s a0
-scoreboard players operation @s t0 /= @s l2
-scoreboard players operation @s l3 += @s t0
+scoreboard players operation @s #t0 = @s a0
+scoreboard players operation @s #t0 /= @s l2
+scoreboard players operation @s l3 += @s #t0
 scoreboard players operation @s l3 /= #2 ggm.c
-scoreboard players operation @s t0 = @s l3
-scoreboard players operation @s t0 -= @s l2
+scoreboard players operation @s #t0 = @s l3
+scoreboard players operation @s #t0 -= @s l2
 scoreboard players remove @s l4 1
-function luo:math/sqrt$b1 if @s[score_l4_min=1,score_t0=-1]
-function luo:math/sqrt$b2 unless @s[score_l4_min=1,score_t0=-1]
+function luo:math/sqrt$b2 unless @s[score_#t0=-1,score_l4_min=1]
+function luo:math/sqrt$b1 if @s[score_#t0=-1,score_l4_min=1]
 === luo:math/sqrt$b2 ===
 scoreboard players operation @s return = @s l2

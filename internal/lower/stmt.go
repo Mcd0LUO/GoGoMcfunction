@@ -131,6 +131,10 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string, p syntax.Pos) ir.Loc {
 	if l.objs[name] {
 		return l.entityScore(ctx, name, p)
 	}
+	// `e.field` inside `for e in entities<...>`: e IS @s there.
+	if ctx.loopVar != "" && strings.HasPrefix(name, ctx.loopVar+".") {
+		return l.entityScore(ctx, name[len(ctx.loopVar)+1:], p)
+	}
 	if ctx.isField(name) {
 		return l.entityScore(ctx, ctx.fieldLoc(name), p)
 	}
@@ -360,7 +364,19 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 	bodyPath := fmt.Sprintf("%s$e%d", fb.Path(), l.bodyN)
 	bb := l.prog.NewFunc(bodyPath)
 	bb.Func().Exported = true
-	bctx := &fnCtx{path: bodyPath, scope: map[string]string{}, localN: &l.localN, class: ctx.class, fields: ctx.fields}
+	// The loop variable names the entity @s is bound to inside the body.
+	//
+	// `execute <sel> ~ ~ ~ function <body>` rebinds @s to each matched
+	// entity, so inside the body `e` and `@s` are the same entity. Without
+	// recording that, `e.money = 42` was read as the holder.objective
+	// shorthand for a FAKE PLAYER named `e`: it compiled, ran, and wrote a
+	// score on a player that does not exist while the matched entity was
+	// untouched. No diagnostic, no crash, wrong answer.
+	bctx := &fnCtx{
+		path: bodyPath, scope: map[string]string{},
+		localN: &l.localN, class: ctx.class, fields: ctx.fields,
+		loopVar: s.Name,
+	}
 	end := l.lowerSeq(bctx, bb, 0, s.Body)
 	if end != noFallThrough {
 		bb.SetTerm(end, ir.Return{})

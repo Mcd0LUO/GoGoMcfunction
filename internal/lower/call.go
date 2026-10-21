@@ -89,14 +89,33 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	//
 	// Folding it into the table would need a "repeat this argument" rule,
 	// which is a bigger idea than one command deserves.
+	//
+	// `set` and `clear` take different numbers of arguments: `clear` unbinds
+	// the statistic and has no receiving score to name. Requiring four for
+	// both forced the author to invent a dummy objective, which then appeared
+	// in the generated command -- a line that is correct but says something
+	// untrue about the program.
 	if call.Name == "stats" {
-		if len(call.Args) != 4 {
-			l.diags.Error(posOf(call.P), "E_ARG", "stats needs (target, \"set|clear\", stat, objective)")
+		if len(call.Args) != 3 && len(call.Args) != 4 {
+			l.diags.Error(posOf(call.P), "E_ARG",
+				"stats needs (target, \"set|clear\", stat) or (target, \"set\", stat, objective)")
 			return
 		}
 		target := l.targetArg(call, 0)
 		verb := l.rawString(call, 1)
 		stat := l.rawString(call, 2)
+		// `set` binds a statistic to a score, so it needs one. `clear` unbinds
+		// and names none. Requiring four for both forced a dummy objective;
+		// accepting three for both would silently drop the score that `set`
+		// exists to write.
+		if verb == "clear" {
+			fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s %s %s", target, verb, stat)})
+			return
+		}
+		if len(call.Args) != 4 {
+			l.diags.Error(posOf(call.P), "E_ARG", "stats set needs (target, \"set\", stat, objective)")
+			return
+		}
 		obj := l.rawString(call, 3)
 		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s %s %s %s %s",
 			target, verb, stat, target, obj)})

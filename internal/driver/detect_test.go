@@ -28,7 +28,7 @@ func TestDetectLowersToAFlag(t *testing.T) {
 	// only run a command when the block matches, and 1.12.2 has no
 	// `unless detect`. So the else edge is the ABSENCE of the flag being set,
 	// tested with an ordinary selector condition rather than a second probe.
-	if !strings.Contains(body, "score_t0") {
+	if !strings.Contains(body, "score_#t0") {
 		t.Fatalf("the probe's flag is not tested:\n%s", body)
 	}
 }

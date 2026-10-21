@@ -75,7 +75,11 @@ func TestCommandTableChecksArity(t *testing.T) {
 		{"give without item", `give(@s)`},
 		{"tp without coordinates", `tp(@s, "1")`},
 		{"effect without duration", `effect(@s, "speed")`},
-		{"stats without objective", `stats(@s, "set", "SuccessCount")`},
+		// `set` needs a receiving objective; `clear` does not, and takes
+		// three arguments. Both were four-argument-only, so `clear` forced a
+		// dummy objective into the generated line.
+		{"stats set without objective", `stats(@s, "set", "SuccessCount")`},
+		{"stats with no stat", `stats(@s, "clear")`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

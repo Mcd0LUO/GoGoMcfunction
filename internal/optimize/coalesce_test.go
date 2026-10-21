@@ -19,9 +19,12 @@ import (
 func comparisonShape() *ir.Program {
 	p := ir.NewProgram("t")
 	fb := p.NewFunc("t/f")
-	diff := ir.Loc{Holder: "@s", Obj: "t8"}
-	res := ir.Loc{Holder: "@s", Obj: "t10"}
-	carried := ir.Loc{Holder: "@s", Obj: "t9"}
+	// Names must carry the prefix Tmp emits: isTempName recognises that
+	// prefix and nothing else, so a bare `t8` here would be an author's
+	// objective and the coalescer would leave it alone.
+	diff := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "8"}
+	res := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "10"}
+	carried := ir.Loc{Holder: "@s", Obj: ir.TempPrefix + "9"}
 
 	fb.Emit(0,
 		ir.Copy{Dst: carried, Src: ir.Loc{Holder: "@s", Obj: "a1"}},

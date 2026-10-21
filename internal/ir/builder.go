@@ -73,10 +73,21 @@ func (b *FuncBuilder) SetTerm(id BlockID, t Terminator) {
 }
 
 // Tmp allocates a scratch objective name, unique program-wide.
+//
+// The name is prefixed so that an author's own objective cannot collide with
+// it. It used to be plain `t0`, `t1`, ... and `isTempName` recognised exactly
+// that shape -- so `obj t1` was treated as a compiler scratch slot. The
+// coalescer then renamed it, and since the author's `t1` and a real temporary
+// shared one name, the write disappeared: the function that assigned it was
+// dropped entirely at -O2, with no diagnostic.
+//
+// A leading `#` cannot appear in an author's objective: `#` starts the
+// constant pool's fake-player names, and the lexer does not allow it in an
+// identifier.
 func (b *FuncBuilder) Tmp() string {
 	n := b.prog.tmpN
 	b.prog.tmpN++
-	return fmt.Sprintf("t%d", n)
+	return fmt.Sprintf("%s%d", TempPrefix, n)
 }
 
 // Const returns the fake-player holder for a literal.

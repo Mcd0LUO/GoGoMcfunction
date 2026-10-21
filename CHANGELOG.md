@@ -16,6 +16,88 @@
 
 ---
 
+## [0.25.0] - 2026-10-21
+
+六路并行移植参考数据包（`末法`，1963 文件 11348 行）后，按报告修掉的问题。
+
+### 修掉 `boot` 从不调用 `init` —— 整个编译器不可用
+
+后端的注释写着「发射这些声明是正确性要求，不是锦上添花」，然后把它们发进一个
+没人调用的函数。`boot` 只调 `comptime` 和 `[load]`，`<ns>/init` 生成了却无人到达。
+
+1.12.2 对不存在的 objective 写分数是**静默丢弃**。所以移植产物在运行期
+「所有分数都写不进去，且没有任何报错」——而这正是 `obj` 存在的全部理由。
+
+`boot` 现在第一件事就是 `function <ns>/init`。golden 同步更新（它此前把这个
+静默失效固化成了期望值）。
+
+### 修掉 `if/else` 的 else 守卫读到被污染的条件
+
+```ggm
+if arg1 == 1 { if arg1 == 5 { X = 1 } } else { Y = 2 }
+```
+
+两条命令共用同一个条件临时量，而 then 臂里的嵌套 `if` 会重算它：
+
+```mcfunction
+function t:f$b1 if @s[score_#t0=0]        // 先跑，覆盖 #t0
+function t:f$b2 unless @s[score_#t0=0]    // 再读，已经是脏值
+```
+
+实测：arg1 = 1 / 5 / 7 全部执行 else 分支。
+**else 从不依赖 then 跑过**，所以把它排到前面即可——条件仍是分支算出的那个。
+
+### 接上 `&&` / `||`
+
+规范 §4.2 写了降级规则，token 和优先级表都在，`lower` 里没接。而参考包
+40+ 处 `@s[score_menu_min=1,score_menu=99]` **就是** `menu >= 1 && menu <= 99`。
+
+```ggm
+if menu >= 1 && menu <= 99 { X = 1 }
+```
+
+```mcfunction
+execute @s[score_#t0_min=0,score_#t1=0] ~ ~ ~ scoreboard players set @s X 1
+```
+
+一条合取选择器，不是嵌套块。`||` 展开成每条 alt 一个受守卫调用。
+边界实测：0→0、1→1、99→1、100→0。
+
+### 修掉 `for e in entities<...>` 体内 `e.field` 写到假玩家
+
+```ggm
+for e in entities<@e[tag=target]> { e.money = 42 }
+```
+
+生成 `scoreboard players set e money 42`——**假玩家 `e`**，被扇出的实体没动。
+`execute` 已经把 `@s` 绑到实体上了，但 `e` 走了 `holder.objective` 简写。
+现在 `e.field` 映射到 `@s field`，读写两条路径都修了。
+
+### objective 名长度按字符而非字节
+
+`Count.残照花魄` 是 10 个字符、18 个字节，1.12.2 允许。三处检查都用了 `len()`，
+于是所有含中文的 objective 名被拒——而报错还说「is 18 characters」。
+
+### 临时槽改名 `#t0`，不再劫持作者的 `t1`
+
+`isTempName` 认「t + 全数字」，而那也是普通的作者名字。`obj t1` 被当成临时量，
+合并器改名后，赋值它的函数在 -O2 下**整个被删掉**。
+
+临时量现在带 `#` 前缀，标识符不可能以它开头。
+
+### `stats clear` 只要三个参数
+
+`clear` 解绑统计、不指定接收分数。原来 set/clear 都强制四个参数，逼作者编一个
+假 objective，它会出现在生成物里。`set` 仍然要四个——否则那条命令什么都不写。
+
+### `matches` 接受任意容器
+
+`@s.ActiveEffects matches n"{Id:12b}"` 之前被拒。白名单里是 `decode` 关心的
+三个容器，与 `matches` 无关。
+
+### 新增 `-ir`
+
+打印优化后的 IR。没有它，上面几条「形状对了但语义错了」的 bug 只能靠猜。
 ## [0.24.0] - 2026-10-21
 
 ### 新增 `-ir`：打印优化后的 IR
