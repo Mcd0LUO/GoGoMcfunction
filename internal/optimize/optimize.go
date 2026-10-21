@@ -263,6 +263,12 @@ func isTempWrite(op ir.Op) bool {
 // ordinary author name, so `obj t1` was renamed and merged with a real
 // temporary, and the function that assigned it disappeared at -O2 with no
 // diagnostic.
+// IsTempName is isTempName, exported so tests assert against the real
+// predicate instead of restating it. A restated predicate drifts: when the
+// naming scheme changed, the copy in lower_test.go kept matching the OLD
+// shape, found nothing, and its assertion silently stopped running.
+func IsTempName(obj string) bool { return isTempName(obj) }
+
 func isTempName(obj string) bool {
 	if !strings.HasPrefix(obj, ir.TempPrefix) {
 		return false

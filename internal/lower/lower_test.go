@@ -5,6 +5,7 @@ import (
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
@@ -118,13 +119,15 @@ func TestNegateConjunction(t *testing.T) {
 // Temporaries must not be shared between functions: @s is global, so a callee
 // reusing the caller's slot corrupts conditions the caller has not consumed.
 func TestTemporariesAreProgramWideUnique(t *testing.T) {
+	// The source must actually produce temporaries. An earlier version used
+	// arithmetic on locals, which lowers entirely to l0/l1 slot copies -- no
+	// temporary appeared, the loop below walked zero names, and the assertion
+	// could not fail. A comparison materialises into a temporary, which is the
+	// shape under test.
 	prog := mustLower(t, `namespace ns
-fn g(x: int) -> int { x + 1 }
-fn f(a: int) -> int {
-  let p = g(a)
-  let q = a * 2
-  p + q
-}`)
+fn g(x: int, y: int) -> int { if x > y { 1 } else { 0 } }
+fn f(a: int, b: int) -> int { if a >= b { 2 } else { 3 } }`)
+	sawTemp := false
 	owners := map[string]string{}
 	for _, fn := range prog.Funcs {
 		for _, b := range fn.Blocks {
@@ -133,6 +136,7 @@ fn f(a: int) -> int {
 					if !isTemp(d.Obj) {
 						continue
 					}
+					sawTemp = true
 					if prev, ok := owners[d.Obj]; ok && prev != fn.Path {
 						t.Fatalf("temp %s shared by %s and %s", d.Obj, prev, fn.Path)
 					}
@@ -141,18 +145,20 @@ fn f(a: int) -> int {
 			}
 		}
 	}
+	if !sawTemp {
+		t.Fatal("no temporaries were produced, so this test asserted nothing")
+	}
 }
 
+// isTemp reports whether an objective is a compiler temporary.
+//
+// It must agree with what the compiler actually mints. This used to accept
+// `t` followed by digits, which was right until the prefix changed; after
+// that it matched NOTHING, so TestTemporariesAreProgramWideUnique walked nine
+// real temporaries, recognised zero, and its assertion never ran. A test that
+// cannot see its own subject passes forever.
 func isTemp(obj string) bool {
-	if len(obj) < 2 || obj[0] != 't' {
-		return false
-	}
-	for _, c := range obj[1:] {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return optimize.IsTempName(obj)
 }
 
 // abs(x - y) >= 1 must not materialise the absolute value.

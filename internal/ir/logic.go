@@ -28,6 +28,22 @@ const (
 // per-clause choices. The result is passed through Simplify, because that
 // cross product repeats conditions.
 func Negate(p Predicate) Predicate {
+	// A predicate must never carry BOTH an existence test and alternatives:
+	// that combination has no complement in this representation, and negating
+	// only one half silently drops the other.
+	//
+	// `!(any<sel> && c)` used to produce `Predicate{Exist: negated}` with the
+	// Alts discarded, so the condition became `no entity matches sel` and the
+	// `c` half vanished -- a branch firing on a different set of inputs than
+	// the author wrote. Inlined, the leftover existence test ended up inside a
+	// Guarded and the back end panicked.
+	//
+	// The invariant is enforced where such a predicate would be built
+	// (lower.andPredicates); reaching here means it was violated, and
+	// panicking beats returning a condition that is quietly wrong.
+	if p.Exist != nil && len(p.Alts) > 0 {
+		panic("ir.Negate: a predicate carrying both an existence test and alternatives has no complement; lower.andPredicates must not build one")
+	}
 	if p.Exist != nil {
 		ex := *p.Exist
 		ex.Negate = !ex.Negate

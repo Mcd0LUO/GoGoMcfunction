@@ -40,6 +40,16 @@ func (l *Lowerer) assignInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d
 		l.diags.Error(posOf(exprPos(e)), "E_EXPR", "%s", err)
 		return
 	}
+	// A failed sub-lowering returns the zero Loc, and emitting a copy from it
+	// produced `scoreboard players operation @s l0 = ` -- an empty operand.
+	// 1.12.2 rejects that line, which makes the WHOLE function file fail to
+	// load, so one unsupported builtin silently disabled everything around it.
+	//
+	// The diagnostic for the builtin is already reported; this only stops the
+	// malformed command from being emitted on top of it.
+	if !src.Valid() {
+		return
+	}
 	fb.Emit(block, ir.Copy{Dst: dst, Src: src})
 }
 
@@ -320,7 +330,10 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 			if err != nil {
 				return ir.Predicate{}, err
 			}
-			return andPredicates(left, right), nil
+			if (left.Exist != nil || left.Block != nil) && (right.Exist != nil || right.Block != nil) {
+				return ir.Predicate{}, fmt.Errorf("two existence or block probes cannot be combined: 1.12.2 has no `function F if a if b`, and nesting the calls would run the body twice. Split it into two ifs")
+			}
+			return l.andPredicates(ctx, fb, block, left, right), nil
 		case syntax.OR:
 			left, err := l.lowerCond(ctx, fb, block, bin.L)
 			if err != nil {
@@ -353,6 +366,19 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 				Negate:   !inner.Exist.Negate,
 			}}, nil
 		}
+		// A guard cannot carry an existence test: the back end renders a guard
+		// as `execute <sel> ~ ~ ~ <cmd>`, a fan-out, while an existence test must
+		// run the command at most once. So `!(any<sel> && c)` has no rendering.
+		//
+		// It is rejected rather than approximated. The complement is
+		// `(nothing matches sel) OR (c is false)`, which needs two separate
+		// calls and a disjunction -- expressible only by splitting the
+		// enclosing branch, which changes the statement's shape, not its
+		// condition. Panicking was worse: that was the compiler's failure, not
+		// the author's.
+		if inner.Exist != nil || inner.Block != nil {
+			return ir.Predicate{}, fmt.Errorf("!(any<...> && ...) has no single-selector form: the complement is a disjunction of two calls. Write `if !any<...> { } else if !(...) { }` instead")
+		}
 		d := fb.Tmp()
 		fb.Emit(block, ir.Set{Dst: ctx.loc(d), Value: 1})
 		fb.Emit(block, ir.Guarded{Inner: ir.Set{Dst: ctx.loc(d), Value: 0}, Cond: inner})
@@ -384,21 +410,30 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 // being expressed in a selector, which is correct at the cost of two
 // commands. Reporting an error would be worse: the condition is meaningful,
 // just not expressible in one selector.
-func andPredicates(a, b ir.Predicate) ir.Predicate {
+func (l *Lowerer) andPredicates(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, a, b ir.Predicate) ir.Predicate {
 	if a.IsAlways() {
 		return b
 	}
 	if b.IsAlways() {
 		return a
 	}
+	// Two probes cannot both stay: the IR predicate holds one existence test
+	// and one block test. A conjunction of two existence tests is meaningful
+	// but not expressible -- `function F if a if b` does not exist, and
+	// nesting the calls would run the body twice on a double match.
+	//
+	// The empty-alternative predicate below is unsatisfiable, which is a lie.
+	// It is reported by the caller as an error rather than shipped; the marker
+	// exists only so this function keeps a single return type.
+	if (a.Exist != nil || a.Block != nil) && (b.Exist != nil || b.Block != nil) {
+		return ir.Predicate{Alts: [][]ir.Cond{{}}}
+	}
 	// An existence or block probe on either side: keep it and fold the other
 	// side into the Alts that guard it. The backend already knows how to
 	// combine `Exist` with `Alts` (it emits `execute @s[<alts>] ~ ~ ~ function
 	// F if <sel>`), so the conjunction stays representable as long as only ONE
 	// side carries a probe.
-	if a.Exist != nil && b.Exist != nil {
-		return ir.Predicate{Alts: crossAlts(a.Alts, b.Alts)}
-	}
+
 	if a.Exist != nil || a.Block != nil {
 		out := a
 		out.Alts = crossAlts(a.Alts, b.Alts)

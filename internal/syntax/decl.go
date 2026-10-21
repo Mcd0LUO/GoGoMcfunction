@@ -173,14 +173,25 @@ func (p *parser) parseFuncPath() (string, error) {
 	name := t.Text
 	for p.cur().Kind == SLASH {
 		p.next()
-		seg, err := p.expectNameLike()
-		if err != nil {
-			return "", err
+		// A path segment may be a NUMBER: the reference data pack names
+		// functions like `rpg:skill/1/main` and `rpg:item/buy/cl/1`, where the
+		// directory is a slot or a tier. Rejecting those made roughly
+		// three-quarters of its files impossible to express.
+		var seg string
+		if p.cur().Kind == INT {
+			seg = p.next().Text
+		} else {
+			tok, err := p.expectNameLike()
+			if err != nil {
+				return "", err
+			}
+			seg = tok.Text
 		}
-		name += "/" + seg.Text
+		name += "/" + seg
 	}
 	return name, nil
 }
+
 func (p *parser) parseFunc(attrs []Attr) (*FuncDecl, error) {
 	t, err := p.expect(FN)
 	if err != nil {
