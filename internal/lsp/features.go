@@ -8,6 +8,7 @@ package lsp
 // decides anything about the language.
 
 import (
+	"os"
 	"sort"
 	"strings"
 
@@ -454,4 +455,44 @@ func (s *Server) handleSignatureHelp(p PositionParams) (any, error) {
 		}},
 		ActiveParameter: uint32(active),
 	}, nil
+}
+
+// handleWatchedFiles refreshes the disk cache after a file appears, changes or
+// vanishes outside the editor.
+//
+// Without this the server only ever knew about the files present at startup:
+// creating a module file and calling into it from another one reported the call
+// as an unknown callee, which is a false alarm on correct code -- the failure
+// mode this whole server exists to avoid.
+func (s *Server) handleWatchedFiles(p DidChangeWatchedFilesParams) {
+	affected := map[string]bool{}
+	for _, ev := range p.Changes {
+		path, ok := pathFromURI(string(ev.URI))
+		if !ok {
+			continue
+		}
+		// Whatever namespace this file used to belong to must be recompiled,
+		// not only the one it belongs to now.
+		if ns := s.namespaceOf(path); ns != "" {
+			affected[ns] = true
+		}
+		s.mu.Lock()
+		s.nsOf[path] = ""
+		s.compiled[path] = "\x00stale"
+		s.mu.Unlock()
+		if ev.Type == 3 {
+			// Deleted: drop it so the index stops offering it.
+			s.mu.Lock()
+			delete(s.disk, path)
+			delete(s.open, path)
+			delete(s.ast, path)
+			delete(s.astText, path)
+			s.mu.Unlock()
+		} else if b, err := os.ReadFile(path); err == nil {
+			s.mu.Lock()
+			s.disk[path] = string(b)
+			s.mu.Unlock()
+		}
+		s.recompile(path)
+	}
 }

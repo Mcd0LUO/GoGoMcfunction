@@ -8,6 +8,7 @@ package lsp
 // instead of trusting the design.
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -73,5 +74,48 @@ func TestUnchangedSaveDoesNoWork(t *testing.T) {
 
 	if got := parsesOf(sess) - before; got != 0 {
 		t.Fatalf("a save with no edits re-parsed %d files", got)
+	}
+}
+
+// A file created outside the editor must join the module.
+//
+// Before this was handled, the server only knew the files present at startup,
+// so creating a module file and calling into it reported the call as an
+// unknown callee -- a false alarm on correct code.
+func TestNewlyCreatedFileJoinsTheModule(t *testing.T) {
+	dir := t.TempDir()
+	aSrc := "namespace t:w\nobj X\n[export]\nfn one() { X = two() }\n"
+	writeFiles(t, dir, map[string]string{"a.ggm": aSrc})
+	sess := newSession(t, dir)
+	aPath := filepath.Join(dir, "a.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(aPath), Text: aSrc},
+	})
+	// At this point `two` does not exist, so the compiler is right to complain.
+	first := sess.diagnostics(uriFromPath(aPath))
+	var unknown bool
+	for _, d := range first {
+		if d.Code == "E_UNKNOWN_CALLEE" {
+			unknown = true
+		}
+	}
+	if !unknown {
+		t.Fatal("a call to a missing function was not reported, so the fixture proves nothing")
+	}
+
+	// Now the file appears, and the editor says so.
+	bPath := filepath.Join(dir, "b.ggm")
+	bSrc := "namespace t:w\n[export]\nfn two() -> int { 2 }\n"
+	if err := os.WriteFile(bPath, []byte(bSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess.notify("workspace/didChangeWatchedFiles", DidChangeWatchedFilesParams{
+		Changes: []FileEvent{{URI: uriFromPath(bPath), Type: 1}},
+	})
+	after := sess.diagnostics(uriFromPath(aPath))
+	for _, d := range after {
+		if d.Code == "E_UNKNOWN_CALLEE" {
+			t.Fatalf("the call is still reported as unknown after the file appeared: %s", d.Message)
+		}
 	}
 }

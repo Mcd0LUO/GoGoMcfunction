@@ -140,6 +140,10 @@ func TestCrossFileCallIsNotReportedAsUnknown(t *testing.T) {
 		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
 	})
 	got := sess.diagnostics(uriFromPath(path))
+	// A test that only asserts the ABSENCE of a diagnostic passes when every
+	// diagnostic is dropped, which is exactly what happened once: the lowerer
+	// was emitting positions with no filename, so the server discarded every
+	// one of them and this assertion held vacuously.
 	for _, d := range got {
 		if d.Code == "E_UNKNOWN_CALLEE" {
 			t.Fatalf("a call to a function in another file of the same module "+

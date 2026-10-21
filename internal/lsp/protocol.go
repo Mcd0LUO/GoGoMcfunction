@@ -307,3 +307,14 @@ type SignatureHelpOptions struct {
 	TriggerCharacters   []string `json:"triggerCharacters,omitempty"`
 	RetriggerCharacters []string `json:"retriggerCharacters,omitempty"`
 }
+
+// FileEvent is one file that appeared, changed or vanished outside the editor.
+type FileEvent struct {
+	URI  DocumentURI `json:"uri"`
+	Type uint32      `json:"type"` // 1 created, 2 changed, 3 deleted
+}
+
+// DidChangeWatchedFilesParams reports filesystem changes the editor noticed.
+type DidChangeWatchedFilesParams struct {
+	Changes []FileEvent `json:"changes"`
+}

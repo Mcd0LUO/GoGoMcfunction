@@ -268,3 +268,38 @@ func TestSignatureHelpIsSilentOutsideACall(t *testing.T) {
 		t.Fatalf("signature help answered outside a call: %v", h)
 	}
 }
+
+// A SEMANTIC error must reach the editor, not only a syntax error.
+//
+// The lowerer builds positions from the AST, which carries a line and column
+// but no filename. Every lowering diagnostic therefore arrived with an empty
+// File, and the server -- which groups by file -- discarded all of them. The
+// syntax-error test above did not catch it because E_PARSE is raised in the
+// driver, which DID set the name.
+func TestSemanticErrorReachesTheEditor(t *testing.T) {
+	dir := t.TempDir()
+	src := "namespace t:sem\nobj X\n[export]\nfn one() { X = missing() }\n"
+	writeFiles(t, dir, map[string]string{"a.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "a.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+	got := sess.diagnostics(uriFromPath(path))
+	if len(got) == 0 {
+		t.Fatal("a semantic error produced no diagnostic; lowering diagnostics " +
+			"were probably discarded for having no filename")
+	}
+	var found bool
+	for _, d := range got {
+		if d.Code == "E_UNKNOWN_CALLEE" {
+			found = true
+			if d.Range.Start.Line != 3 {
+				t.Fatalf("diagnostic line = %d, want 3 (0-based)", d.Range.Start.Line)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("E_UNKNOWN_CALLEE was not among the published diagnostics: %+v", got)
+	}
+}

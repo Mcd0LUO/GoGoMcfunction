@@ -207,6 +207,17 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		}
 		res, lowerDiags := lower.LowerWith(file, opt.Target, srcs[i].Name, elsewhere, scope)
 		for _, d := range lowerDiags {
+			// Every diagnostic from this file names this file.
+			//
+			// The lowerer builds positions from the AST, which carries a line
+			// and a column but no filename -- it is handed text, not a path.
+			// So every lowering diagnostic arrived with an empty File, and a
+			// consumer that groups by file (the language server) threw them
+			// all away: measured, a module with one unknown callee published
+			// an empty diagnostic list.
+			if d.Pos.File == "" {
+				d.Pos.File = srcs[i].Name
+			}
 			bag.Add(d)
 		}
 

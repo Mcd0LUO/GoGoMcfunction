@@ -226,6 +226,19 @@ func (s *Server) dispatch(m *msg) error {
 		}
 		return s.reply(m, r)
 
+	case "workspace/didChangeWatchedFiles":
+		var p DidChangeWatchedFilesParams
+		if err := decode(m.Params, &p); err != nil {
+			return nil
+		}
+		s.handleWatchedFiles(p)
+		return nil
+
+	case "$/cancelRequest", "window/workDoneProgress/cancel":
+		// A request this server answers synchronously cannot be cancelled
+		// mid-flight, and ignoring the notification is correct.
+		return nil
+
 	case "textDocument/signatureHelp":
 		var p PositionParams
 		if err := decode(m.Params, &p); err != nil {
