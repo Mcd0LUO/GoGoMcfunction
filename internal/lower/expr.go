@@ -244,6 +244,22 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 			l.warnAmbiguous(x.Name, x.P)
 			return ir.Loc{Holder: x.Name[:i], Obj: x.Name[i+1:]}, nil
 		}
+		if s, ok := ctx.lookup(x.Name); ok {
+			return ctx.loc(s), nil
+		}
+		// An undeclared name is not a new variable.
+		//
+		// It used to be: slot() invents a binding on demand, so `while y < x`
+		// in a body that never declared y compiled, gave y a fresh objective,
+		// and 1.12.2 reads an unwritten score as 0. The condition became
+		// `0 < x` -- a wrong answer with no diagnostic, which is the failure
+		// this compiler exists to make impossible.
+		//
+		// The binding is still created, so one mistake reports once instead
+		// of at every use.
+		l.diags.Error(posOf(x.P), "E_UNDEFINED",
+			"%q is not declared in this function; write `let %s = ...` or declare it with obj/extern, because 1.12.2 reads an unwritten score as 0 and the program would silently use that",
+			x.Name, x.Name)
 		return ctx.loc(ctx.slot(x.Name)), nil
 	case syntax.Call:
 		return l.call(ctx, fb, block, x)

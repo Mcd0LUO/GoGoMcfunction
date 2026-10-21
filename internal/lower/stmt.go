@@ -263,9 +263,16 @@ func (l *Lowerer) lowerIf(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s synt
 // each iteration costs one self-call instead of a call into a separate
 // test block.
 func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.WhileStmt) ir.BlockID {
+	// The parser rejects a bound below 1 (parseBudget: "the iteration bound
+	// must be at least 1"), so this is unreachable from source and the
+	// author-facing diagnostic that used to live here could never fire.
+	//
+	// It is a panic rather than a silent `return cur` because a zero bound
+	// would make the loop test fail on entry and skip the body entirely --
+	// the silent no-op this compiler exists to prevent. If the parser ever
+	// stops enforcing its end, that must be a crash and not an answer.
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "while needs an iteration bound: while <cond>, budget <n> { ... }")
-		return cur
+		panic(fmt.Sprintf("lower: while at line %d reached the lowerer with budget %d; the parser guarantees at least 1", s.P.Line, s.Budget))
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
 	fb.Emit(cur, ir.Set{Dst: ctx.loc(budget), Value: s.Budget})
@@ -300,8 +307,7 @@ func (l *Lowerer) lowerWhile(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s s
 // and an iteration is one file rather than two.
 func (l *Lowerer) lowerLoop(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.LoopStmt) ir.BlockID {
 	if s.Budget <= 0 {
-		l.diags.Error(posOf(s.P), "E_NO_BUDGET", "loop needs an iteration bound: loop <cond>, budget <n> { ... }")
-		return cur
+		panic(fmt.Sprintf("lower: loop at line %d reached the lowerer with budget %d; the parser guarantees at least 1", s.P.Line, s.Budget))
 	}
 	budget := ctx.slot(fmt.Sprintf("$budget%d", s.P.Line))
 	fb.Emit(cur, ir.Set{Dst: ctx.loc(budget), Value: s.Budget})
@@ -523,10 +529,15 @@ func (l *Lowerer) lowerCountFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, 
 }
 
 func (l *Lowerer) lowerBroadcast(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syntax.BroadcastStmt) {
+	// The parser builds a BroadcastStmt only in its AT branch, so the left
+	// side is always a selector literal and the author-facing diagnostic that
+	// used to guard this could never fire.
+	//
+	// A panic, not a silent skip: dropping the write would be exactly the
+	// quiet wrong answer this compiler exists to prevent.
 	sel, ok := s.Sel.(syntax.Ident)
 	if !ok || !strings.HasPrefix(sel.Name, "@") {
-		l.diags.Error(posOf(s.P), "E_BROADCAST_SELECTOR", "broadcast write needs a selector on the left")
-		return
+		panic(fmt.Sprintf("lower: broadcast at line %d reached the lowerer with a non-selector left side (%T); the parser only builds one from a selector", s.P.Line, s.Sel))
 	}
 	if lit, ok := constInt(s.Value); ok {
 		fb.Emit(cur, ir.Set{Dst: ir.Loc{Holder: sel.Name, Obj: s.Field}, Value: lit})

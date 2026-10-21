@@ -171,7 +171,28 @@ func (p *parser) parsePrimary() (Expr, error) {
 		return BoolLit{Value: false, P: t.Pos}, nil
 	case SELF:
 		p.next()
-		return SelfExpr{P: t.Pos}, nil
+		if p.cur().Kind != DOT {
+			return SelfExpr{P: t.Pos}, nil
+		}
+		// `self.<objective>` -- a score on the executing entity.
+		//
+		// The lowerer has accepted Field{X: SelfExpr} since it was written,
+		// but nothing ever built one: the parser returned a bare SelfExpr and
+		// the following dot was a syntax error. So `self.sort.key` -- the
+		// spelling the specification used -- did not parse, while three
+		// sites in internal/lower were written to receive it.
+		//
+		// The whole dotted name belongs to the objective, exactly as it does
+		// for `seed.math`. There is no competing reading here: unlike a
+		// selector, `self` can never itself be an objective name, so the dots
+		// cannot be split two ways and no quoting is needed -- which is why
+		// `@p[tag=t]."Ap.Amount"` has to quote and this does not.
+		p.next()
+		name, err := p.parseDottedName()
+		if err != nil {
+			return nil, err
+		}
+		return Field{X: SelfExpr{P: t.Pos}, Name: name, P: t.Pos}, nil
 	case AT:
 		// A selector may be followed by `.field`, which reads THAT entity's
 		// score: `@p[tag=target].Ap.Amount`.

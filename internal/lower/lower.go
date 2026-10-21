@@ -655,6 +655,19 @@ func (c *fnCtx) isField(name string) bool {
 // fieldLoc returns the objective a field lives in.
 func (c *fnCtx) fieldLoc(name string) string { return c.fields[name] }
 
+// lookup reports the slot a name is bound to, without creating one.
+//
+// Every declaration -- a parameter, a `let`, a `for` variable -- writes
+// c.scope explicitly. Only slot() invents a binding, and it does so on any
+// name it is handed, which is why reading an undeclared name used to
+// succeed: `while y < x` in a body that never declared y compiled, bound y to
+// a fresh objective, and 1.12.2 reads an unwritten score as 0. The loop
+// condition became `0 < x` and nothing said a word.
+func (c *fnCtx) lookup(name string) (string, bool) {
+	s, ok := c.scope[name]
+	return s, ok
+}
+
 func (c *fnCtx) slot(name string) string {
 	if s, ok := c.scope[name]; ok {
 		return s

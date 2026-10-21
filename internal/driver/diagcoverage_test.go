@@ -75,14 +75,22 @@ func TestEveryDiagnosticFires(t *testing.T) {
 	}
 }
 
-// Seven codes still have no test, and two of them cannot possibly have one.
+// Two codes were REMOVED rather than tested, because no source could reach
+// them and a diagnostic that can never fire suggests protection the author
+// never receives:
 //
-//	E_BROADCAST_SELECTOR  unreachable: the parser builds BroadcastStmt only in
-//	                      its AT branch, so the left side is always a
-//	                      selector literal. The lowerer check is defensive.
-//	E_NO_BUDGET          unreachable: the parser rejects `budget 0` with
-//	                      E_PARSE ("must be at least 1") before the lowerer
-//	                      ever sees it, so Budget <= 0 cannot arrive.
+//	E_BROADCAST_SELECTOR  the parser builds BroadcastStmt only in its AT
+//	                      branch, so the left side is always a selector
+//	                      literal.
+//	E_NO_BUDGET          the parser rejects `budget 0` with E_PARSE before the
+//	                      lowerer sees it.
+//
+// Both lowerer sites panic instead of reporting now. A silent skip or drop
+// there would be the quiet wrong answer this compiler exists to prevent, so if
+// the parser ever stops enforcing its end, that has to be a crash.
+//
+// Five codes still have no test. Each is listed with the reason it could not
+// be triggered, so the gap is documented rather than forgotten.
 //
 //	E_BAD_COMMAND         needs Render to emit a line ValidateFor rejects; no
 //	                      source path to it was found.
@@ -93,17 +101,10 @@ func TestEveryDiagnosticFires(t *testing.T) {
 //	E_STR_RUNTIME         an extern str assigned to an objective compiles; the
 //	                      runtime-use path was not found.
 //	E_UNINIT_FIELD        lives in class-field lowering, same blocker as above.
-//
-// The two unreachable ones are worth a decision rather than a test: either
-// delete them, or keep them as defensive assertions on a hand-built AST. What
-// they must not do is suggest protection that a source author can never
-// receive.
 var untestedDiagnostics = []string{
 	"E_BAD_COMMAND",
-	"E_BROADCAST_SELECTOR",
 	"E_FIELD_COLLISION",
 	"E_FOR_RANGE",
-	"E_NO_BUDGET",
 	"E_STR_RUNTIME",
 	"E_UNINIT_FIELD",
 }
