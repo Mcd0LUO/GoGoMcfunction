@@ -16,6 +16,48 @@
 
 ---
 
+## [0.23.0] - 2026-10-21
+
+### 新增：`<selector>."objective"` 读别的实体的分数
+
+试表达 `rpg/player` 和 `rpg/monster` 时，卡在「读另一个实体的具名分数」上。
+数据包里 `@p[tag=target] Ap.Amount` 这种写法到处都是（1438 条 `execute` 大半
+在做这件事），而 GGM 只能扇出、读不到。
+
+```ggm
+Ap.Amount = @p[r=20,tag=target]."Ap.Amount"
+```
+
+```mcfunction
+scoreboard players operation @s Ap.Amount = @p[r=20,tag=target] Ap.Amount
+```
+
+objective 名加引号，因为名字本身可以带点（`Ap.Amount`、`Time.day`），
+`@p.Ap.Amount` 无法无歧义地切分。点和引号的形状沿用 `self.x` / `seed.x`。
+
+**只能读。** 1.12.2 允许选择器在计分板运算的右边，不允许在左边；写成赋值会报错
+并说明原因，而不是让解析器把那个点当成别的。要写别的实体，用 `for e in entities<...>`。
+
+### 修掉两个错误答案
+
+**1. 带点的 objective 名被拆开。** `Ap.Defence` 被拆成 holder `Ap` / objective
+`Defence`，命令合法、能执行、写进一个没人读的分数。读写两条路径都有一段
+`holder.objective` 简写回退，且都排在「已声明 objective」之前。
+
+现在**声明优先**：数据包声明了几十个带点的 objective，而本仓库示例里只有两个
+用简写。未声明的点号名仍然是简写，`seed.t = 9` 照常工作。
+
+**2. 三个 `for` 循环体合并成同一个函数。** 体路径用 `len(Blocks)` 生成，而一个
+体只含一条命令的循环不产生新块——于是同一个函数里的第二个、第三个循环拿到同样的
+名字。`NewFunc` 同名是静默覆盖，所以最后写的那个体对所有三个循环生效。
+
+现在用模块级单调计数器，路径是 `$e1`、`$e2`。
+
+### 能表达什么
+
+`rpg/player/hurt/main`（13 行）、`rpg/monster/hurt/operation/main`（15 行）、
+`rpg/monster/hurt/death/main`（33 行）都逐条对得上：状态运算、条件分支、
+`@p` 扇出、NBT 匹配、读别的实体的分数。
 ## [0.22.0] - 2026-10-21
 
 ### 新增 `decode … into`：多处累加

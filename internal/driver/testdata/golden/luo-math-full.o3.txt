@@ -110,12 +110,12 @@ execute @e[tag=math.sort] ~ ~ ~ scoreboard players operation #ggm.reduce math < 
 scoreboard players operation @s t6 = #ggm.reduce math
 scoreboard players operation @s l14 = @s t6
 scoreboard players operation sort key = @s l14
-execute @e[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$b3
+execute @e[tag=math.sort] ~ ~ ~ function luo:math/sort_asc$e1
 scoreboard players operation @e[tag=math.sort,score_temp1_min=0,score_temp1=0] return = sort rank
 scoreboard players tag @e[tag=math.sort,score_temp1_min=0,score_temp1=0] remove math.sort
 scoreboard players remove @s l13 1
 execute @s[score_l13_min=1] ~ ~ ~ function luo:math/sort_asc$b1 if @e[tag=math.sort]
-=== luo:math/sort_asc$b3 ===
+=== luo:math/sort_asc$e1 ===
 scoreboard players operation @s temp1 = @s math
 scoreboard players operation @s temp1 -= sort key
 === luo:math/sqrt ===

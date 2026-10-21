@@ -347,7 +347,17 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 	// pass removed and the IR invariant then reported as "block 1 is
 	// unreachable". A separate function is reachable by name, exactly like the
 	// `@tick` entry points.
-	bodyPath := l.blockPath(fb.Path(), ir.BlockID(len(fb.Func().Blocks)))
+	// A dedicated counter, not the block count.
+	//
+	// The block count was meant to be unique per loop but is not: a `for`
+	// whose body is a single function emits no new blocks into the enclosing
+	// function, so the NEXT loop in the same function sees the same count and
+	// gets the same path. Three loops in one function all became `main$b1`,
+	// and each overwrote the previous one's body -- so the last body written
+	// ran for all three loops. Nothing reported a collision because the
+	// second NewFunc of a name simply replaced the first.
+	l.bodyN++
+	bodyPath := fmt.Sprintf("%s$e%d", fb.Path(), l.bodyN)
 	bb := l.prog.NewFunc(bodyPath)
 	bb.Func().Exported = true
 	bctx := &fnCtx{path: bodyPath, scope: map[string]string{}, localN: &l.localN, class: ctx.class, fields: ctx.fields}

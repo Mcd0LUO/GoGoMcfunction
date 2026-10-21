@@ -130,7 +130,32 @@ func (p *parser) parsePrimary() (Expr, error) {
 		p.next()
 		return SelfExpr{P: t.Pos}, nil
 	case AT:
-		return p.parseSelectorLiteral()
+		// A selector may be followed by `.field`, which reads THAT entity's
+		// score: `@p[tag=target].Ap.Amount`.
+		//
+		// The field is written as a string because an objective name may
+		// contain dots, and `@p.Ap.Amount` cannot be split unambiguously --
+		// exactly the ambiguity that made `Ap.Amount` a broken objective name
+		// until declaration was allowed to win. A selector is never a declared
+		// objective, so here the quoted form is the only honest spelling:
+		//
+		//	@e[tag=mob]."M.UID"
+		//
+		// The dot before it keeps the shape of `self.x` and `seed.x`, which is
+		// the whole reason to spell it this way rather than with a helper.
+		sel, err := p.parseSelectorLiteral()
+		if err != nil {
+			return nil, err
+		}
+		if p.cur().Kind != DOT {
+			return sel, nil
+		}
+		p.next()
+		if p.cur().Kind != STRING {
+			return nil, &Error{Pos: p.cur().Pos, Msg: "expected a quoted objective name after the selector's dot, e.g. @p[tag=t].\"Ap.Amount\""}
+		}
+		obj := p.next()
+		return Field{X: sel, Name: obj.Text, P: t.Pos}, nil
 	case LBRACK:
 		// list literal, used by comptime for-loops: [1, 2, 4]
 		p.next()

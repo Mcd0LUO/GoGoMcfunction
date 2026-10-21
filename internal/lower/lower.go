@@ -72,6 +72,10 @@ type Lowerer struct {
 	objs map[string]bool
 	// fields are the `nbt` declarations: an NBT path plus its encoding.
 	fields map[string]syntax.NBTField
+	// bodyN numbers the functions that `for e in entities<...>` bodies become.
+	// It must be unique across the module: a repeated name silently replaces
+	// an earlier body, and the loops then share one.
+	bodyN int
 	// probeN numbers the marker tags `matches` uses, so two tests in one
 	// function cannot read each other's result.
 	probeN int

@@ -154,6 +154,14 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		p.skipNewlines()
+		// `@p[tag=t]."Ap.Amount"` is the READ spelling, so reaching it on the
+		// left of an `=` means the author expected to write that entity's
+		// score. 1.12.2 cannot: a selector is allowed on the right of a
+		// scoreboard operation and not on the left. Saying so beats letting
+		// expectName report a stray dot.
+		if p.cur().Kind == DOT {
+			return nil, &Error{Pos: p.cur().Pos, Msg: "a selector's score can be read but not assigned to: 1.12.2 allows a selector on the right of a scoreboard operation, not the left. To write it, use for e in entities<...> and assign inside"}
+		}
 		// The field is an objective name, and objective names are often words
 		// the language reserves: `return` is the ABI return register in every
 		// 1.12.2 library, so `@a[tag=x] return = 1` has to parse.

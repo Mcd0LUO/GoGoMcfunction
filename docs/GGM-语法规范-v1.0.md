@@ -690,6 +690,28 @@ tp(self, "100", "64", "-20")  // 绝对：到那个方块
 写不出来。让波浪号可见，每个轴多一个字符，两种形式就都能说清自己是什么——
 而且这正是 1.12.2 自己的区分方式，中间不再有可错的翻译。
 
+#### 读别的实体的分数：`<selector>."objective"`
+
+`@s` 是自己的分数。要读**另一个**实体的具名分数，在选择器后面加点和引号：
+
+```ggm
+obj Ap.Amount
+Ap.Amount = @p[r=20,tag=target]."Ap.Amount"
+```
+
+```mcfunction
+scoreboard players operation @s Ap.Amount = @p[r=20,tag=target] Ap.Amount
+```
+
+**为什么 objective 名要加引号**：objective 名本身可以带点（`Ap.Amount`、
+`Time.day`、`Count.残照花魄`），所以 `@p.Ap.Amount` 无法无歧义地切分。选择器
+永远不会是已声明的 objective，所以这里带引号是唯一诚实的写法。
+
+点和引号的形状沿用 `self.x` 和 `seed.x`，这是不用新函数的原因。
+
+**只能读，不能写。** 1.12.2 允许选择器出现在计分板运算的**右边**，不允许出现在
+左边。写成 `@p[tag=t]."X" = 1` 会报错并说明原因——而不是让解析器把那个点当成
+别的东西。要写别的实体，用 `for e in entities<...>`，体内 `@s` 就是它。
 #### `decode … into`：多处累加到一个 objective
 
 普通 `decode` **先清零**。一个值分散在多个槽位、由多条语句分别读取时，这就不够

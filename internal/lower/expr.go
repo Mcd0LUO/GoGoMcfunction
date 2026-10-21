@@ -181,6 +181,21 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		return l.binary(ctx, fb, block, x)
 	case syntax.Unary:
 		return l.unary(ctx, fb, block, x)
+	case syntax.Field:
+		// `<selector>."objective"` -- another entity's score, read in place.
+		//
+		// 1.12.2 allows a selector on the RIGHT of a scoreboard operation but
+		// not on the left, so this is a read-only shape: it can be copied out
+		// of, never assigned to. That asymmetry is the engine's, and hiding it
+		// would mean copying through a temporary and writing back, which is a
+		// different operation with different failure modes.
+		if base, ok := x.X.(syntax.Ident); ok && strings.HasPrefix(base.Name, "@") {
+			return ir.Loc{Holder: base.Name, Obj: x.Name}, nil
+		}
+		if _, ok := x.X.(syntax.SelfExpr); ok {
+			return l.entityScore(ctx, x.Name, x.P), nil
+		}
+		return ir.Loc{}, fmt.Errorf("only a selector or self can qualify an objective with a dot")
 	}
 	return ir.Loc{}, fmt.Errorf("unsupported expression")
 }
