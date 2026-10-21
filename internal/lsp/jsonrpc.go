@@ -60,11 +60,6 @@ func (m *msg) isCall() bool { return len(m.ID) > 0 }
 
 // conn reads and writes framed messages.
 //
-// Writes take a mutex because a request handler produces a response while the
-// read loop may also be writing a server-initiated notification. Interleaved
-// writes would corrupt the frame.
-// conn reads and writes framed messages.
-//
 // Writes go through an unbounded queue drained by a goroutine, never straight
 // to the writer. That is not an optimisation: writing inline in the read loop
 // deadlocks the moment the peer is also writing. A client that sends a
@@ -126,6 +121,15 @@ func (c *conn) Close() {
 	}
 }
 
+// errBadMessage marks a frame whose body is not a JSON-RPC message.
+//
+// It is separate from an I/O error because the two mean opposite things: a bad
+// body is one message the server cannot use, and the right response is to skip
+// it and read the next; a broken stream is the end of the conversation. Returning
+// both as an error killed the server on the first malformed frame -- measured,
+// the next request came back as EOF.
+var errBadMessage = errors.New("malformed message")
+
 // read returns the next message, or io.EOF when the client closes the pipe.
 func (c *conn) read() (*msg, error) {
 	length := -1
@@ -162,7 +166,7 @@ func (c *conn) read() (*msg, error) {
 	}
 	var m msg
 	if err := json.Unmarshal(buf, &m); err != nil {
-		return nil, fmt.Errorf("bad JSON payload: %w", err)
+		return nil, fmt.Errorf("%w: %v", errBadMessage, err)
 	}
 	return &m, nil
 }
@@ -217,4 +221,21 @@ func mustJSON(v any) json.RawMessage {
 		panic("lsp: cannot encode " + fmt.Sprintf("%T", v) + ": " + err.Error())
 	}
 	return b
+}
+
+// writeRaw sends a body without going through write, so a test can put
+// something on the wire that json.Marshal would never produce.
+func (c *conn) writeRaw(body []byte) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return io.ErrClosedPipe
+	}
+	c.queue = append(c.queue, body)
+	c.mu.Unlock()
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+	return nil
 }

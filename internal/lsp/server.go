@@ -14,6 +14,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,6 +89,12 @@ func (s *Server) Serve(r io.Reader, w io.Writer) error {
 		m, err := s.conn.read()
 		if err == io.EOF {
 			return nil
+		}
+		if errors.Is(err, errBadMessage) {
+			// One unusable frame. Skip it: the stream is still intact, and
+			// killing the process here would make the client restart the
+			// server, lose the index and re-publish everything.
+			continue
 		}
 		if err != nil {
 			return err

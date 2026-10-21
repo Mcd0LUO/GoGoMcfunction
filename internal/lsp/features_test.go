@@ -460,3 +460,32 @@ func TestWorkspaceSymbolsSpanModules(t *testing.T) {
 		t.Fatalf("workspace search returned %v, want a match from each namespace", names)
 	}
 }
+
+// Garbage on the wire must not take the server down.
+//
+// An editor restarts a crashed language server, but every restart loses the
+// index and re-publishes every diagnostic, and a client that sends one bad
+// message -- a truncated save, a half-written frame -- would do it repeatedly.
+// The server's job is to answer the next good request.
+func TestMalformedMessagesDoNotStopTheServer(t *testing.T) {
+	sess, path := openFixture(t)
+
+	// A frame whose body is not JSON at all.
+	if err := sess.c.writeRaw([]byte("this is not json")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// A well-formed request naming a method nobody implements.
+	sess.request(100, "textDocument/unknownThing", struct{}{})
+	// A request whose params are the wrong shape.
+	sess.request(101, "textDocument/hover", map[string]any{"position": "nonsense"})
+
+	// The server must still answer a good request.
+	var h Hover
+	sess.ask(102, "textDocument/hover", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     pos(7, 15),
+	}, &h)
+	if !strings.Contains(h.Contents.Value, "fn helper") {
+		t.Fatalf("after two malformed messages the server answered %q", h.Contents.Value)
+	}
+}
