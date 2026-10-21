@@ -147,7 +147,19 @@ func (p *parser) parsePrimary() (Expr, error) {
 	switch t.Kind {
 	case INT:
 		p.next()
-		return IntLit{Value: atoi(t.Text), P: t.Pos}, nil
+		// Report the digits the author wrote, not a wrapped value.
+		//
+		// The range check downstream can only complain about the number it
+		// receives, and a silent wrap made that number unrelated to the
+		// source: 99999999999999999999999 arrived as 200376420520689663 and
+		// the error named that.
+		v, ok := atoiChecked(t.Text)
+		if !ok {
+			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf(
+				"integer literal %s is too large to represent; 1.12.2 scores are 32-bit signed integers",
+				t.Text)}
+		}
+		return IntLit{Value: v, P: t.Pos}, nil
 	case STRING:
 		p.next()
 		return StringLit{Value: t.Text, P: t.Pos}, nil
@@ -374,13 +386,33 @@ func (p *parser) finishCall(name string, pos Pos) (Expr, error) {
 	return Call{Name: name, Args: args, P: pos}, nil
 }
 
+// atoi parses a run of decimal digits.
+//
+// It wraps silently, which is wrong for anything that ends up in a score:
+// 99999999999999999999999 became 200376420520689663, and the range check then
+// reported that invented number instead of the one the author wrote. Callers
+// that care use atoiChecked.
 func atoi(s string) int {
-	n := 0
+	n, _ := atoiChecked(s)
+	return n
+}
+
+// atoiChecked parses a run of decimal digits, reporting whether the value fit.
+//
+// ok is false when the digits overflow int64. The returned value is then
+// meaningless, and a caller that puts it in a score would emit a number the
+// author never wrote -- so every such caller must check ok.
+func atoiChecked(s string) (int, bool) {
+	var n int64
 	for _, c := range s {
 		if c < '0' || c > '9' {
 			continue
 		}
-		n = n*10 + int(c-'0')
+		d := int64(c - '0')
+		if n > (1<<63-1-d)/10 {
+			return 0, false
+		}
+		n = n*10 + d
 	}
-	return n
+	return int(n), true
 }
