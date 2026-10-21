@@ -109,19 +109,9 @@ func TestEveryDiagnosticFires(t *testing.T) {
 // there would be the quiet wrong answer this compiler exists to prevent, so if
 // the parser ever stops enforcing its end, that has to be a crash.
 //
-// One code still has no test.
-//
-//	E_BAD_COMMAND  needs Render to emit a line ValidateFor rejects. Every
-//	               command in the IR is built by the back end from a known
-//	               shape, and no source-level construct was found that makes
-//	               it emit a malformed line -- including `comptime { cmd(...) }`,
-//	               which does not reach ValidateFor at all.
-//
 // Two others were nearly left here for a bad reason: E_UNINIT_FIELD and
 // E_FIELD_COLLISION were listed as untriggerable because the first attempt at
 // them wrote `nbt` where a class field is written `var`. They fired on the
 // first try once the keyword was right, which is worth recording: "I could not
 // trigger it" is a statement about the person trying, not about the code.
-var untestedDiagnostics = []string{
-	"E_BAD_COMMAND",
-}
+var untestedDiagnostics = []string{}

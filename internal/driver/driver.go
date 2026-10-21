@@ -370,12 +370,12 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	}
 
 	files, order := mcfunction.Render(prog, mcfunction.Options{Target: opt.Target, Comments: opt.Comments})
-	for p, body := range files {
-		for _, line := range splitLines(body) {
-			if err := mcfunction.ValidateFor(opt.Target, line); err != nil {
-				bag.Error(diag.Pos{}, "E_BAD_COMMAND", "%s: %s", p, err)
-			}
-		}
+	// Every rendered line is checked against the target before anything is
+	// written. This is a self-check on the back end, not on the program: a
+	// line that fails here means the compiler built a command 1.12.2 will not
+	// accept, which is a bug in this program rather than in the author's.
+	for _, d := range validateRendered(files, opt.Target) {
+		bag.Add(d)
 	}
 	out := &Output{Files: files, Order: order, Skipped: optimize.Skipped(opt.Level), IR: prog}
 	out.NeedsConstInit = bootPath(srcFiles[0].Namespace)
@@ -764,3 +764,33 @@ func (o *Output) CountLines() int {
 
 var _ = ir.Program{}
 var _ = fmt.Sprint
+
+// validateRendered checks every emitted line against the target.
+//
+// What it checks is narrower than the name suggests, and the difference
+// matters: ValidateFor rejects a leading slash and a selector argument 1.12.2
+// does not know, and nothing else. `say nonsense` passes. A real command
+// validator would have to model every command and every argument type, which is
+// a second implementation of the target -- so this is a backstop for the two
+// things the back end can get wrong while still producing text that looks like
+// a command.
+//
+// That is still worth having: a malformed line makes the WHOLE function file
+// fail to load, silently, so a miss here costs the author every command in the
+// file rather than one.
+//
+// Extracted from CompileFiles so the wiring can be tested. No source construct
+// is known to make the renderer emit a bad line, so the check was untestable
+// through a .ggm file; handing it the renderer's output directly makes the
+// claim checkable.
+func validateRendered(files map[string]string, tgt target.Target) []diag.Diagnostic {
+	var bag diag.Bag
+	for p, body := range files {
+		for _, line := range splitLines(body) {
+			if err := mcfunction.ValidateFor(tgt, line); err != nil {
+				bag.Error(diag.Pos{}, "E_BAD_COMMAND", "%s: %s", p, err)
+			}
+		}
+	}
+	return bag.Sorted()
+}
