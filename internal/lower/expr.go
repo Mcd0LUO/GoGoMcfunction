@@ -20,7 +20,7 @@ func (l *Lowerer) reportExprErr(e syntax.Expr, err error) {
 	if errors.Is(err, errAlreadyReported) {
 		return
 	}
-	l.reportExprErr(e, err)
+	l.diags.Error(posOf(exprPos(e)), "E_EXPR", "%s", err)
 }
 
 // assignInto stores the value of e into dst.
