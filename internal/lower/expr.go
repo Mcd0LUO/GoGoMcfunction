@@ -319,8 +319,32 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 				return ir.Predicate{}, err
 			}
 			return orPredicates(left, right), nil
-		case syntax.NOT:
 		}
+	}
+	// `!c` negates the predicate. There is no `unless` form for an arbitrary
+	// condition in 1.12.2, so a negation is materialised into a flag: set 1,
+	// clear it when the inner condition holds, then test the flag. That costs
+	// two commands and is correct; refusing to compile it was worse, because
+	// `if !any<...>` is how an author writes "nothing matched".
+	//
+	// The comparison and existence cases are handled directly by the caller
+	// where a negated selector is available; this is the general fallback.
+	if un, ok := e.(syntax.Unary); ok && un.Op == syntax.NOT {
+		inner, err := l.lowerCond(ctx, fb, block, un.X)
+		if err != nil {
+			return ir.Predicate{}, err
+		}
+		// A bare existence test has an exact `unless` form, so it needs no flag.
+		if inner.Exist != nil && len(inner.Alts) == 0 && inner.Block == nil {
+			return ir.Predicate{Exist: &ir.ExistTest{
+				Selector: inner.Exist.Selector,
+				Negate:   !inner.Exist.Negate,
+			}}, nil
+		}
+		d := fb.Tmp()
+		fb.Emit(block, ir.Set{Dst: ctx.loc(d), Value: 1})
+		fb.Emit(block, ir.Guarded{Inner: ir.Set{Dst: ctx.loc(d), Value: 0}, Cond: inner})
+		return ir.Predicate{Alts: [][]ir.Cond{{{Obj: d, HasMin: true, Min: 1}}}}, nil
 	}
 	if bin, ok := e.(syntax.Binary); ok && isComparison(bin.Op) {
 		d := fb.Tmp()

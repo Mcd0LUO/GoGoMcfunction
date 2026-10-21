@@ -36,28 +36,56 @@ func (p *parser) parseContainer() (Container, error) {
 			return Container{}, err
 		}
 		c.IsSlot = true
-		lo, err := p.expect(INT)
+		// A slot may be negative: 1.12.2 puts the offhand at -106 and the
+		// armour slots at 100..103, and the reference data pack reads all of
+		// them. Parsing only unsigned integers made the whole offhand
+		// mechanism -- a shield in the second hand -- inexpressible.
+		lo, loPos, err := p.parseSignedInt()
 		if err != nil {
 			return Container{}, err
 		}
-		c.Lo, c.Hi = atoi(lo.Text), atoi(lo.Text)
+		c.Lo, c.Hi = lo, lo
 		if p.cur().Kind == DOTDOT {
 			p.next()
-			hi, err := p.expect(INT)
+			hi, _, err := p.parseSignedInt()
 			if err != nil {
 				return Container{}, err
 			}
-			c.Hi = atoi(hi.Text)
+			c.Hi = hi
 		}
 		if _, err := p.expect(RPAREN); err != nil {
 			return Container{}, err
 		}
 		if c.Hi < c.Lo {
-			return Container{}, &Error{Pos: lo.Pos, Msg: fmt.Sprintf("slot range %d..%d is empty", c.Lo, c.Hi)}
+			return Container{}, &Error{Pos: loPos, Msg: fmt.Sprintf("slot range %d..%d is empty", c.Lo, c.Hi)}
 		}
 		return c, nil
 	}
 	return Container{}, &Error{Pos: key.Pos, Msg: fmt.Sprintf("unknown container %q; expected SelectedItem, Inventory or Item", key.Text)}
+}
+
+// parseSignedInt reads an integer literal with an optional leading minus.
+//
+// `expect(INT)` cannot: the minus is its own token, so a negative literal
+// arrives as MINUS followed by INT. Only a handful of positions need a
+// negative constant -- an inventory slot is one -- so this stays a small
+// helper rather than a change to every integer site.
+func (p *parser) parseSignedInt() (int, Pos, error) {
+	pos := p.cur().Pos
+	neg := false
+	if p.cur().Kind == MINUS {
+		p.next()
+		neg = true
+	}
+	t, err := p.expect(INT)
+	if err != nil {
+		return 0, pos, err
+	}
+	v := atoi(t.Text)
+	if neg {
+		v = -v
+	}
+	return v, pos, nil
 }
 
 // parseDecode reads `decode <objective> from <container>[<field>] [ { cases } ]`.

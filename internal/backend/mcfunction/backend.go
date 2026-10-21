@@ -156,9 +156,25 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 
 	out := map[string]string{}
 	var keptOrder []string
+	// An exported function is an entry point the author wires by name, so its
+	// file must exist even when it emits no commands.
+	//
+	// Pruning an empty body is right for a private helper: nothing can reach
+	// it and it costs nothing. For an entry point it is wrong. `[export] fn
+	// main() { helper() }` where helper is empty produced NO main.mcfunction,
+	// so the user wired a function that does not exist -- and 1.12.2 treats
+	// that as a silent no-op, exactly the failure mode this compiler exists
+	// to prevent. The IR still lists the function, which is why the two
+	// disagree.
+	entry := map[string]bool{}
+	for _, fn := range prog.Funcs {
+		if fn.Exported {
+			entry[fn.Path] = true
+		}
+	}
 	for _, p := range order {
 		cmds := files[p]
-		if len(cmds) == 0 {
+		if len(cmds) == 0 && !entry[p] {
 			continue // nothing to emit and nothing can reach it
 		}
 		var sb strings.Builder

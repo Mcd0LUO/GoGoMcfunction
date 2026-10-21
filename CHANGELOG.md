@@ -16,6 +16,83 @@
 
 ---
 
+## [0.26.0] - 2026-10-21
+
+六路移植报告里剩下的缺口，逐条修。
+
+### `fn` 名可以是路径
+
+数据包按目录组织，目录是 id 的一部分：`rpg:player/atk/main_weapon`。
+`fn` 名不接受 `/`，整个包的目录结构被压平，生成 `rpg:player/main_weapon`
+——**与数据包其余部分引用的函数名对不上**。
+
+```ggm
+namespace rpg:player
+fn atk/main_weapon() { }
+```
+
+生成 `rpg/player/atk/main_weapon.mcfunction`。
+
+### 跨文件调用，以及空导出函数必须有文件
+
+全限定名（含 `:`）能跨文件解析，裸名只在本文件 namespace 下找——数据包就是
+这么写的。但**导出函数即使为空也必须生成文件**。
+
+```ggm
+// a.ggm
+namespace rpg:item/buy
+[export]
+fn cl/main() { rpg:item/api/stat_start() }
+
+// b.ggm
+namespace rpg:item/api
+[export]
+fn stat_start() { temp1 = 0 }
+```
+
+之前 `main.mcfunction` **根本不生成**：`stat_start` 若为空，`call` 被 `silent()`
+删掉，`main` 渲染后为空，`len(cmds)==0` 就不发文件。作者按提示接线一个不存在的
+函数，1.12.2 当作静默 no-op。现在 `[export]` 函数一定生成文件（空文件是合法 no-op）。
+
+### `Inventory()` 接受负槽位
+
+副手在 1.12.2 是 `Slot:-106b`，护甲是 `100..103`。只解析无符号整数，整个
+「副手道具」机制表达不出来。
+
+```ggm
+decode X from @s.Inventory(-106..-106)[f]
+```
+
+```mcfunction
+scoreboard players add @s X 1 {Inventory:[{Slot:-106b,tag:{dat:{f:{0:1b}}}}]}
+```
+
+### `!cond` 可用
+
+```ggm
+if !(a >= 1) { X = 1 }
+if !any<@e[tag=foo]> { X = 2 }
+```
+
+存在性测试有精确的 `unless` 形式，零开销：`function t:n/g$b1 unless @e[tag=foo]`。
+其余条件物化成一个标志（set 1，内层成立时清 0，再测标志）。之前直接报错——
+而 `if !any<...>` 正是作者写「没有任何东西匹配」的方式。
+
+### `stats clear` 只要三个参数
+
+`clear` 解绑统计、不指定接收分数。原来 set/clear 都强制四个，逼作者编一个假
+objective，它会出现在生成物里。`set` 仍然要四个。
+
+### `matches` 接受任意容器
+
+`@s.ActiveEffects matches n"{Id:12b}"` 之前被拒。白名单里是 `decode` 关心的
+三个容器，与 `matches` 无关。
+
+### 明确不做的：objective 名里的 `:`
+
+数据包用 `wp.passiveId1:1`，但 `:` 是 namespace 分隔符，放进标识符会污染 token 流
+——每处 `a:b` 都要先判断是 namespace 还是名字的一部分。
+「读位置」`@s."wp.passiveId1:1"` 已经能写且生成正确，声明用别名即可。
 ## [0.25.0] - 2026-10-21
 
 六路并行移植参考数据包（`末法`，1963 文件 11348 行）后，按报告修掉的问题。

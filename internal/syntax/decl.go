@@ -158,12 +158,35 @@ func (p *parser) parseEnumCases() ([]EnumCase, error) {
 	return out, nil
 }
 
+// parseFuncPath reads a function name, which may be a path: `atk/main_weapon`.
+//
+// The reference data pack organises functions by directory, and the directory
+// is part of the id: `rpg:player/atk/main_weapon`. A name with no slash is the
+// common case; one with slashes keeps its shape instead of being flattened
+// into the namespace, so a rewritten file keeps the id the rest of the pack
+// already calls.
+func (p *parser) parseFuncPath() (string, error) {
+	t, err := p.expectNameLike()
+	if err != nil {
+		return "", err
+	}
+	name := t.Text
+	for p.cur().Kind == SLASH {
+		p.next()
+		seg, err := p.expectNameLike()
+		if err != nil {
+			return "", err
+		}
+		name += "/" + seg.Text
+	}
+	return name, nil
+}
 func (p *parser) parseFunc(attrs []Attr) (*FuncDecl, error) {
 	t, err := p.expect(FN)
 	if err != nil {
 		return nil, err
 	}
-	name, err := p.expectNameLike()
+	name, err := p.parseFuncPath()
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +211,7 @@ func (p *parser) parseFunc(attrs []Attr) (*FuncDecl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FuncDecl{Name: name.Text, Params: params, RetType: ret, Body: body, Attrs: attrs, EveryTicks: every, P: t.Pos}, nil
+	return &FuncDecl{Name: name, Params: params, RetType: ret, Body: body, Attrs: attrs, EveryTicks: every, P: t.Pos}, nil
 }
 
 // parseMethod parses one method with its attribute list.
