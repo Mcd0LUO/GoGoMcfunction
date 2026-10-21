@@ -60,7 +60,7 @@ bits enum decode encode over
 
 **只有两种**：`int`（int32）、`bool`（int32 的 0/1）。
 
-没有定点、没有浮点、没有字符串类型（字符串只能是字面量，用于 `say` / `emit`）、
+没有定点、没有浮点、没有字符串类型（字符串只能是字面量，用于 `say` / `cmd`）、
 没有泛型、没有枚举、没有引用。小数用千分比 `int` 自己约定。
 
 ---
@@ -588,7 +588,7 @@ reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 ```ggm
 comptime {
     for n in -1..100 {
-        emit("#math." + str(n), "math", n)
+        score("#math." + str(n), "math", n)
     }
 }
 ```
@@ -599,11 +599,11 @@ comptime {
 
 | 调用 | 产出 |
 |---|---|
-| `emit(holder, objective, value)` | `scoreboard players set <holder> <objective> <value>` |
-| `emit_line(text)` | 一整条命令，原样 |
+| `score(holder, objective, value)` | `scoreboard players set <holder> <objective> <value>` |
+| `cmd(text)` | 一整条命令，原样 |
 
-`emit` 建常量池；`emit_line` 用来**生成命令表**。两者缺一不可——
-一张 88 行的二分表里全是 `tp`，它不是常量分数，`emit` 写不出来。
+`score` 建常量池；`cmd` 用来**生成命令表**。两者缺一不可——
+一张 88 行的二分表里全是 `tp`，它不是常量分数，`score` 写不出来。
 
 ### 6.2 字符串化
 
@@ -618,13 +618,68 @@ comptime {
 
 ### 6.3 只支持三种语句
 
-`for` / `emit` / `emit_line`。**别的语句会报 `E_COMPTIME_STMT`，不会被静默跳过。**
+`for` / `score` / `cmd`。**别的语句会报 `E_COMPTIME_STMT`，不会被静默跳过。**
 
 这条是硬约束而不是限制：`if` 曾经掉进 switch 的 default 直接消失——被它包住的
 那些行一条都没生成，没有任何提示，而输出看起来是完整的。**生成器里的静默
 no-op 比缺功能更糟。**
 
 需要按条件生成时，把范围拆成多个循环（`0..30` 和 `0..21`），而不是写 `if`。
+
+### 6.4 命令内置函数
+
+编译期之外，有些命令要在**运行期**发出去。它们单独列在这里，因为它们
+不是 `comptime`——它们在程序跑的时候执行，参数可以来自选择器。
+
+| 调用 | 生成 |
+|---|---|
+| `summon(type, [nbt], [x, y, z])` | `summon <type> [nbt] [x y z]` |
+| `entitydata(target, n"...")` | `entitydata <target> <nbt>` |
+| `effect(target, effect, seconds, [amp], [hide])` | `effect <target> <...>` |
+| `tp(target, x, y, z)` | `tp <target> <x> <y> <z>` |
+| `kill(target)` | `kill <target>` |
+| `say(text)` | `say <text>` |
+| `cmd(text)` | `<text>`，原样 |
+
+#### 参数只能是字面量
+
+```ggm
+summon("armor_stand", n"{Tags:[\"mob\"],Marker:1b}")   // 可以
+effect(self, "speed", 10, 1, true)                    // 可以
+summon("pig", hp)                                     // E_ARG
+```
+
+不是实现偷懒，是 1.12.2 的硬限制：**命令是文本，没有任何语法能把运行期的
+分数拼进文本里。** 接受一个 `int` 然后写它此刻的值，会产出一条看起来正确、
+却忽略此后每一次变化的命令——正是这个编译器存在的理由。
+
+所以 `E_ARG` 的措辞说的是边界而不是语法：作者写 `summon("pig", hp)` 时该
+知道为什么这条路不存在，而不是只看到「参数 2 类型不对」。
+
+#### `tp` 的相对与绝对
+
+```ggm
+tp(self, "~", "~1", "~")      // 相对：从当前位置往上 1 格
+tp(self, "100", "64", "-20")  // 绝对：到那个方块
+```
+
+`~` 由作者写。旧写法替作者加 `~`，所以**只能**表达相对移动，绝对传送根本
+写不出来。让波浪号可见，每个轴多一个字符，两种形式就都能说清自己是什么——
+而且这正是 1.12.2 自己的区分方式，中间不再有可错的翻译。
+
+#### `cmd` 是逃生口，但仍然过校验
+
+`cmd` 和编译期的 `cmd` **同名**：「发一条任意命令」在语言里只有一个名字。
+编译期那份从常量拼出来，运行期这份是源码里的字面量。
+
+它绕过内置表，但**不绕过** `mcfunction.Validate`：渲染出的那一行仍然要过
+选择器参数白名单，所以 `score_x>=1` 这种 1.12.2 不认识的键还是会被抓出来。
+
+#### `n"..."` 是普通表达式
+
+以前 `n"..."` 只在语法专门写死的地方合法（`matches` 条件和 `nbt` 声明），
+于是 NBT 编解码器**够不到命令**——能解码一件已经存在的物品，却没法给出一件。
+现在它是普通表达式节点，可以出现在任何参数位置，解析期仍然校验合法性。
 
 ---
 
@@ -636,7 +691,7 @@ no-op 比缺功能更糟。**
 |---|---|
 | `E_PARSE` | 语法错误（含未知属性、属性未附着到声明） |
 | `E_NO_NAMESPACE` | 文件没有 `namespace` |
-| `E_INT_RANGE` | 字面量或 `emit` 值超出 int32 计分板范围 |
+| `E_INT_RANGE` | 字面量或 `score` 值超出 int32 计分板范围 |
 | `E_FN_COLLISION` | 两个声明在 1.12.2 归一化后是同一个函数 |
 | `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
 | `E_UNKNOWN_CALLEE` | 调用了本模块里不存在的函数 |
@@ -655,7 +710,7 @@ no-op 比缺功能更糟。**
 | `E_COND` / `E_EXPR` / `E_ARG` / `E_STMT` | 表达式或语句无法降级 |
 | `E_FOR_SELECTOR` | `for e in` 的来源不是 `entities<...>` |
 | `E_BROADCAST_SELECTOR` / `E_BROADCAST_VALUE` | 广播写语句的选择器或值非法 |
-| `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` | `comptime` 的范围、列表或 `emit` 参数不是编译期常量 |
+| `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` | `comptime` 的范围、列表或 `score` 参数不是编译期常量 |
 | `E_STR_RUNTIME` | 字符串在运行期才求值 |
 | `E_BAD_COMMAND` | 后端生成的命令没通过语法检查（编译器 bug）；含选择器参数白名单 |
 | `E_IR_INVARIANT` | IR 结构不变量被破坏（编译器 bug） |
@@ -712,8 +767,8 @@ objective 名超 16 字符）同理。
 namespace luo:math
 
 comptime {
-    for n in -1..100 { emit scoreboard.set("#math." + str(n), "math", n) }
-    for n in [120, 200, 1000, 2000, 20000] { emit scoreboard.set("#math." + str(n), "math", n) }
+    for n in -1..100 { score("#math." + str(n), "math", n) }
+    for n in [120, 200, 1000, 2000, 20000] { score("#math." + str(n), "math", n) }
 }
 
 extern arg1:   int = @s.arg1

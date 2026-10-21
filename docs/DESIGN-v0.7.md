@@ -52,7 +52,7 @@ scoreboard players add @s wp.damage1 256 {Inventory:[{Slot:0b,tag:{dat:{atk_base
 
 ## 1.3 方案对比
 
-### 方案 A：`comptime` 里循环 `emit`（现有能力）
+### 方案 A：`comptime` 里循环 `score`（现有能力）
 
 ```ggm
 comptime {
@@ -64,7 +64,7 @@ comptime {
 }
 ```
 
-**卡点**：`emit` 只能产出一条常量命令，产不出「9 条结构相同的命令」这个**模式**。
+**卡点**：`score` 只能产出一条常量命令，产不出「9 条结构相同的命令」这个**模式**。
 而 NBT 里的 `{0:1b}` … `{8:1b}` 下标必须随位号变化，字符串拼接也得靠编译器。
 
 ### 方案 B：给 `comptime` 加 `emit_bits` 内建

@@ -45,7 +45,6 @@ const (
 	VAR
 	ENTITIES
 	WHERE
-	EMIT
 	BUDGET
 	WRAPPING
 	LOOP
@@ -102,7 +101,7 @@ var keywords = map[string]Kind{
 	"for": FOR, "in": IN, "step": STEP, "return": RETURN,
 	"self": SELF, "true": TRUE, "false": FALSE, "none": FALSE,
 	"var": VAR, "entities": ENTITIES, "where": WHERE,
-	"emit": EMIT, "budget": BUDGET, "wrapping": WRAPPING,
+	"budget": BUDGET, "wrapping": WRAPPING,
 	"loop": LOOP, "obj": OBJ,
 	"bits": BITS, "enum": ENUM, "decode": DECODE, "encode": ENCODE, "over": OVER,
 	"nbt": NBTDECL,
@@ -124,7 +123,7 @@ var kindNames = map[Kind]string{
 	LET: "let", IF: "if", ELSE: "else", WHILE: "while",
 	FOR: "for", IN: "in", STEP: "step", RETURN: "return",
 	SELF: "self", TRUE: "true", FALSE: "false", VAR: "var",
-	ENTITIES: "entities", WHERE: "where", EMIT: "emit",
+	ENTITIES: "entities", WHERE: "where",
 	BUDGET: "budget", WRAPPING: "wrapping", LOOP: "loop", OBJ: "obj",
 	BITS: "bits", ENUM: "enum", DECODE: "decode", ENCODE: "encode", OVER: "over",
 	NBTDECL: "nbt",

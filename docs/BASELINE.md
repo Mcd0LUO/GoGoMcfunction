@@ -1,4 +1,4 @@
-# Baseline：ggm 0.18.0
+# Baseline：ggm 0.19.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 
@@ -114,7 +114,7 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 - **类选择器只能是 1.12.2 选择器语法**，编译器按字面拼接，不校验。
 - **规范第 7 节「计划中」那张表里的检查都不存在**（`W_WRAP_UNPROVEN`、
   `W_DIV_ZERO`、`E_NO_SELF_CONTEXT` 等）。
-- **字面量之外的溢出仍然静默回绕。** `E_INT_RANGE` 只管字面量和 `emit` 值。
+- **字面量之外的溢出仍然静默回绕。** `E_INT_RANGE` 只管字面量和 `score` 值。
 - **`-O3` 与 `-O2` 输出相同。** 目前没有属于 O3 的 pass。
 - **只有单一目标版本。** `-target` 只接受 `1.12.2`。
 

@@ -62,6 +62,16 @@ type (
 		Elems []Expr
 		P     Pos
 	}
+	// NBTLit is an `n"..."` value in expression position.
+	//
+	// It holds no score and can never be stored: it exists only to be handed
+	// to a builtin that writes raw command text, which is where an NBT payload
+	// belongs. Before this, `n"..."` was legal in exactly two places the
+	// grammar spelled out, which left the codec unreachable from a command.
+	NBTLit struct {
+		Text string
+		P    Pos
+	}
 )
 
 func (IntLit) exprNode()    {}
@@ -76,6 +86,7 @@ func (Call) exprNode()      {}
 func (Field) exprNode()     {}
 func (Index) exprNode()     {}
 func (ListLit) exprNode()   {}
+func (NBTLit) exprNode()    {}
 
 // Stmt is a GGM statement.
 type Stmt interface{ stmtNode() }

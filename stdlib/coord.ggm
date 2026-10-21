@@ -28,15 +28,15 @@ obj temp4 "coord probe"
 comptime {
     // x 轴与 z 轴：31 位
     for bit in 0..30 {
-        emit_line("tp @s ~-" + strdec2(30 - bit, 1000) + " ~ ~")
-        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:x " + strpow2(30 - bit))
-        emit_line("tp @s ~ ~ ~-" + strdec2(30 - bit, 1000))
-        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:z " + strpow2(30 - bit))
+        cmd("tp @s ~-" + strdec2(30 - bit, 1000) + " ~ ~")
+        cmd("scoreboard players add @s[score_temp4_min=1] EasyCoord:x " + strpow2(30 - bit))
+        cmd("tp @s ~ ~ ~-" + strdec2(30 - bit, 1000))
+        cmd("scoreboard players add @s[score_temp4_min=1] EasyCoord:z " + strpow2(30 - bit))
     }
     // y 轴：22 位
     for bit in 0..21 {
-        emit_line("tp @s ~ ~-" + strdec2(21 - bit, 1000) + " ~")
-        emit_line("scoreboard players add @s[score_temp4_min=1] EasyCoord:y " + strpow2(21 - bit))
+        cmd("tp @s ~ ~-" + strdec2(21 - bit, 1000) + " ~")
+        cmd("scoreboard players add @s[score_temp4_min=1] EasyCoord:y " + strpow2(21 - bit))
     }
 }
 

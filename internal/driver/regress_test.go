@@ -266,7 +266,7 @@ fn run() -> int {
 
 // A compile-time generator has to be able to emit arbitrary commands.
 //
-// `emit` writes a constant score, which is all the constant pool needs. A bit
+// `score` writes a constant score, which is all the constant pool needs. A bit
 // table needs more: 88 `tp` rungs whose offsets are decimal text. Without
 // emit_line those rungs have to be written out by hand, and a hand-written
 // table is not a generated one.
@@ -274,7 +274,7 @@ func TestComptimeEmitLine(t *testing.T) {
 	files := compile(t, `namespace t:g
 comptime {
   for bit in 0..2 {
-    emit_line("say bit " + str(bit))
+    cmd("say bit " + str(bit))
   }
 }
 `, optimize.O0)
@@ -297,9 +297,9 @@ comptime {
 func TestComptimeDecimals(t *testing.T) {
 	files := compile(t, `namespace t:g
 comptime {
-  emit_line("a " + strdec2(31, 1000))
-  emit_line("b " + strdec2(0, 1000))
-  emit_line("c " + strpow2(10))
+  cmd("a " + strdec2(31, 1000))
+  cmd("b " + strdec2(0, 1000))
+  cmd("c " + strpow2(10))
 }
 `, optimize.O0)
 
@@ -326,7 +326,7 @@ func TestComptimeRejectsUnsupportedStatements(t *testing.T) {
 comptime {
   for bit in 0..2 {
     if bit > 0 {
-      emit_line("say hi")
+      cmd("say hi")
     }
   }
 }

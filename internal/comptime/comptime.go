@@ -16,12 +16,12 @@ import (
 //
 // Two shapes, because a compile-time generator has two jobs:
 //
-//   - a constant score (`emit("#seed", "math", 12345)`), which is what the
+//   - a constant score (`score("#seed", "math", 12345)`), which is what the
 //     constant pool is built from;
-//   - an arbitrary command (`emit_line("tp @s ~" + d + " ~ ~")`), which is what
+//   - an arbitrary command (`cmd("tp @s ~" + d + " ~ ~")`), which is what
 //     makes a loop over bit widths possible. Without it a library like the
 //     coordinate probe has to spell out every rung by hand, and a generator
-//     that can only emit one command kind is not a generator.
+//     that can only write one command kind is not a generator.
 type Emitted struct {
 	// Raw is the whole command line when non-empty; the other fields are then
 	// unused.
@@ -30,7 +30,7 @@ type Emitted struct {
 	Holder    string
 	Objective string
 	Value     int
-	// P is the position of the emit call, so an out-of-range value can be
+	// P is the position of the score call, so an out-of-range value can be
 	// reported where the author wrote it rather than at the command.
 	P diag.Pos
 }
@@ -49,28 +49,28 @@ func Eval(blocks []syntax.ComptimeBlock, bag *diag.Bag) []Emitted {
 func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 	switch s := st.(type) {
 	case syntax.ExprStmt:
-		// emit_line takes one string and emits it verbatim.
+		// cmd takes one string and emits it verbatim.
 		//
 		// This is what makes a table generatable: 88 `tp` rungs whose offsets
-		// are decimal text cannot come out of `emit`, which only writes a
+		// are decimal text cannot come out of `score`, which only writes a
 		// constant score. Hand-expanding them is not a language feature, it is
 		// the absence of one.
-		if call, ok := s.X.(syntax.Call); ok && call.Name == "emit_line" {
+		if call, ok := s.X.(syntax.Call); ok && call.Name == "cmd" {
 			text, ok := Str(call.Args[0])
 			if !ok || len(call.Args) != 1 {
 				bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",
-					"emit_line takes one compile-time string")
+					"cmd takes one compile-time string")
 				return nil
 			}
 			return []Emitted{{Raw: text, P: diag.Pos{Line: call.P.Line, Col: call.P.Col}}}
 		}
-		if call, ok := s.X.(syntax.Call); ok && call.Name == "emit" {
-			if e, ok := evalEmit(call); ok {
+		if call, ok := s.X.(syntax.Call); ok && call.Name == "score" {
+			if e, ok := evalScore(call); ok {
 				e.P = diag.Pos{Line: call.P.Line, Col: call.P.Col}
 				return []Emitted{e}
 			}
 			bag.Error(diag.Pos{Line: call.P.Line, Col: call.P.Col}, "E_EMIT_CONST",
-				"emit arguments must be compile-time constants")
+				"score arguments must be compile-time constants")
 		}
 	case syntax.ForStmt:
 		// Two forms: a constant range (`0..10`) or an explicit list (`[1, 2, 4]`).
@@ -113,7 +113,7 @@ func evalStmt(st syntax.Stmt, bag *diag.Bag) []Emitted {
 	// no-op in a generator is worse than a missing feature -- the output looks
 	// complete.
 	bag.Error(diag.Pos{Line: stmtPos(st).Line, Col: stmtPos(st).Col}, "E_COMPTIME_STMT",
-		"comptime supports only `for`, `emit` and `emit_line`; this statement would be ignored")
+		"comptime supports only `for`, `score` and `cmd`; this statement would be ignored")
 	return nil
 }
 
@@ -134,7 +134,7 @@ func stmtPos(st syntax.Stmt) syntax.Pos {
 	return syntax.Pos{}
 }
 
-func evalEmit(call syntax.Call) (Emitted, bool) {
+func evalScore(call syntax.Call) (Emitted, bool) {
 	if len(call.Args) < 3 {
 		return Emitted{}, false
 	}

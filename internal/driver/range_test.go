@@ -44,8 +44,8 @@ func TestLiteralRangeIsEnforced(t *testing.T) {
 		{"under min", "namespace t:e\nfn f() -> int { -2147483649 }\n", true},
 		{"nested", "namespace t:e\nfn f(n: int) -> int { n + (2147483648) }\n", true},
 		{"in call arg", "namespace t:e\nfn f() -> int { max(1, 2147483648) }\n", true},
-		{"in comptime list", "namespace t:e\ncomptime { for n in [2147483648] { emit(\"#x\", \"math\", n) } }\n", true},
-		{"comptime folded", "namespace t:e\ncomptime { emit(\"#x\", \"math\", 1073741824 * 4) }\n", true},
+		{"in comptime list", "namespace t:e\ncomptime { for n in [2147483648] { score(\"#x\", \"math\", n) } }\n", true},
+		{"comptime folded", "namespace t:e\ncomptime { score(\"#x\", \"math\", 1073741824 * 4) }\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

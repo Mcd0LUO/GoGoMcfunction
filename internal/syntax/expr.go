@@ -186,16 +186,19 @@ func (p *parser) parsePrimary() (Expr, error) {
 			return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("%s cannot start an expression", t.Text)}
 		}
 		return p.finishCall(t.Text, t.Pos)
-	case EMIT:
+	case NBT:
+		// `n"..."` used to be legal only where the grammar spelled it out:
+		// a `matches` condition and an `nbt` declaration. That made the NBT
+		// codec unreachable from the one place it is most useful -- the
+		// argument of a command, `summon("armor_stand", n"{Tags:[\"x\"]}")`.
+		//
+		// It is a literal, not a value: no score can hold it, so it only ever
+		// reaches a builtin that wants raw command text.
 		p.next()
-		if p.cur().Kind != LPAREN {
-			return nil, &Error{Pos: t.Pos, Msg: "expected ( after emit"}
+		if _, err := CheckNBT(t.Text); err != nil {
+			return nil, &Error{Pos: t.Pos, Msg: err.Error()}
 		}
-		call, err := p.finishCall("emit", t.Pos)
-		if err != nil {
-			return nil, err
-		}
-		return call, nil
+		return NBTLit{Text: t.Text, P: t.Pos}, nil
 	case IDENT:
 		p.next()
 		name := t.Text

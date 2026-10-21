@@ -3,7 +3,7 @@ namespace luo:math
 
 comptime {
     // 只生成真正被引用的常量
-    for n in [1, 2, 4, 100, 1000, 2147483647, -1] { emit("#math." + str(n), "math", n) }
+    for n in [1, 2, 4, 100, 1000, 2147483647, -1] { score("#math." + str(n), "math", n) }
 }
 
 extern arg1: int = @s.arg1

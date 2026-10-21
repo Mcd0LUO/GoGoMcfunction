@@ -2,7 +2,7 @@
 namespace luo:math
 
 comptime {
-    for n in -1..3 { emit("#math." + str(n), "math", n) }
+    for n in -1..3 { score("#math." + str(n), "math", n) }
 }
 
 extern arg1: int = @s.arg1

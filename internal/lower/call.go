@@ -34,17 +34,29 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		fb.Emit(block, ir.Raw{Text: "kill " + l.targetArg(call, 0)})
 		return
 	case "tp":
-		// tp(<target>, "<relative dx>", "<dy>", "<dz>") -- the offsets are raw
-		// command text because they are decimals, and GGM has no float type.
-		// The values are relative (`~-2147483.648`), which is what the
-		// coordinate probe needs: an absolute teleport would discard the
-		// entity's own position.
+		// tp(<target>, <x>, <y>, <z>) -- the coordinates are command text.
+		//
+		//	tp(self, "~-2.5", "~", "~")   relative, three offsets from here
+		//	tp(self, "100", "64", "-20")  absolute, to that block
+		//
+		// The author writes the `~` themselves. The old form added it for them
+		// and therefore could ONLY express a relative move, which is why an
+		// absolute teleport was impossible to write. Making the tilde visible
+		// costs one character per axis and makes both forms say what they mean;
+		// it is also exactly how 1.12.2 itself distinguishes them, so there is
+		// no translation left to get wrong.
+		//
+		// Decimal offsets stay strings because GGM has no float type, and a
+		// coordinate is the one place a non-integer legitimately appears.
 		if len(call.Args) != 4 {
-			l.diags.Error(posOf(call.P), "E_ARG", "tp needs (target, dx, dy, dz)")
+			l.diags.Error(posOf(call.P), "E_ARG", "tp needs (target, x, y, z)")
 			return
 		}
-		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("tp %s ~%s ~%s ~%s",
-			l.targetArg(call, 0), l.rawString(call, 1), l.rawString(call, 2), l.rawString(call, 3))})
+		coords, ok := l.positionalArgs(call, 1)
+		if !ok {
+			return
+		}
+		fb.Emit(block, ir.Raw{Text: "tp " + l.targetArg(call, 0) + " " + coords})
 		return
 	case "stats":
 		// stats(<target>, "<stat>", <objective holder name>) binds a command's
@@ -63,6 +75,81 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 		target := l.targetArg(call, 0)
 		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s set %s %s %s",
 			target, l.rawString(call, 1), target, obj.Name)})
+		return
+	case "summon":
+		// summon(<type>, [nbt], [x, y, z])
+		//
+		// This is the missing half of `class`. A class says "an instance is an
+		// entity carrying this tag", but until now nothing in the language could
+		// create one, so the only way to get the first instance was a command
+		// block outside the program.
+		//
+		// The position is optional because `summon armor_stand ~ ~ ~` is by far
+		// the common case and writing three tildes for it is noise. When it is
+		// omitted the command gets no position at all, which 1.12.2 reads as
+		// the executor's own -- the same thing, spelled once.
+		typ, ok := l.rawArg(call, 0)
+		if !ok {
+			return
+		}
+		// Everything after the type is one optional tail. Separating "the NBT
+		// payload" from "the position" would need a type test to tell an
+		// n"..." from a coordinate, and both are just command text:
+		//
+		//	summon("pig")
+		//	summon("armor_stand", n"{Tags:[\"x\"]}")
+		//	summon("armor_stand", n"{Tags:[\"x\"]}", "~", "~", "~")
+		//
+		// A trailing space is not cosmetic: 1.12.2 splits on whitespace so
+		// `summon pig ` is the same command, but it is not the same text, and
+		// the golden files are compared byte for byte.
+		text := "summon " + typ
+		if tail, ok := l.positionalArgs(call, 1); ok && tail != "" {
+			text += " " + tail
+		}
+		fb.Emit(block, ir.Raw{Text: text})
+		return
+	case "entitydata":
+		// entitydata(<target>, n"...")
+		//
+		// The write side of the NBT codec. `encode` already emits this command,
+		// but only for a declared `nbt` field; a raw payload had no route out.
+		target := l.targetArg(call, 0)
+		payload, ok := l.rawArg(call, 1)
+		if !ok {
+			return
+		}
+		fb.Emit(block, ir.Raw{Text: "entitydata " + target + " " + payload})
+		return
+	case "effect":
+		// effect(<target>, <effect>, <seconds>, [amplifier], [hideParticles])
+		//
+		// The reference data pack writes `effect @a resistance 10 10 true`, so
+		// the tail is positional text rather than a typed signature.
+		target := l.targetArg(call, 0)
+		tail, ok := l.positionalArgs(call, 1)
+		if !ok {
+			return
+		}
+		fb.Emit(block, ir.Raw{Text: "effect " + target + " " + tail})
+		return
+	case "cmd":
+		// cmd("<verb and args>") -- one command, verbatim.
+		//
+		// This is the escape hatch, and it is deliberately spelled the same as
+		// the comptime builtin of the same name so that "emit an arbitrary
+		// command" has ONE name in the language. At compile time the text is
+		// assembled from constants; here it is a literal typed into the source.
+		//
+		// It bypasses the builtin table but NOT the validator: the rendered
+		// line still goes through mcfunction.Validate, so a selector argument
+		// that 1.12.2 does not understand is still caught.
+		text := l.rawString(call, 0)
+		if text == "" {
+			l.diags.Error(posOf(call.P), "E_ARG", "cmd needs one non-empty command string")
+			return
+		}
+		fb.Emit(block, ir.Raw{Text: text})
 		return
 	case "say":
 		fb.Emit(block, ir.Raw{Text: "say " + l.rawString(call, 0)})
@@ -465,6 +552,68 @@ func (l *Lowerer) builtin(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c sy
 		return ir.Loc{}, true
 	}
 	return ir.Loc{}, false
+}
+
+// rawArg reads an argument that becomes literal command text.
+//
+// Two shapes are accepted, and the distinction matters:
+//
+//	"stone"      a string literal
+//	n"{Tags:[…]}" an NBT literal
+//
+// Neither can hold a score. That is not a limitation of this function but of
+// 1.12.2: a command is text, and there is no way to splice a scoreboard value
+// into text. `summon` with an NBT payload that depends on a runtime value is
+// not something this compiler can emit, and pretending otherwise by accepting
+// an int and writing its INITIAL value would produce a command that looks
+// right and silently ignores every change since.
+//
+// So the error names the boundary rather than the syntax: an author who writes
+// summon("pig", hp) should learn why that cannot work, not that argument 2 has
+// the wrong type.
+func (l *Lowerer) rawArg(c syntax.Call, i int) (string, bool) {
+	if i >= len(c.Args) {
+		l.diags.Error(posOf(c.P), "E_ARG", "%s needs %d arguments, got %d", c.Name, i+1, len(c.Args))
+		return "", false
+	}
+	switch a := c.Args[i].(type) {
+	case syntax.StringLit:
+		return a.Value, true
+	case syntax.NBTLit:
+		return a.Text, true
+	case syntax.IntLit:
+		// A bare integer is legitimate for counts and durations, which are
+		// ordinary numbers in the command grammar rather than text.
+		return itoa(a.Value), true
+	case syntax.BoolLit:
+		// `effect @a speed 10 1 true` -- the flag is a literal word, and
+		// `true`/`false` are the two spellings 1.12.2 accepts.
+		if a.Value {
+			return "true", true
+		}
+		return "false", true
+	}
+	l.diags.Error(posOf(c.P), "E_ARG",
+		"%s argument %d must be a literal: 1.12.2 builds a command from text, so a value that only exists at runtime cannot be spliced into it",
+		c.Name, i+1)
+	return "", false
+}
+
+// positionalArgs renders arguments 1..n as one space-separated tail.
+//
+// Used by the builtins whose remaining arguments are plain command text:
+// `effect @s speed 10 1 true` has four, and spelling out a signature for
+// each command would be a table to maintain rather than a language feature.
+func (l *Lowerer) positionalArgs(c syntax.Call, from int) (string, bool) {
+	var parts []string
+	for i := from; i < len(c.Args); i++ {
+		s, ok := l.rawArg(c, i)
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " "), true
 }
 
 // rawString reads a string-literal argument, reporting when it is missing

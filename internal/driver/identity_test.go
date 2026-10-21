@@ -49,7 +49,7 @@ func TestDeclarationCannotTakeAGeneratedName(t *testing.T) {
 		{"INIT", "namespace t:i\nfn INIT() -> int { 1 }\n"},
 		// comptime is a keyword, so only the mixed-case spelling can
 		// reach the generated name.
-		{"comptime via case", "namespace t:i\ncomptime { emit(\"#1\", \"math\", 1) }\nfn Comptime() -> int { 1 }\n"},
+		{"comptime via case", "namespace t:i\ncomptime { score(\"#1\", \"math\", 1) }\nfn Comptime() -> int { 1 }\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := diagCodes(tc.src)
