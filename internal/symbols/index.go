@@ -60,6 +60,9 @@ type Index struct {
 	byName map[string][]Symbol
 	occ    map[occ]Symbol
 	all    []Symbol
+	// texts is the source of each file, used only to find where a declaration's
+	// NAME sits on its line.
+	texts map[string]string
 }
 
 type occ struct {
@@ -74,8 +77,8 @@ type occ struct {
 
 // Build indexes every file given. Files are processed in name order so the
 // output does not depend on map iteration.
-func Build(files map[string]*syntax.File) *Index {
-	ix := &Index{byName: map[string][]Symbol{}, occ: map[occ]Symbol{}}
+func Build(files map[string]*syntax.File, texts map[string]string) *Index {
+	ix := &Index{byName: map[string][]Symbol{}, occ: map[occ]Symbol{}, texts: texts}
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -88,9 +91,57 @@ func Build(files map[string]*syntax.File) *Index {
 }
 
 func (ix *Index) declare(s Symbol) Symbol {
+	s.Pos = ix.namePos(s)
 	ix.byName[s.Name] = append(ix.byName[s.Name], s)
 	ix.all = append(ix.all, s)
 	return s
+}
+
+// namePos narrows a declaration's position to its NAME.
+//
+// The parser records where a declaration starts, which is its keyword: `obj X`
+// carries the position of `obj`. Hovering the name then found nothing, and
+// go-to-definition jumped to the keyword -- both wrong in the same way, and both
+// invisible until someone typed a name further along the line than the keyword.
+//
+// The fix is here rather than in the parser because every declaration kind has
+// the same problem and the same cure: search the declaration's own line forward
+// from the keyword for the name. A declaration's name always follows its
+// keyword, and the search starts at the keyword, so an earlier identical word
+// (the namespace, a comment) cannot be picked up.
+func (ix *Index) namePos(s Symbol) diag.Pos {
+	if s.Pos.Line <= 0 {
+		// A constant has no node at all: File.Consts maps a name to its value,
+		// so the name carries no position and go-to-definition had nowhere to
+		// go. Its declaration is still in the text, so look for it.
+		if s.Kind == KConst {
+			return ix.constPos(s)
+		}
+		return s.Pos
+	}
+	name := lastSegment(s.Name)
+	if name == "" {
+		return s.Pos
+	}
+	text, ok := ix.texts[s.File]
+	if !ok {
+		return s.Pos
+	}
+	lines := strings.Split(text, "\n")
+	if s.Pos.Line > len(lines) {
+		return s.Pos
+	}
+	src := []rune(strings.TrimSuffix(lines[s.Pos.Line-1], "\r"))
+	start := s.Pos.Col - 1
+	if start < 0 || start > len(src) {
+		return s.Pos
+	}
+	hay := string(src[start:])
+	i := strings.Index(hay, name)
+	if i < 0 {
+		return s.Pos
+	}
+	return diag.Pos{File: s.File, Line: s.Pos.Line, Col: start + i + 1}
 }
 
 func (ix *Index) addFile(file string, f *syntax.File) {
@@ -290,6 +341,42 @@ func (ix *Index) At(file string, line, col int) (Symbol, bool) {
 		}
 	}
 	return Symbol{}, false
+}
+
+// constPos finds a constant's declaration in the file text.
+//
+// Anchored on the keyword at the start of a line, so a mention of the name
+// inside a comment or an expression cannot be mistaken for the declaration.
+func (ix *Index) constPos(s Symbol) diag.Pos {
+	text, ok := ix.texts[s.File]
+	if !ok {
+		return s.Pos
+	}
+	lines := strings.Split(text, "\n")
+	for i, raw := range lines {
+		trimmed := strings.TrimLeft(raw, " \t")
+		rest, ok := strings.CutPrefix(trimmed, "const ")
+		if !ok {
+			continue
+		}
+		rest = strings.TrimLeft(rest, " \t")
+		if !strings.HasPrefix(rest, s.Name) {
+			continue
+		}
+		after := rest[len(s.Name):]
+		if after != "" && (isNameRune(rune(after[0]))) {
+			continue
+		}
+		// Column of the name: the text before it, counted in runes.
+		before := raw[:len(raw)-len(rest)]
+		return diag.Pos{File: s.File, Line: i + 1, Col: len([]rune(before)) + 1}
+	}
+	return s.Pos
+}
+
+func isNameRune(r rune) bool {
+	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') || r > 127
 }
 
 // lastSegment is the name without its qualifying path, which is the token a

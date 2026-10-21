@@ -547,7 +547,7 @@ func (s *Server) recompile(changed string) {
 
 	if ns != "" {
 		s.mu.Lock()
-		s.idx[ns] = symbols.Build(parsed)
+		s.idx[ns] = symbols.Build(parsed, texts)
 		s.mu.Unlock()
 	}
 

@@ -19,7 +19,7 @@ func buildOne(t *testing.T, src string) *Index {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return Build(map[string]*syntax.File{"a.ggm": f})
+	return Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": src})
 }
 
 const src = "namespace t:s\n" +
@@ -77,7 +77,13 @@ func TestCursorAnywhereInToken(t *testing.T) {
 // An undeclared dotted name is the holder.objective shorthand, and hover has
 // to say so rather than pretend it is a declaration.
 func TestUndeclaredDottedNameIsShorthand(t *testing.T) {
-	ix := buildOne(t, "namespace t:z\nobj X\n[export]\nfn f() { X = ghost.score }\n")
+	// A fresh index is needed for this source, so buildOne is bypassed.
+	src := "namespace t:z\nobj X\n[export]\nfn f() { X = ghost.score }\n"
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": src})
 	s, ok := ix.At("a.ggm", 4, 14)
 	if !ok {
 		t.Fatal("an undeclared dotted name resolved to nothing")
@@ -101,5 +107,37 @@ func TestCompletionsAreUniqueAndFiltered(t *testing.T) {
 			t.Fatalf("%q offered twice", s.Name)
 		}
 		seen[s.Name] = true
+	}
+}
+
+// A declaration is found at its NAME, not at its keyword.
+//
+// The parser records where a declaration starts, which is `obj`, `fn` or
+// `extern`. Hovering the name found nothing and go-to-definition jumped to the
+// keyword -- both wrong the same way, and both invisible while the name happened
+// to sit within a few columns of it.
+func TestDeclarationsResolveAtTheirName(t *testing.T) {
+	ix := buildOne(t, src)
+	cases := []struct {
+		name string
+		line int
+		col  int
+	}{
+		{"objective declaration", 2, 5},
+		{"extern declaration", 3, 8},
+		{"nbt declaration", 4, 5},
+		{"constant declaration", 5, 7},
+		{"function declaration", 6, 4},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, ok := ix.At("a.ggm", c.line, c.col)
+			if !ok {
+				t.Fatalf("nothing at %d:%d", c.line, c.col)
+			}
+			if s.Pos.Line != c.line || s.Pos.Col != c.col {
+				t.Fatalf("declaration reports %d:%d, want %d:%d", s.Pos.Line, s.Pos.Col, c.line, c.col)
+			}
+		})
 	}
 }

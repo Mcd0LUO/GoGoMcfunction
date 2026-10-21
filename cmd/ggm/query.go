@@ -14,6 +14,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ func runQuery(kind, at string, files []string) (string, error) {
 		return "", errNotAQuery
 	}
 	if !queryKinds[kind] {
-		return "", fmt.Errorf("-query %q is not one of hover, def, complete", kind)
+		return "", fmt.Errorf("-query %q is not one of hover, def, complete, refs, sig", kind)
 	}
 	if at == "" {
 		return "", fmt.Errorf("-query needs -at <file>:<line>:<col>")
@@ -44,9 +45,18 @@ func runQuery(kind, at string, files []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ix, err := buildIndex(files)
+	ix, known, err := buildIndex(files)
 	if err != nil {
 		return "", err
+	}
+	// A position in a file that is not among the inputs looks exactly like a
+	// position with nothing at it: both print an empty answer. Naming the
+	// problem is the difference between a wrong path and a wrong line.
+	if !known[file] {
+		if alt := matchByBase(known, file); alt != "" {
+			return "", fmt.Errorf("-at names %s, which is not among the inputs; did you mean %s", file, alt)
+		}
+		return "", fmt.Errorf("-at names %s, which is not among the %d input files", file, len(known))
 	}
 	switch kind {
 	case "hover":
@@ -66,13 +76,20 @@ func runQuery(kind, at string, files []string) (string, error) {
 var errNotAQuery = fmt.Errorf("not a query")
 
 // buildIndex parses every file and indexes the module.
-func buildIndex(files []string) (*symbols.Index, error) {
+//
+// It also returns the set of files it managed to read, so a caller can tell a
+// position in a file that was not given from a position with nothing at it.
+func buildIndex(files []string) (*symbols.Index, map[string]bool, error) {
 	parsed := map[string]*syntax.File{}
+	known := map[string]bool{}
+	textsOf := map[string]string{}
 	for _, name := range files {
 		b, err := os.ReadFile(name)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		known[name] = true
+		textsOf[name] = string(b)
 		f, err := syntax.Parse(string(b))
 		if err != nil {
 			// A file that does not parse has no symbols. Reporting the parse
@@ -82,7 +99,25 @@ func buildIndex(files []string) (*symbols.Index, error) {
 		}
 		parsed[name] = f
 	}
-	return symbols.Build(parsed), nil
+	return symbols.Build(parsed, textsOf), known, nil
+}
+
+// matchByBase finds the input whose file name alone matches a path.
+//
+// This is the mistake worth catching: the same file written relative in -at
+// and absolute in the argument list, or the other way round.
+func matchByBase(known map[string]bool, want string) string {
+	base := filepath.Base(want)
+	var hits []string
+	for name := range known {
+		if filepath.Base(name) == base {
+			hits = append(hits, name)
+		}
+	}
+	if len(hits) == 1 {
+		return hits[0]
+	}
+	return ""
 }
 
 // hover prints what the name at a position is.
