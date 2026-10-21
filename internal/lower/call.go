@@ -198,9 +198,10 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 		return ir.Loc{}, errAlreadyReported
 	}
 	l.marshalArgs(ctx, fb, block, path, c)
-	fb.Emit(block, ir.Call{Path: path})
+	ret := ctx.loc("return")
+	fb.Emit(block, ir.Call{Path: path, Ret: ret})
 	t := fb.TmpLoc()
-	fb.Emit(block, ir.Copy{Dst: t, Src: ctx.loc("return")})
+	fb.Emit(block, ir.Copy{Dst: t, Src: ret})
 	return t, nil
 }
 
@@ -426,12 +427,13 @@ func abiIndex(reg string) (int, bool) {
 func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst ir.Loc, c syntax.Call) bool {
 	if xd, ok := l.externs[c.Name]; ok {
 		l.marshalExtern(ctx, fb, block, c, xd)
-		fb.Emit(block, ir.Call{Path: c.Name})
 		out := xd.Out
 		if out == "" {
 			out = "return"
 		}
-		fb.Emit(block, ir.Copy{Dst: dst, Src: ctx.loc(out)})
+		src := ctx.loc(out)
+		fb.Emit(block, ir.Call{Path: c.Name, Ret: src})
+		fb.Emit(block, ir.Copy{Dst: dst, Src: src})
 		return true
 	}
 	path := l.path(c.Name)
@@ -442,8 +444,9 @@ func (l *Lowerer) callInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, dst
 		return false
 	}
 	l.marshalArgs(ctx, fb, block, path, c)
-	fb.Emit(block, ir.Call{Path: path})
-	fb.Emit(block, ir.Copy{Dst: dst, Src: ctx.loc("return")})
+	ret := ctx.loc("return")
+	fb.Emit(block, ir.Call{Path: path, Ret: ret})
+	fb.Emit(block, ir.Copy{Dst: dst, Src: ret})
 	return true
 }
 

@@ -298,6 +298,63 @@ func inlineLeafArms(fn *ir.Function) bool {
 			if writesAnyOf(target.Ops, condObjectives(br.Cond)) {
 				continue
 			}
+			// A DISJUNCTION duplicates the body, so the body must be
+			// REPEATABLE: running it N times must leave the same state as
+			// running it once.
+			//
+			// This is the one guard whose absence changed the ANSWER, not
+			// just the output size.
+			//
+			// A guard is rendered as ONE `execute` PER ALTERNATIVE:
+			//
+			//     for alt in Cond.Alts: execute <sel(alt)> ~ ~ ~ <body>
+			//
+			// That is forced by 1.12.2. A selector expresses a conjunction
+			// (comma-separated score conditions) and has no boolean OR, so a
+			// disjunction is N parallel guarded calls. The consequence is
+			// that the body runs ONCE PER MATCHING ALTERNATIVE.
+			//
+			// An arm kept as a BLOCK runs exactly once: the branch calls it.
+			// So inlining an arm under a multi-alternative predicate changes
+			// HOW MANY TIMES the body runs. Measured on the engine:
+			//
+			//     if a >= 10 || b >= 10 { r = r + 1 }
+			//
+			// gave r = 1 at -O0 (the block form) and r = 2 at -O1 (the
+			// inlined form, with both alternatives true). The body executed
+			// twice. Every accumulating statement doubles: counters, hp
+			// subtraction, score increments.
+			//
+			// It is worse than a doubling, because it is INVISIBLE for the
+			// bodies that happen to be repeatable. `X = 1` written twice
+			// gives the same answer as written once, so the bug only shows
+			// on the programs that accumulate -- exactly the ones a reader
+			// would not suspect.
+			//
+			// The SECOND consequence is pollution. Each alternative's
+			// `execute` runs the WHOLE body, and the alternatives run in
+			// sequence. The first copy's body can overwrite a slot the
+			// SECOND copy's guard reads, so the second copy tests a
+			// condition the author never wrote:
+			//
+			//     if a >= 10 || b >= 10 { let q = c >= 5; r = q }
+			//
+			// gave r = 1 at -O0 and r = 0 at -O1, with both alternatives
+			// true: the second copy's guard read the difference slot the
+			// first copy had already consumed.
+			//
+			// `isRepeatable` is the criterion, and it is stated as a proof
+			// rather than a guess. See its comment for the argument; in one
+			// line: every op must be an absolute assignment, and the slots
+			// the body writes must be disjoint from the slots it reads.
+			//
+			// A single alternative is unaffected: one `execute`, one run,
+			// and that is the overwhelmingly common shape (every `if` with
+			// a simple condition or an `&&`), which is what the
+			// optimisation exists for.
+			if len(br.Cond.Alts) > 1 && !isRepeatable(target.Ops) {
+				continue
+			}
 			// A COPY of the predicate, not the branch's own.
 			//
 			// Sharing the Alts slice between the Branch terminator and the
@@ -330,6 +387,98 @@ func inlineLeafArms(fn *ir.Function) bool {
 		}
 	}
 	return changed
+}
+
+// isRepeatable reports whether running an op sequence N times leaves the same
+// state as running it once.
+//
+// It is the condition for inlining an arm under a DISJUNCTION. A guard is
+// rendered as one `execute` per alternative, so a body under an N-alternative
+// predicate runs N times -- and it must therefore not care how many times it
+// runs.
+//
+// The criterion has two halves, and together they are a proof rather than a
+// guess.
+//
+//  1. Every op is an ABSOLUTE assignment.
+//
+//     `ir.Set` renders `scoreboard players set`, which writes a literal.
+//     `ir.Copy` renders `scoreboard players operation ... =`, which writes a
+//     slot. Both write the same value however many times they run.
+//
+//     Everything else is refused. `ir.Arith`, `ir.Add` and `ir.Remove`
+//     ACCUMULATE, so a second run changes the value. `ir.Raw` is a command
+//     the IR does not model, so this pass cannot know what it does.
+//     `ir.Guarded` is conditional: its condition is re-evaluated for every
+//     alternative, and a body that contains one is exactly the shape that
+//     pollutes the other copy's guard -- see the audit's `let q = c >= 5`
+//     case. Refusing it is what closes that hole.
+//
+//  2. The slots the body WRITES and the slots it READS are DISJOINT.
+//
+//     This is the half that is easy to leave out, and leaving it out is a
+//     silent wrong answer. A body that writes a slot and then reads it back
+//     is NOT repeatable:
+//
+//     copy t5 = t6     // reads t6
+//     set  t6 = 9      // writes t6
+//
+//     Run once, t6 ends as 9. Run twice, the second run copies the 9 that
+//     the first run wrote, not the original value. The state after two runs
+//     is not the state after one.
+//
+//     With (1) and (2), the argument is complete. Between two runs the only
+//     state that changed is what the body wrote. By (2) the body reads none
+//     of those, so every read sees the same value in the second run as in
+//     the first. By (1) every write is absolute, so it writes the same
+//     value. Therefore the state after N runs equals the state after one.
+//
+// WHY NOT JUST "IS EVERY OP ABSOLUTE"?
+//
+// Because the body may not read what it writes, and then a second run sees
+// a different value. The two halves are independent requirements, and the
+// audit's own note that "`ir.Copy` also has a condition: the source must
+// not be written by a later op in the same sequence" is exactly the
+// second half.
+//
+// WHY NOT REFUSE EVERY DISJUNCTION?
+//
+// Because that throws away a real optimisation for the bodies that are
+// genuinely repeatable, and it makes the optimised output differ from -O0
+// for a shape where -O0 is already correct. `if menu == 1 || menu == 2
+// { X = 2 }` writes one slot with one value; inlining it is safe and
+// cheaper, and the driver test `TestOrBecomesTwoAlternatives` asserts
+// exactly that shape.
+//
+// The cost of refusing everything is not only performance: it is that the
+// compiler would stop being able to tell the reader WHY the output changed.
+// This criterion says exactly what it requires, and the comment above it
+// says what breaks without it.
+func isRepeatable(ops []ir.Op) bool {
+	writes := map[string]bool{}
+	reads := map[string]bool{}
+	for _, op := range ops {
+		switch o := op.(type) {
+		case ir.Set:
+			// A literal write. It reads nothing.
+			writes[o.Dst.Obj] = true
+		case ir.Copy:
+			// A slot-to-slot copy: writes the destination, reads the source.
+			reads[o.Src.Obj] = true
+			writes[o.Dst.Obj] = true
+		default:
+			// An accumulating op, a raw command, or a nested guard. None of
+			// them can be shown to be repeatable here, so none of them is.
+			return false
+		}
+	}
+	// (2): no slot is both written and read.
+	for w := range writes {
+		if reads[w] {
+			return false
+		}
+	}
+	return true
 }
 
 // maxInlineOps bounds how much code may be duplicated into a guard. Inlining is

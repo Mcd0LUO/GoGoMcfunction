@@ -382,18 +382,72 @@ func renderBranch(t target.Target, holder, fn string, br ir.Branch, bp func(stri
 			mc.Function{Name: thenName, Cond: selectorFor(t, elseAlts[0]), Negate: true},
 		}
 	}
-	// guarded call. Rendering only the FIRST alternative would drop the
-	// rest and make that edge fire on a subset of the intended inputs --
-	// a silent wrong-answer bug.
+	// More than one alternative on both sides: this is the only remaining
+	// shape, and it CANNOT be rendered as one guarded call per alternative.
+	//
+	// A selector expresses a conjunction, so an N-alternative predicate is N
+	// guarded calls -- and each of those calls runs its arm in full. If two
+	// alternatives are true at once the arm runs TWICE. Measured on the
+	// engine:
+	//
+	//     if (a>=10 || b>=10) && (c>=10 || d>=10) { r = r + 1 }
+	//
+	// with all four inputs true gave r = 4 at -O0, -O1 and -O2 alike, where
+	// the author's condition asks for one execution.
+	//
+	// So the disjunction is MATERIALISED into a flag first: clear it, set it
+	// once per matching alternative, then call the arm on `flag == 1`. That
+	// is one call however many alternatives matched. The lowerer already
+	// does exactly this for `!c` (see lower/expr.go), for the same reason:
+	// 1.12.2 has no boolean expression, only a selector that names entities.
+	//
+	// The flag lives on the caller's register file, which is the same one the
+	// arm will use -- that is safe because the arm is entered once and the
+	// flag is consumed before it runs.
+	//
+	// Rendering only the FIRST alternative was worse still: it made the edge
+	// fire on a subset of the intended inputs.
 	var out []mc.Command
-	for _, alt := range thenAlts {
-		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: thenName}})
-	}
-	for _, alt := range elseAlts {
-		out = append(out, mc.Execute{Selector: selectorFor(t, alt), Cmd: mc.Function{Name: elseName}})
+	for i, alts := range [][][]ir.Cond{thenAlts, elseAlts} {
+		name := thenName
+		if i == 1 {
+			name = elseName
+		}
+		if len(alts) == 0 {
+			// An arm with no alternatives cannot be taken. Emitting a call to
+			// it would name a function that is pruned for emitting nothing --
+			// and 1.12.2 skips an unknown function silently, so the call would
+			// cost a command and do nothing.
+			continue
+		}
+		if len(alts) == 1 {
+			// One alternative: a plain guarded call runs the arm once.
+			out = append(out, mc.Execute{Selector: selectorFor(t, alts[0]), Cmd: mc.Function{Name: name}})
+			continue
+		}
+		flag := ir.Loc{Holder: holder, Obj: flagObjective}
+		out = append(out, mc.ScoreboardSet{Target: flag.Holder, Objective: flag.Obj, Value: 0})
+		for _, alt := range alts {
+			out = append(out, mc.Execute{
+				Selector: selectorFor(t, alt),
+				Cmd:      mc.ScoreboardSet{Target: flag.Holder, Objective: flag.Obj, Value: 1},
+			})
+		}
+		out = append(out, mc.Function{
+			Name: name,
+			Cond: selectorFor(t, []ir.Cond{{Obj: flag.Obj, HasMin: true, Min: 1}}),
+		})
 	}
 	return out
 }
+
+// flagObjective holds the materialised truth value of a multi-alternative
+// predicate.
+//
+// It is a compiler temporary, so it uses the same prefix/suffix the register
+// allocator recognises: an author could otherwise declare an objective with
+// this name and the optimiser would treat it as scratch.
+const flagObjective = "d.ggm"
 
 // selectorFor builds @s with the given score conditions.
 func selectorFor(t target.Target, conds []ir.Cond) *mc.Selector {
@@ -449,8 +503,14 @@ func renderOp(t target.Target, holder string, op ir.Op) []mc.Command {
 		// the only point where a slot name becomes a string, and it is after
 		// every pass that could rename one.
 		return []mc.Command{mc.Raw{Text: spliceLocations(o.Text, o.Args)}}
+	default:
+		// An op this back end cannot render.
+		//
+		// Returning nil would emit NOTHING for it, which is the worst possible
+		// outcome: the program compiles, the command is gone, and nothing says
+		// so. A new ir.Op must be given a rendering before it can be used.
+		panic(fmt.Sprintf("renderOp: unhandled ir.Op %T; it would have been rendered as nothing", op))
 	}
-	return nil
 }
 
 // parseSelector rebuilds a Selector from rendered selector text.
@@ -669,6 +729,15 @@ func usedObjectives(prog *ir.Program) []string {
 			for _, c := range termConds(blk.Term) {
 				seen[c] = true
 			}
+			// A branch with more than one alternative on either side is
+			// rendered by materialising the disjunction into a flag (see
+			// renderBranch), and that flag is a scoreboard objective this back
+			// end invents. It therefore has to be declared here: 1.12.2
+			// discards a write to an undeclared objective, and the flag would
+			// read 0 forever -- the arm would never run, silently.
+			if br, ok := blk.Term.(ir.Branch); ok && needsFlag(br.Cond) {
+				seen[flagObjective] = true
+			}
 		}
 	}
 	var out []string
@@ -677,6 +746,59 @@ func usedObjectives(prog *ir.Program) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// needsFlag reports whether renderBranch will materialise this predicate into
+// the flag objective.
+//
+// It mirrors renderBranch's own decision without calling ir.Negate: that
+// function panics on a predicate carrying both an existence test and
+// alternatives, which is a state the lowerer refuses to build but which a
+// future change might reach. Asking for a complement here only to throw it
+// away would turn a rendering question into a compiler crash.
+func needsFlag(p ir.Predicate) bool {
+	if len(p.Alts) > 1 {
+		return true
+	}
+	// One alternative (or none) on the then side: the else side is the
+	// complement. Its alternative count is the number of conjunctions the
+	// negation expands to, which is what decides the rendering -- so a
+	// single-alternative condition still needs the flag when its complement
+	// is a disjunction, and a condition that is ALWAYS true does not.
+	if p.Exist != nil || p.Block != nil {
+		return false
+	}
+	if len(p.Alts) == 0 {
+		return false
+	}
+	// renderBranch tries the two single-conjunction forms FIRST, and both of
+	// them fit in one guarded call:
+	//
+	//	len(thenAlts) == 1  ->  unless(then), if(then)
+	//	len(elseAlts) == 1  ->  if(else), unless(else)
+	//
+	// The flag is only needed when NEITHER side is a single conjunction.
+	// `len(p.Alts[0]) > 1` is not the question: a conjunction of several
+	// conditions is still ONE alternative, so it takes the first form and
+	// needs no flag. Asking the wrong question declared d.ggm for programs
+	// that never use it.
+	return len(p.Alts) > 1 && elseAlts(p) > 1
+}
+
+// elseAlts returns the number of alternatives in the complement of p,
+// without materialising it.
+//
+// NOT(c1 AND ... AND cn) is a disjunction of n clauses, so the complement has
+// n alternatives. p is already known to have no existence test and at least
+// one alternative here, which is exactly the domain where Negate is defined.
+func elseAlts(p ir.Predicate) int {
+	n := 0
+	for _, alt := range p.Alts {
+		if len(alt) > n {
+			n = len(alt)
+		}
+	}
+	return n
 }
 
 // noteOpObjectives records every objective an op reads or writes, recursing
@@ -709,6 +831,14 @@ func noteOpObjectives(op ir.Op, note func(ir.Loc)) {
 		for _, l := range o.Reads {
 			note(l)
 		}
+	case ir.Call, ir.FanOut:
+		// A call names a function, not a score. Nothing to declare.
+	default:
+		// An op this scan does not know about may name an objective, and an
+		// objective that is never declared makes 1.12.2 DISCARD every write to
+		// it -- silently. Panicking forces the case to be added rather than
+		// shipping a program whose scores are quietly thrown away.
+		panic(fmt.Sprintf("noteOpObjectives: unhandled ir.Op %T; its objectives would go undeclared and its writes would be discarded", op))
 	}
 }
 

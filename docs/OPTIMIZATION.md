@@ -111,41 +111,92 @@ execute @s[score_t1_min=0] ~ ~ ~ function t:l/fl$b3               # 判据为假
 
 ## 3. 实测效果
 
-对象是 `examples/luo-math-full.ggm`（原库 309 行 / 17 文件 / 247 条命令）：
+对象是 `examples/luo-math-full.ggm`（原库 309 行 / 17 文件 / 247 条命令）。
+
+**这些数字是从产物数出来的，不是抄来的。** 每个级别先
+`Remove-Item -Recurse -Force <dir>`（`-out` **不清空**输出目录），再数
+`.mcfunction` 文件数、文件总行数、`scoreboard objectives add` 条数、
+`scoreboard players set #N ggm.c` 条数：
+
+```powershell
+foreach ($lvl in 0..3) {
+  Remove-Item -Recurse -Force $env:TEMP\ggm_o$lvl -EA SilentlyContinue
+  .\ggm.exe -q -O $lvl -out $env:TEMP\ggm_o$lvl examples\luo-math-full.ggm
+}
+```
+
+实测结果（2026-10-21，`ggm 0.27.0`）：
 
 ```
--O0: files=16  commands=129  objectives=30  consts=9  （无优化，调试用）
--O1: files=15  commands=127  objectives=30  consts=9
--O2: files=15  commands=124  objectives=28  consts=9
--O3: files=15  commands=124  objectives=28  consts=9
+-O0: files=16  commands=133  objectives=32  consts=7  （无优化，调试用）
+-O1: files=16  commands=133  objectives=32  consts=7
+-O2: files=16  commands=129  objectives=28  consts=7
+-O3: files=16  commands=129  objectives=28  consts=7
 ```
+
+**`-O1` 与 `-O0` 输出逐字节相同。** O1 的三个 pass（`SimplifyCFG`
+`PruneUnreachable` `SelfAssign`）在这两个示例上恰好不改变输出——它们**确实
+在跑**，只是没有东西可改。所以 O1 这一档在 golden 里没有任何独立断言。
+**`-O3` 与 `-O2` 相同**：O3 目前没有任何 pass（`optimize.Skipped(3)` 返回空）。
+
+这些数字的**正本**是 golden 文件的头一行：
+`internal/driver/testdata/golden/luo-math-full.o*.txt` 写着
+`# files=N commands=M`。要更新这里的数字，改 golden、跑
+`go test ./internal/driver -run GoldenBaseline -update`，再把头行抄过来——
+不要手抄，手抄就会漂。
 
 **静态行数不是重点。** 循环体是热代码，同样的循环写成尾测后每次迭代的控制命令
-从 4 条降到 3 条，回边从「调用另一个块」变成自调用。实测 `sqrt(40000)`：
+从 4 条降到 3 条，回边从「调用另一个块」变成自调用。
 
-**行数不是主要指标。** `init` 里有 30 条 `scoreboard objectives add` 和 9 条常量初始化，
-占 123 条中的 39 条，但它们只在加载时跑一次。真正的每次调用成本要看具体函数：
+**行数不是主要指标。** `init` 里有 28 条 `scoreboard objectives add` 和 7 条常量初始化，
+占 35 条中的 35 条，但它们只在加载时跑一次。真正的每次调用成本要看具体函数
+（`-O2` 下的实测行数）：
 
 | 函数 | 命令数 | 说明 |
 |---|---|---|
 | `lcg_step` | 4 | `(A*s + C) % M` 的最优形式，中间量直接算进 `return` |
 | `chance` | 10 | 含一次跨函数调用 |
 | `rand` | 13 | 含一次调用 + 一次取模回绕 |
-| `sqrt` | 24 | 4 个块（1.12.2 无文件内标签，每个分支是一个文件） |
+| `sqrt` | 11 | 主块 11 行，另有 `sqrt$b1`(11) / `sqrt$b2`(1) 两个分支块 |
+| `sort_asc` | 3 | 主块；扇出部分在 `sort_asc$e1` / `sort_asc$b1` |
 
-objective 数只降了 2，因为**名字必须在整个模块内唯一**：`@s` 是整条调用栈共用的
-一个寄存器文件，被调函数的 `l0` 就是调用者的 `l0`。跨函数复用名字只有在分配器能证明
-两者不会同时存活时才对——而「不在同一个函数里」不构成这种证明。详见第 6 节。
+objective 数从 32 降到 28，只降 4，因为**名字必须在整个模块内唯一**：`@s` 是整条
+调用栈共用的一个寄存器文件，被调函数的 `l0` 就是调用者的 `l0`。跨函数复用名字
+只有在分配器能证明两者不会同时存活时才对——而「不在同一个函数里」不构成这种
+证明。详见第 6 节。
 
 ---
 
-| | 静态命令 | 动态命令 | 失败守卫 |
-|---|---|---|---|
-| 初始 | 131 | 1531 | 21 |
-| 合并预算到条件 | 127 | 1022 | 39 |
-| 补集化简 | 125 | **896** | **21** |
+**动态命令数**（在 GoMcRuntime 真机上跑 `sqrt(40000)` 数出来的）
+和静态命令数不是一回事：静态数是产物文件里的行数，动态数是**运行期实际执行**
+的命令条数——递归的循环体每转一圈就再执行一遍。
 
-**−41%，结果不变（`sqrt(40000) = 200`）。**
+真机测量（`gomc difftest run <world> <case> --full`，把每一步的
+`Executed N command(s) from function '...'` 加起来）：
+
+```powershell
+# setup: function luo:math/init; summon armor_stand; 打标记 GGM
+#        scoreboard players set @e[tag=GGM] a0 40000
+# run:   execute @e[tag=GGM] ~ ~ ~ function luo:math/sqrt
+```
+
+| 级别 | 静态命令 | 动态命令 | `sqrt(40000)` |
+|---|---|---|---|
+| `-O0` | 133 | 172 | 200 |
+| `-O1` | 133 | 172 | 200 |
+| `-O2` | 129 | **168** | 200 |
+| `-O3` | 129 | **168** | 200 |
+
+**结果在四个级别上一致，都是 200。** 优化动的是命令**条数**，不是**答案**——
+这正是这个项目唯一关心的那条不变式。
+
+> 旧版本这里记的是「131 / 127 / 125 静态，1531 / 1022 / 896 动态，−41%」。
+> 那些数字**已经过时**（而且 896 那个在当前产物上复现不出来）。
+> 现在这张表是 2026-10-21 在 `ggm 0.27.0` 上实测的。
+>
+> 动态数怎么数：真机每条 `function` 调用都报一句
+> `Executed N command(s) from function 'ns/name'`，把这些 N 加起来就是动态命令数。
+> 注意被跳过的分支报 `Executed 0 command(s)`——那是**失败守卫**，不计入。
 
 ---
 

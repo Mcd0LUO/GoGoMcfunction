@@ -12,10 +12,10 @@
 | 产物 | 位置 | 怎么验证 |
 |---|---|---|
 | 生成结果 | `internal/driver/testdata/golden/*.txt` | `go test ./internal/driver -run GoldenBaseline` |
-| 语义行为 | `internal/*/**_test.go`（116 条，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
+| 语义行为 | `internal/*/**_test.go`（165 个测试函数，其中语义测试跑在 GoMcRuntime 上） | `go test ./...` |
 | 版本标识 | `internal/version/version.go` | `ggm -version` |
 | 全局检查 | 见下节 | `go test ./internal/driver -run 'Callee\|Uncalled\|Builtin'` |
-| 类语义 | `internal/driver/class_test.go`（7 条，含真机执行） | `go test ./internal/driver -run 'Class\|Tick\|Spawn'` |
+| 类语义 | `internal/driver/class_test.go`（6 条，含真机执行） | `go test ./internal/driver -run 'Class\|Tick\|Spawn'` |
 
 `testdata/golden/` 里是 `examples/*.ggm` 在 `-O0`..`-O3` 下**完整**的输出，
 按函数名排序、以 `=== <函数 id> ===` 分节。文件头一行是
@@ -75,16 +75,24 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 
 | 级别 | 文件 | 命令 |
 |---|---|---|
-| `-O0` | 16 | 132 |
-| `-O1` | 16 | 132 |
-| `-O2` | 16 | 128 |
-| `-O3` | 16 | 128 |
+| `-O0` | 16 | 133 |
+| `-O1` | 16 | 133 |
+| `-O2` | 16 | 129 |
+| `-O3` | 16 | 129 |
 
-**静态命令数不是重点。** `luo:math/init` 里有 39 条（30 条 `scoreboard objectives add`
-加 9 条常量），但它们只在加载时跑一次。热代码看动态：
+**这些数字的正本是 golden 文件的头一行**
+（`internal/driver/testdata/golden/luo-math-full.o*.txt` 写着 `# files=N commands=M`）。
+要更新这里的数字，改 golden、跑 `go test ./internal/driver -run GoldenBaseline
+-update`、再把头行抄过来——不要手抄，手抄就会漂。
 
-`sqrt(40000) = 200`，在 GoMcRuntime 上执行 `896` 条命令
-（`-O2`，含每次迭代必然失败的那条分支守卫）。
+**静态命令数不是重点。** `luo:math/init` 里有 35 条（28 条 `scoreboard objectives add`
+加 7 条常量），但它们只在加载时跑一次。热代码看动态：
+
+`sqrt(40000) = 200`，在 GoMcRuntime 上执行 **168** 条命令（`-O2`）。
+四个优化级别的结果都是 200（`-O0`/`-O1` 是 172 条动态命令）。
+
+> 旧版本这里写的是 `132 / 128` 和 `896` 条动态命令——都已过时。
+> 现在这些数字是 2026-10-21 在 `ggm 0.27.0` 上实测的。
 
 语义正确性由一份**独立的 32 位参考实现**守住：`rand(1,100)` 连续 8 次输出
 `52, 94, 100, 42, 12, 54, 60, 2`，四个优化级别都必须一致。
@@ -98,7 +106,8 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 - **`W_UNREACHABLE_FN` 会误报**：从命令方块或 `gameLoopFunction` 调用的函数会被标成无人调用。
   这是设计上的取舍，不是缺陷——消息里写明了这个出口。
 - **`[death]` 不存在。** 1.12.2 无法观察已经消失的实体，正确实现需要影子实体。
-  与其留一个永远报错的属性，不如不写——它现在就是一个未知属性，报 `E_ATTR_UNKNOWN`。
+  与其留一个永远报错的属性，不如不写——它现在就是一个未知属性，报 `E_PARSE`
+  （`unknown attribute [death] on fn`）。
 - **`[spawn]` 由 `on_cycle` 驱动**，所以世界必须每 tick 跑一次 `<ns>/cycle`，
   否则实体永远不会被处理。
 - **入口只有两个，都要用户接线**：`<ns>/boot`（世界加载，命令方块）与 `<ns>/cycle`
@@ -113,7 +122,8 @@ execute @e[type=zombie,tag=mob.monster,tag=!ggm.spawn.Monster] ~ ~ ~ function t:
 - **字段 objective 名截断到 16 字符**，类名前 6 字符相同的两个类会撞车（`E_FIELD_COLLISION`）。
 - **类选择器只能是 1.12.2 选择器语法**，编译器按字面拼接，不校验。
 - **规范第 7 节「计划中」那张表里的检查都不存在**（`W_WRAP_UNPROVEN`、
-  `W_DIV_ZERO`、`E_NO_SELF_CONTEXT` 等）。
+  `W_DIV_ZERO`、`E_TYPE_MISMATCH`、`E_NO_SHORT_CIRCUIT` 等）。
+  规范 §7 现在列出了这个构建**全部 38 个**诊断码，已实现的和计划中的分得很清楚。
 - **字面量之外的溢出仍然静默回绕。** `E_INT_RANGE` 只管字面量和 `score` 值。
 - **`-O3` 与 `-O2` 输出相同。** 目前没有属于 O3 的 pass。
 - **只有单一目标版本。** `-target` 只接受 `1.12.2`。

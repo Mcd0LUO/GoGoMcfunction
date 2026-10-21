@@ -7,7 +7,11 @@
 // cycles — a `while` loop is a back edge.
 package analysis
 
-import "github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+import (
+	"fmt"
+
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+)
 
 // Reachable returns the set of blocks reachable from the entry block.
 func Reachable(fn *ir.Function) map[ir.BlockID]bool {
@@ -66,8 +70,27 @@ func Uses(op ir.Op) []ir.Loc {
 		// elimination delete the `set 0` that initialises a boolean slot.
 		uses := append(Uses(o.Inner), PredUses(o.Cond)...)
 		return append(uses, Defs(o.Inner)...)
+	case ir.Set:
+		// `scoreboard players set` writes a literal. It reads nothing.
+		return nil
+	case ir.Call, ir.FanOut:
+		// A call reads the arguments the caller marshalled into the ABI
+		// registers. Those are ordinary Locs that already appear as uses of
+		// the ops that wrote them, so there is nothing extra to report here.
+		return nil
+	default:
+		// An op this function does not know about.
+		//
+		// Returning nil would claim it reads nothing, and liveness would then
+		// let dead-store elimination delete whatever it depends on -- a silent
+		// wrong answer the moment a new ir.Op is added. Panicking turns that
+		// into a compile-time failure that names the missing case.
+		//
+		// This is deliberately not "return everything": the caller would have
+		// to invent a location set, and there is no honest one. The switch must
+		// be extended, and that is a code change, not a runtime decision.
+		panic(fmt.Sprintf("analysis.Uses: unhandled ir.Op %T; add a case, because assuming it reads nothing lets liveness delete its inputs", op))
 	}
-	return nil
 }
 
 // Defs lists the locations an op writes.
@@ -87,8 +110,30 @@ func Defs(op ir.Op) []ir.Loc {
 		return o.Writes
 	case ir.Guarded:
 		return Defs(o.Inner)
+	case ir.Call:
+		// A call overwrites the slot the callee leaves its result in.
+		//
+		// Not listing it made that slot look untouched, and liveness then
+		// treated the `copy dst = ret` that follows as reading a value nothing
+		// defines -- so the coalescer was free to give the return slot to a
+		// temporary still live across the call.
+		//
+		// The slot is carried on the op because only the lowering knows the
+		// holder: a function with no executor keeps its registers on a fake
+		// player.
+		if !o.Ret.Valid() {
+			return nil
+		}
+		return []ir.Loc{o.Ret}
+	case ir.FanOut:
+		// A fan-out runs a function once per matching entity and discards its
+		// result. Nothing is defined.
+		return nil
+	default:
+		// Same reasoning as Uses: claiming an unknown op writes nothing is a
+		// silent miscompile waiting for the next ir.Op.
+		panic(fmt.Sprintf("analysis.Defs: unhandled ir.Op %T; add a case, because assuming it writes nothing makes its result look dead", op))
 	}
-	return nil
 }
 
 // PredUses lists the locations a predicate reads.

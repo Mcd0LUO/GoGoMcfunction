@@ -183,7 +183,20 @@ type Guarded struct {
 }
 
 // Call invokes another function without returning to this block.
-type Call struct{ Path string }
+//
+// Ret is the slot the callee leaves its result in, or the zero Loc when the
+// caller ignores the result. It is recorded HERE rather than inferred by the
+// analysis because only the lowering knows the holder: a function with no
+// executor keeps its registers on a fake player, and guessing `@s` there names
+// a score that does not exist.
+//
+// Liveness needs it. Without it the `copy dst = ret` that follows a call looked
+// like it read a slot nothing defines, and the register allocator was free to
+// give the return slot to a temporary still live across the call.
+type Call struct {
+	Path string
+	Ret  Loc
+}
 
 // FanOut runs a function once for every entity a selector matches.
 //

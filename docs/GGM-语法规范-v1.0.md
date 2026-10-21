@@ -126,7 +126,7 @@ fn lcg_step(s: int) -> int { (LCG_A * s + LCG_C) % LCG_M }
 **属性是遍历的，不是内联的。** 编译期读属性列表，生成 P 值和 void 函数——只消
 除属性或加新属性即可，不需要改语言语法。
 
-### 3.3 入口
+### 3.3a 入口：模块的接线
 
 一个模块只有两个需要接线的入口，都是编译器生成的：
 
@@ -207,7 +207,7 @@ class CastTimer {
 `[death]` 不存在：1.12.2 无法观察一个已经消失的实体，唯一正确的实现需要影子实体。
 与其留一个永远报错的属性，不如不写。
 
-### 3.3 入口
+### 3.3b 入口：属性与执行者
 
 | 写法 | 生成 | 有 `@s`？ |
 |---|---|---|
@@ -359,7 +359,7 @@ if cond { } else { }
 while cond, budget 32 { }      // 上界必填
 for i in 0..64 { }               // 计数循环
 for e in entities<@a[tag=x]> { }  // 扇出
-@a[tag=math.sort] sort.diff = self.sort.key - lo // 广播写
+@a[tag=math.sort] sortdiff = @a[tag=math.sort]."sort.key" - lo // 广播写
 decode wp.damage1 from @s.Inventory(0)[atk_base] // NBT → 分数
 encode @s.Item[money] = return over 1..10        // 分数 → NBT
 loop cond, budget 32 { }        // 后测循环
@@ -408,7 +408,8 @@ loop  i > 0, budget 32 { }     // 先做一次，再判
 
 ### 4.2 条件
 
-`&&` 降级为嵌套 `execute`；`||` 语义上无法短路，含副作用时报错。
+`&&` 降级为**一条逗号分隔的选择器**（一个合取）；`||` 降级为**多条并列的
+`execute`**（无法短路）。`!` 降级为一个 `@s` 上的标志位。
 
 降级规则（**这是整个编译器存在的理由**）：
 
@@ -421,10 +422,41 @@ loop  i > 0, budget 32 { }     // 先做一次，再判
 | `a == b` | `score_T_min=0,score_T=0` |
 | `a != b` | 两条 `execute` |
 
+**`&&` 是选择器，不是嵌套 `execute`。** `a >= 1 && b <= 99` 降级成
+`@s[score_a_min=1,score_b=99]` —— 1.12.2 的选择器本身就是合取，一条就够，
+不需要每个条件一个 block。
+
+**`||` 不短路，而且不报错。** `a == 1 || a == 2` 降级成两条并列的
+`execute @s[...] ~ ~ ~ function F$B`，两条都会跑。所以 `||` 的两个分支**不能有副作用**
+（否则副作用会发生两次）。本构建**不检查**这一点——`E_NO_SHORT_CIRCUIT` 是
+「计划中」的检查，目前没有实现。
+
+**存在性测试不能参与 `&&` / `||`。** `any<...>` 在 1.12.2 里是
+`function F if <sel>`，那是**与任何其他条件的合取**，没有 `or` 形式。所以
+`any<A> || any<B>` 和 `any<A> && any<B>` 都**编译期报 `E_COND`**：
+
+```
+error: `||` cannot combine an existence or block probe: 1.12.2 tests a probe with
+`function F if <sel>`, which is a conjunction with any other condition, and there
+is no `or` form. Write it as two ifs
+```
+
+**`!` 用标志位物化。** `!c` 没有单条命令的形式（1.12.2 的 `unless` 只接受
+选择器），所以降级成「置 1 → 条件成立时清 0 → 测标志位」三步。
+
+```mcfunction
+scoreboard players set @s t1.ggm 1
+execute @s[score_t0.ggm_min=0] ~ ~ ~ scoreboard players set @s t1.ggm 0
+function t:app/f$b1 if @s[score_t1.ggm_min=1]
+```
+
+`!any<...>` 是例外——存在性测试有精确的 `unless` 形式，不需要标志位。
+但 `!(any<...> && c)` 仍然报 `E_COND`：它的补集是一个析取，没有单条选择器的形式。
+
 ### 4.3 广播写 vs 扇出
 
 ```
-@a[tag=math.sort] temp1 = #m - self.math    // 1 条命令写 N 个实体
+@a[tag=math.sort] temp1 = m - @a[tag=math.sort]."math"    // 1 条命令写 N 个实体
 for p in entities<@a[tag=math.sort]> { p.temp1 = ... }   // N 次调用
 ```
 
@@ -567,6 +599,34 @@ a < b   a <= b  a > b   a >= b  a == b  a != b
 min(a,b)  max(a,b)  abs(a)  clamp(a,lo,hi)  rem_euclid(a,m)
 reduce<min>(@a[tag=x], obj)   count<@e[tag=x]>   any<@a[tag=x]>
 ```
+
+**每个内建能出现在哪些位置是不一样的**——下面这张表是实测出来的，不是设计意图。
+写错了位置不会静默降级，会报错：
+
+| 内建 | 可用位置 | 不可用位置（报错） |
+|---|---|---|
+| `min` / `max` | 任何**值**位置 | —— |
+| `rem_euclid` | 任何**值**位置 | —— |
+| `reduce<min>` / `reduce<max>` | 任何**值**位置 | —— |
+| `abs` | **只在比较里，且右边必须是常量**（`if abs(a) > 3`） | 当值用、右边是变量、或 `==`（`E_BUILTIN_UNIMPLEMENTED`） |
+| `any<sel>` | **只在条件里**（`if any<sel>` / `while any<sel>`） | 当值用（`E_UNKNOWN_CALLEE`） |
+| `clamp` | —— | 任何位置（`E_BUILTIN_UNIMPLEMENTED`） |
+| `count<sel>` | —— | 任何位置（`E_BUILTIN_UNIMPLEMENTED`） |
+
+`abs` 当值用之所以是「未实现」而不是「不许」，是因为它在**比较**里本来就能降级：
+`abs(a) > 3` 被改写成「`a` 落在 `[-3, 3]` 之外」这条区间条件（1.12.2 的选择器是区间，
+这正是它擅长的形状）。这个改写**要求右边是常量**，且只覆盖 `>` `>=` `<` `<=`——
+`abs(a) == 3` 和 `abs(a) > k`（`k` 是变量）都走不了这条路，报 `E_BUILTIN_UNIMPLEMENTED`。
+独立求值 `abs(a)` 本身还没做。
+
+`any<sel>` 只能当**条件**用，因为它在 1.12.2 里没有「值」的形态——它要么让分支
+跑，要么不跑，没有一个分数可以读。所以 `let b = any<...>` 报 `E_UNKNOWN_CALLEE`
+（编译器按普通函数去找 `any`）。
+
+**一个尾随的裸调用不是隐式返回值。** `fn f() -> int { min(a,b) }` 报
+`E_UNKNOWN_CALLEE`，而 `fn f() -> int { return min(a,b) }` 编译通过。
+尾随裸表达式是隐式 `return`，但**只接受非调用表达式**——一个尾随的裸调用会被
+当成语句位置的调用去降级，于是 `min` 被当成普通函数找，报告「没有叫 min 的函数」。
 
 **字面量作 `operation` 操作数时自动物化**为 `#ggm.const.<值>` 常量
 （1.12.2 的 `operation` 右操作数必须是记分板名字，不能是字面量）。
@@ -771,48 +831,54 @@ function t:app/probe$b1 if @s[score_t0_min=1]
 
 ## 7. 检查清单
 
-### 已实现
+**这个构建一共发 38 个诊断码。** 下面两张表是它们**全部**——一张不漏，
+一张不多。代码里搜 `"E_` / `"W_` 就是这 38 个，没有别的。
+
+### 已实现（38 个，全部）
 
 | 代码 | 检查 |
 |---|---|
-| `E_PARSE` | 语法错误（含未知属性、属性未附着到声明） |
+| `E_PARSE` | 语法错误。**也覆盖**未知属性、属性重复、`every` 参数不是时长字面量、SNBT 不合法——这些都归到这一个码 |
 | `E_NO_NAMESPACE` | 文件没有 `namespace` |
-| `E_INT_RANGE` | 字面量或 `score` 值超出 int32 计分板范围 |
+| `E_INT_RANGE` | 字面量、`score` 值或 enum 值超出 int32 计分板范围 |
 | `E_FN_COLLISION` | 两个声明在 1.12.2 归一化后是同一个函数 |
 | `E_FN_RESERVED` | 用户声明占用了编译器生成的名字（`init` 等） |
 | `E_UNKNOWN_CALLEE` | 调用了本模块里不存在的函数 |
 | `E_FIELD_COLLISION` | 两个字段截断后落在同一个 objective 上 |
-| `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内置（`abs` 作值、`clamp`、`count`） |
+| `E_FIELD_DUP` | 同一个 `nbt` 字段声明了两次 |
+| `E_FIELD_BITS` | `bits` 超过 30，或字段既没有 `bits` 也没有 `enum` |
+| `E_FIELD_UNKNOWN` | `decode` / `encode` 引用了没声明的 `nbt` 字段 |
+| `E_BUILTIN_UNIMPLEMENTED` | 用了本构建尚未实现的内建（`abs` 当值、`clamp`、`count`） |
 | `W_UNREACHABLE_FN` | 声明了但本模块无人调用 |
-| `E_NO_BUDGET` | `while` / `loop` 没有 `cap <n>` 上界 |
-| `E_NO_SELF_CONTEXT` | 在无执行者的函数（`[load]`）里读写实体分数 |
+| `E_NO_SELF_CONTEXT` | 在无执行者的函数（`[load]`）里读写实体分数，或在 `[load]` 里写条件 |
 | `E_LOAD_PARAMS` | `[load]` 函数带参数——世界加载时没人能给它 |
-| `E_ATTR_UNKNOWN` | 属性不在 `DeclAttrs` 里（如 `[death]`、`[wraping]`） |
-| `E_ATTR_DUP` | 同一个属性写了两次 |
-| `E_EVERY_ARG` | `every` 的参数不是时长字符串字面量 |
 | `E_UNINIT_FIELD` | `class` 字段没有常量初始化器 |
 | `E_ARITY` | 调用实参个数与声明不符 |
 | `E_ASSIGN_TARGET` | 赋值目标不是可写位置 |
 | `E_COND` / `E_EXPR` / `E_ARG` / `E_STMT` | 表达式或语句无法降级 |
 | `E_FOR_SELECTOR` | `for e in` 的来源不是 `entities<...>` |
+| `E_FOR_RANGE` | `for i in` 的范围不是合法区间 |
 | `E_BROADCAST_SELECTOR` / `E_BROADCAST_VALUE` | 广播写语句的选择器或值非法 |
-| `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` | `comptime` 的范围、列表或 `score` 参数不是编译期常量 |
+| `E_COMPTIME_RANGE` / `E_COMPTIME_LIST` / `E_EMIT_CONST` / `E_COMPTIME_STMT` | `comptime` 的范围、列表、`score` 参数不是编译期常量，或块里有不支持的语句 |
 | `E_STR_RUNTIME` | 字符串在运行期才求值 |
-| `E_BAD_COMMAND` | 后端生成的命令没通过语法检查（编译器 bug）；含选择器参数白名单 |
+| `E_OBJECTIVE_CONFLICT` | `obj` 与 `extern` 绑定了同一个 objective |
+| `E_OBJECTIVE_NAME` | objective 名超过 16 字符（1.12.2 会截断，截断后静默撞车） |
+| `E_OBJECTIVE_DUP` | 同一个 `obj` 声明了两次 |
+| `E_OBJECTIVE_UNDECLARED` | `decode` 的目标没被 `obj` 或 `extern` 声明过 |
+| `E_ENCODE_RANGE` | `over` 的上下界超出字段能表示的范围（会静默截断） |
+| `E_BAD_COMMAND` | 后端生成的命令没通过语法检查；含选择器参数白名单 |
 | `E_IR_INVARIANT` | IR 结构不变量被破坏（编译器 bug） |
+| `E_NO_BUDGET` | `while` / `loop` 的预算不是正数（**防御性**，见下） |
 
 ### 计划中
 
+**这些码在本构建里不存在。** 写出来不会有任何诊断——要么没有这个码，
+要么对应的检查被别的码接管了。
+
 | 代码 | 检查 | 缺什么才能做 |
 |---|---|---|
-| `E_OBJECTIVE_CONFLICT` | `obj` 与 `extern` 绑定了同一个 objective | 无，可直接实现 |
-| `E_OBJECTIVE_NAME` | objective 名超过 16 字符（1.12.2 会截断，截断后静默撞车） | 无，可直接实现 |
-| `E_OBJECTIVE_DUP` | 同一个 `obj` 声明了两次 | 无，可直接实现 |
-| `E_OBJECTIVE_UNDECLARED` | `decode` 的目标没被 `obj` 或 `extern` 声明过 | 无，可直接实现 |
-| `E_NBT_PARSE` | `n"…"` / `p"…"` 不是合法 SNBT | 无，可直接实现 |
-| `E_NBT_TYPE` | 字面量的类型与使用点要求不符 | 无，可直接实现 |
-| `E_FIELD_BITS` | `bits` 不在 1..30（`bits=32` 时最高位 `2^31` 超出 int32） | 无，可直接实现 |
-| `E_ENCODE_RANGE` | `over` 的上下界超出字段能表示的范围（会静默截断） | 无，可直接实现 |
+| `E_NBT_PARSE` | `n"…"` / `p"…"` 不是合法 SNBT | 独立的码；当前 SNBT 不合法报 `E_PARSE` |
+| `E_NBT_TYPE` | 字面量的类型与使用点要求不符 | 类型检查（当前只有 `int`） |
 | `W_FIELD_UNUSED` | 字段声明了但既没 `decode` 也没 `encode` | 无，可直接实现 |
 | `W_WRAP_UNPROVEN` | 可能溢出且未标 `[wrapping]` | 值域分析 |
 | `W_DIV_ZERO` | 除数可能为 0 | 值域分析 |
@@ -821,6 +887,24 @@ function t:app/probe$b1 if @s[score_t0_min=1]
 | `E_NO_SHORT_CIRCUIT` | `\|\|` 含副作用 | 副作用分析 |
 | `E_SELECTOR_NOT_SUBSET` | 子类选择器不是父类子集 | 选择器蕴含判定 |
 | `W_BUDGET_ESTIMATE` | 预算估计超实际 2 倍 | 循环迭代次数估计 |
+
+### 三个曾经存在过、现在没有的码
+
+| 曾经的码 | 现在报什么 |
+|---|---|
+| `E_ATTR_UNKNOWN` | `E_PARSE` ——「unknown attribute [death] on fn」 |
+| `E_ATTR_DUP` | `E_PARSE` ——「attribute [load] appears twice (first at 2:2)」 |
+| `E_EVERY_ARG` | `E_PARSE` ——「every takes a string literal, because a period has to be known before the program runs」 |
+
+属性是**解析期**检查的（`syntax.checkAttrs`），所以它们归到 `E_PARSE`。
+给它们单独一个码没有坏处，但一个码就够——作者看到的是同一种失败。
+
+### `E_NO_BUDGET` 是防御性的，不是作者能触发的
+
+`while` / `loop` 漏掉 `budget` 是**解析错误**（`E_PARSE`：「a loop needs an iteration
+bound」），`budget 0` 也是解析错误（「the iteration bound must be at least 1」）。
+所以 `E_NO_BUDGET` 只在**语法层漏掉了检查**时才可能发出来——它是一道闸，
+不是作者能撞上的诊断。
 
 > **实现状态（0.8.0）**：第 3.4 节（`obj`）与第 4.3 节（`decode` / `encode` /
 > `matches` / `n"…"` / `p"…"`）**已实现**，并在 GoMcRuntime 上做过往返验证。
@@ -848,8 +932,7 @@ objective 名超 16 字符）同理。
 ---
 
 ## 8. 完整示例：`luo/math`
-
-```
+```ggm
 namespace luo:math
 
 comptime {
@@ -891,10 +974,10 @@ fn sort_asc() {
     let rank = 0
     while any<@a[tag=math.sort]>, budget 64 {
         let lo = reduce<min>(@a[tag=math.sort], sort.key)
-        @a[tag=math.sort] sort.diff = self.sort.key - lo
+        @a[tag=math.sort] sortdiff = @a[tag=math.sort]."sort.key" - lo
         rank += 1
-        @a[tag=math.sort] where sort.diff == 0 {
-            self.sort.rank = rank
+        for e in entities<@a[tag=math.sort]> where sortdiff == 0 {
+            e.sort.rank = rank
             tag_remove(self, "math.sort")
         }
     }
@@ -902,6 +985,26 @@ fn sort_asc() {
 ```
 
 **309 行 → 约 45 行。** 并且 4 个原库缺陷在编译期被消掉（除零、收敛判据、范围映射偏置、收尾摧毁调用方数据）。
+
+### 这个例子里有三处写法，和直觉不一样
+
+**`self.sort.key` 写不出来。** `self` 后面不能跟点——`self` 是一个完整的表达式，
+不是「持有者」。要读**别的**实体的具名分数，用选择器加引号：
+`@a[tag=math.sort]."sort.key"`。objective 名本身可以带点（`Ap.Amount`），
+所以这里带引号是唯一无歧义的写法。
+
+**广播写的字段名不带点。** `@a[tag=math.sort] sortdiff = ...` —— `sortdiff` 是
+一个**裸名字**，不是 `sort.diff`。带点会报 `expected =, got .`。
+
+**`where` 只属于 `for`。** `@a[tag=math.sort] where sortdiff == 0 { }` 不是语句——
+报 `expected =, got identifier`。`where` 是 `for` 循环头的一部分：
+`for e in entities<@a[tag=math.sort]> where sortdiff == 0 { ... }`。
+而且它筛的是**每个被扇出的实体**，所以循环体里的 `self` 就是那个实体。
+
+**这段示例是可以编译的**（`ggm.exe` 退出码 0，生成 14 个 `.mcfunction`）。
+仓库里 `examples/luo-math.ggm` 和 `examples/luo-math-full.ggm` 是同一段程序的
+两个可用版本——`examples/luo-math-full.ggm` 是 309 行原库的完整移植。
+
 
 ---
 

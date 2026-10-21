@@ -6,6 +6,7 @@
 package optimize
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -515,6 +516,45 @@ func applyRename(fn *ir.Function, rename map[string]string) {
 					o.Reads[k] = rn(o.Reads[k])
 				}
 				b.Ops[i] = o
+			case ir.Call:
+				// A call names a function AND the slot the callee leaves its
+				// result in. The slot is renamed with everything else.
+				//
+				// `ir.Call.Ret` arrived after this switch was written. The
+				// rename is a no-op today -- the lowering only puts the
+				// `return` objective or an extern's out-objective there, and
+				// neither is a compiler temporary -- so nothing was broken.
+				// But the guarantee this switch exists to provide is
+				// "every location an op names is renamed", and leaving one
+				// field out breaks it by a hair, to be paid the day someone
+				// lowers a call into a temporary.
+				o.Ret = rn(o.Ret)
+				b.Ops[i] = o
+			case ir.FanOut:
+				// A fan-out runs a function once per matching entity and
+				// discards its result. It names no location at all.
+				//
+				// Listed explicitly so the default branch below means "an op
+				// this compiler does not know", instead of "an op that happens
+				// to have no slots".
+			default:
+				// An op this switch does not know about.
+				//
+				// The same reasoning as in renameOp, and the same conclusion:
+				// a rename has no conservative answer. Leaving an unknown op
+				// alone means it keeps a pre-rename slot name while the
+				// allocator believes that name is free, so two values end
+				// up sharing one objective.
+				//
+				// The audit called this "the liveness and register allocation
+				// silently treat a new op as having no side effects". For
+				// this switch the wording is even more direct: it is not
+				// treated as having no side effects, it is treated as
+				// having NO SLOTS AT ALL, which is worse.
+				//
+				// A panic names the type and stops the compile. That is the
+				// only outcome that cannot ship a wrong answer.
+				panic(fmt.Sprintf("optimize: unregistered op %T reached applyRename; register it here, in analysis.Defs/Uses and in the back end, before using it", op))
 			}
 		}
 		if br, ok := b.Term.(ir.Branch); ok {
@@ -551,8 +591,79 @@ func renameOp(op ir.Op, rename map[string]string) ir.Op {
 	case ir.Remove:
 		o.Dst = rn(o.Dst)
 		return o
+	case ir.Guarded:
+		// Both halves: the inner op's slots and the guard's own condition.
+		// The condition is what made a range collapse to an equality --
+		// see renamePred.
+		o.Inner = renameOp(o.Inner, rename)
+		o.Cond = renamePred(o.Cond, rename)
+		return o
+	case ir.Raw:
+		// A raw command names its locations in three places: the arguments
+		// spliced into the text at render time, and the declared reads and
+		// writes that liveness reads. Renaming only the declared effects
+		// left the op claiming to write t0 while the rendered command still
+		// said t1.
+		for k := range o.Args {
+			o.Args[k] = rn(o.Args[k])
+		}
+		for k := range o.Writes {
+			o.Writes[k] = rn(o.Writes[k])
+		}
+		for k := range o.Reads {
+			o.Reads[k] = rn(o.Reads[k])
+		}
+		return o
+	case ir.Call:
+		// A call names a function AND the slot the callee leaves its result
+		// in. The slot has to be renamed with everything else.
+		//
+		// `ir.Call.Ret` was added after this switch was written, and the
+		// comment here used to say "a call names a function, not a slot".
+		// That was true when `ir.Call` carried only a path, and it stopped
+		// being true the moment the field appeared. The rename is a no-op
+		// today -- the lowering only ever puts the `return` objective or an
+		// extern's out-objective there, and neither is a compiler temporary
+		// -- so nothing was broken. But the guarantee this switch exists to
+		// provide is "every location an op names is renamed", and leaving
+		// one field out breaks that guarantee by a hair, to be paid the day
+		// someone lowers a call into a temporary.
+		//
+		// `rn` ignores a zero Loc, so a call with no result slot is fine.
+		o.Ret = rn(o.Ret)
+		return o
+	case ir.FanOut:
+		// A fan-out runs a function once per matching entity and discards
+		// its result. It names no location at all.
+		//
+		// Listed explicitly so the default branch below means "an op this
+		// compiler does not know", not "an op that happens to have no
+		// slots".
+		return op
+	default:
+		// An op this switch does not know about.
+		//
+		// Returning it unchanged is the one answer that cannot be right:
+		// the function renames the slots of every op it recognises, so an
+		// unrecognised one keeps a pre-rename name while the allocator
+		// believes that name is free. Two values end up on one objective,
+		// and nothing reports it.
+		//
+		// There is no conservative answer here, and that is the difference
+		// from a liveness switch. A liveness question ("what does this op
+		// read and write?") has a safe over-approximation: assume it touches
+		// everything. A RENAME question ("what is this op's slot called
+		// now?") has no over-approximation -- an op either names a slot or
+		// it does not, and leaving it alone names the WRONG slot.
+		//
+		// So this fails loudly, at compile time, at the point where a new op
+		// is introduced. That is the same rule the rest of the compiler
+		// follows: a problem the compiler can see must be reported, not
+		// papered over. A panic here is a loud, one-line message naming the
+		// type that has to be registered; a silent no-op is a wrong answer
+		// that nobody finds.
+		panic(fmt.Sprintf("optimize: unregistered op %T reached renameOp; register it here, in analysis.Defs/Uses and in the back end, before using it", op))
 	}
-	return op
 }
 
 // renamePred applies a temporary renaming to every condition in a predicate.

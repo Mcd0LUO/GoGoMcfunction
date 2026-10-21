@@ -338,8 +338,31 @@ func calleesOf(op ir.Op) []string {
 		return []string{o.Path}
 	case ir.Guarded:
 		return calleesOf(o.Inner)
+	default:
+		// Every remaining op is a score operation that names no function, so
+		// it has no callees. Listing them explicitly keeps the omission
+		// visible: if a future ir.Op carries a path, this is where it must be
+		// added, and `default` returning nil would hide it.
+		if _, isSet := op.(ir.Set); isSet {
+			return nil
+		}
+		if _, isCopy := op.(ir.Copy); isCopy {
+			return nil
+		}
+		if _, isArith := op.(ir.Arith); isArith {
+			return nil
+		}
+		if _, isAdd := op.(ir.Add); isAdd {
+			return nil
+		}
+		if _, isRemove := op.(ir.Remove); isRemove {
+			return nil
+		}
+		if _, isRaw := op.(ir.Raw); isRaw {
+			return nil
+		}
+		panic(fmt.Sprintf("calleesOf: unhandled ir.Op %T", op))
 	}
-	return nil
 }
 
 // usesSelf reports whether a function touches the executing entity.
