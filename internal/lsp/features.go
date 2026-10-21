@@ -21,11 +21,19 @@ const fence = "\x60\x60\x60"
 
 func codeBlock(s string) string { return fence + "ggm\n" + s + "\n" + fence }
 
-// indexFor returns the symbol index of a module, or nil while none exists.
-func (s *Server) indexFor(ns string) *symbols.Index {
+// indexFor returns the symbol index for a file, or nil while none exists.
+//
+// A file with a namespace uses its module's index. A file without one -- a
+// buffer someone just created -- uses an index of itself, because that is the
+// moment completion matters most and the module it will belong to is not yet
+// knowable.
+func (s *Server) indexFor(ns, path string) *symbols.Index {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.idx[ns]
+	if ns != "" {
+		return s.idx[ns]
+	}
+	return s.solo[path]
 }
 
 // handleHover answers textDocument/hover.
@@ -34,7 +42,7 @@ func (s *Server) handleHover(p PositionParams) (any, error) {
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -66,7 +74,7 @@ func (s *Server) handleDefinition(p PositionParams) (any, error) {
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -110,11 +118,11 @@ func (s *Server) handleDefinition(p PositionParams) (any, error) {
 
 // handleCompletion answers textDocument/completion.
 func (s *Server) handleCompletion(p PositionParams) (any, error) {
-	_, text, ns, line, col, ok := s.locate(p)
+	path, text, ns, line, col, ok := s.locate(p)
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -281,7 +289,7 @@ func (s *Server) handleDocumentSymbols(p DocumentSymbolParams) (any, error) {
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(s.namespaceOf(path))
+	ix := s.indexFor(s.namespaceOf(path), path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -330,7 +338,7 @@ func (s *Server) handleReferences(p ReferenceParams) (any, error) {
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -366,11 +374,11 @@ func (s *Server) handleReferences(p ReferenceParams) (any, error) {
 // answers null, and a client shows nothing -- which is better than pointing at
 // the wrong signature.
 func (s *Server) handleSignatureHelp(p PositionParams) (any, error) {
-	_, text, ns, line, col, ok := s.locate(p)
+	path, text, ns, line, col, ok := s.locate(p)
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -507,7 +515,7 @@ func (s *Server) handlePrepareRename(p PositionParams) (any, error) {
 	if !ok {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}
@@ -535,7 +543,7 @@ func (s *Server) handleRename(p RenameParams) (any, error) {
 	if !ok || p.NewName == "" {
 		return nil, nil
 	}
-	ix := s.indexFor(ns)
+	ix := s.indexFor(ns, path)
 	if ix == nil {
 		return nil, nil
 	}

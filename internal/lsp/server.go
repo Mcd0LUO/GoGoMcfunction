@@ -50,6 +50,11 @@ type Server struct {
 	// is recompiled. Hover, definition and completion read it and never touch
 	// the AST themselves.
 	idx map[string]*symbols.Index
+	// solo holds an index for each file that has no namespace yet. A new
+	// buffer starts with no namespace -- it is the first thing anyone types --
+	// and without this there is no completion, hover or jump until it exists,
+	// which is exactly when help is worth most.
+	solo map[string]*symbols.Index
 	// ast caches the parse of each file, and astText remembers which text it
 	// came from. A keystroke changes one file; without this, every other file
 	// in the module is parsed again for the symbol index and a third time
@@ -76,6 +81,7 @@ func New(dir string) *Server {
 		disk:     map[string]string{},
 		nsOf:     map[string]string{},
 		idx:      map[string]*symbols.Index{},
+		solo:     map[string]*symbols.Index{},
 		ast:      map[string]*syntax.File{},
 		astText:  map[string]string{},
 		compiled: map[string]string{},
@@ -548,6 +554,12 @@ func (s *Server) recompile(changed string) {
 	if ns != "" {
 		s.mu.Lock()
 		s.idx[ns] = symbols.Build(parsed, texts)
+		s.mu.Unlock()
+	} else if f := parsed[changed]; f != nil {
+		s.mu.Lock()
+		s.solo[changed] = symbols.Build(
+			map[string]*syntax.File{changed: f},
+			map[string]string{changed: texts[changed]})
 		s.mu.Unlock()
 	}
 

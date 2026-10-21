@@ -10,6 +10,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,40 @@ func TestNewlyCreatedFileJoinsTheModule(t *testing.T) {
 		if d.Code == "E_UNKNOWN_CALLEE" {
 			t.Fatalf("the call is still reported as unknown after the file appeared: %s", d.Message)
 		}
+	}
+}
+
+// A brand-new buffer has no namespace yet -- it is the first thing anyone
+// types -- and help is worth most exactly then.
+//
+// The server used to build an index only for a file that declared a
+// namespace, so completion, hover and jump answered nothing until it existed.
+func TestNamespaceLessFileStillGetsHelp(t *testing.T) {
+	dir := t.TempDir()
+	src := "obj X\n[export]\nfn f() { X = 1 }\n"
+	writeFiles(t, dir, map[string]string{"new.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "new.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+	sess.diagnostics(uriFromPath(path)) // the E_NO_NAMESPACE report
+
+	var h Hover
+	sess.ask(95, "textDocument/hover", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     Position{Line: 0, Character: 4},
+	}, &h)
+	if !strings.Contains(h.Contents.Value, "obj X") {
+		t.Fatalf("hover in a namespace-less file said %q", h.Contents.Value)
+	}
+
+	var list CompletionList
+	sess.ask(96, "textDocument/completion", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     Position{Line: 2, Character: 7},
+	}, &list)
+	if len(list.Items) == 0 {
+		t.Fatal("completion in a namespace-less file offered nothing")
 	}
 }
