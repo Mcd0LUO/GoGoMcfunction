@@ -8,6 +8,7 @@ package symbols
 // own this logic.
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
@@ -246,5 +247,30 @@ func TestDecodeFieldResolves(t *testing.T) {
 	}
 	if s.Pos.Line != 3 {
 		t.Fatalf("declaration at line %d, want 3", s.Pos.Line)
+	}
+}
+
+// A dotted name on a loop variable is a FIELD of that value, not the
+// holder.objective shorthand.
+//
+// It used to be described as a score on fake player e, which sent the author
+// looking for a declaration that would have made the program wrong.
+func TestLoopVarFieldIsNotAShorthand(t *testing.T) {
+	src := "namespace t:lp\nobj X\n[export]\nfn run() {\n    for e in entities<@e[tag=x]> {\n        e.hp = 1\n    }\n}\n"
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ix := Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": src})
+
+	s, ok := ix.At("a.ggm", 6, 11)
+	if !ok {
+		t.Fatal("the loop field did not resolve")
+	}
+	if s.Kind == KShorthand {
+		t.Fatalf("described as the shorthand: %s", s.Type)
+	}
+	if !strings.Contains(s.Type, "hp") || !strings.Contains(s.Type, "e") {
+		t.Fatalf("description is %q, want it to name the field and the loop variable", s.Type)
 	}
 }

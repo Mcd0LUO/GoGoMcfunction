@@ -309,13 +309,25 @@ func (ix *Index) addBody(file, owner string, params []syntax.Param, body []synta
 			ix.occ[at] = s
 			return
 		}
-		// An unresolvable dotted name is the holder.objective shorthand: a
-		// score on a fake player. The compiler accepts it, so hover explains
-		// it rather than saying nothing.
-		if i := strings.Index(name, "."); i > 0 {
+		dot := strings.Index(name, ".")
+		if dot > 0 {
+			// `x.f` where x is a local or a loop variable is a FIELD access on
+			// that value, not the holder.objective shorthand. Describing it as
+			// a fake player sent the author looking for a declaration that
+			// would make the program wrong.
+			if base, ok := scope[name[:dot]]; ok {
+				ix.occ[at] = Symbol{Name: name, Kind: KField, File: file,
+					Pos:    base.Pos,
+					Type:   "field " + name[dot+1:] + " of " + name[:dot],
+					Detail: base.Type}
+				return
+			}
+			// Otherwise it is the holder.objective shorthand: a score on a fake
+			// player. The compiler accepts it, so hover explains it rather than
+			// saying nothing.
 			ix.occ[at] = Symbol{Name: name, Kind: KShorthand, File: file,
 				Pos:    diag.Pos{File: file, Line: p.Line, Col: p.Col},
-				Type:   "score on fake player " + name[:i] + ": objective " + name[i+1:],
+				Type:   "score on fake player " + name[:dot] + ": objective " + name[dot+1:],
 				Detail: "not declared as an objective, so this is the holder.objective shorthand"}
 		}
 	}})
