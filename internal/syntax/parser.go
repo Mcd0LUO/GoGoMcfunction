@@ -308,11 +308,15 @@ func (p *parser) parsePath() (string, error) {
 		p.next()
 		var parts []string
 		for {
-			seg, err := p.expectIdent()
+			// A namespace segment may start with a digit: the reference data
+			// pack has `probe:ph/1`. parsePathSegment assembles such a name
+			// from adjacent tokens, because the lexer splits `1a` into an
+			// integer and an identifier.
+			seg, err := p.parsePathSegment()
 			if err != nil {
 				return "", err
 			}
-			parts = append(parts, seg.Text)
+			parts = append(parts, seg)
 			if p.cur().Kind == SLASH {
 				p.next()
 				continue

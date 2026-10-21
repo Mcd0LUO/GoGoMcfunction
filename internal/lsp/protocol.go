@@ -87,11 +87,12 @@ type ServerCapabilities struct {
 	// it defaults to utf-16, which is what this server implements, so it is
 	// redundant -- and stated anyway, because a negotiation that is implicit
 	// becomes a bug the day someone assumes the other default.
-	PositionEncoding   string                  `json:"positionEncoding,omitempty"`
-	TextDocumentSync   TextDocumentSyncOptions `json:"textDocumentSync"`
-	HoverProvider      bool                    `json:"hoverProvider,omitempty"`
-	DefinitionProvider bool                    `json:"definitionProvider,omitempty"`
-	CompletionProvider *CompletionOptions      `json:"completionProvider,omitempty"`
+	PositionEncoding       string                  `json:"positionEncoding,omitempty"`
+	TextDocumentSync       TextDocumentSyncOptions `json:"textDocumentSync"`
+	HoverProvider          bool                    `json:"hoverProvider,omitempty"`
+	DefinitionProvider     bool                    `json:"definitionProvider,omitempty"`
+	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
+	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
 }
 
 // CompletionOptions configures completion. The trigger characters are the ones
@@ -240,3 +241,26 @@ type CompletionList struct {
 // HoverProvider and the neighbouring capability markers are object-or-bool in
 // the specification. This server sends `true`, which every client accepts, so
 // they are plain bools here.
+
+// SymbolKind values used by the document outline.
+const (
+	SymbolKindFunction uint32 = 12
+	SymbolKindVariable uint32 = 13
+	SymbolKindConstant uint32 = 14
+	SymbolKindClass    uint32 = 5
+	SymbolKindField    uint32 = 8
+	SymbolKindObject   uint32 = 19
+)
+
+// SymbolInformation is one entry of a document outline.
+type SymbolInformation struct {
+	Name          string   `json:"name"`
+	Kind          uint32   `json:"kind"`
+	Location      Location `json:"location"`
+	ContainerName string   `json:"containerName,omitempty"`
+}
+
+// DocumentSymbolParams names a document.
+type DocumentSymbolParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}

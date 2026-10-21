@@ -268,3 +268,54 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// handleDocumentSymbols answers textDocument/documentSymbol, which is the
+// outline a client shows beside the editor.
+//
+// Only the declarations in THIS file are returned. The index is module-wide,
+// which is what hover and jump need, but an outline listing another file's
+// functions would be wrong.
+func (s *Server) handleDocumentSymbols(p DocumentSymbolParams) (any, error) {
+	path, ok := pathFromURI(string(p.TextDocument.URI))
+	if !ok {
+		return nil, nil
+	}
+	ix := s.indexFor(s.namespaceOf(path))
+	if ix == nil {
+		return nil, nil
+	}
+	var out []SymbolInformation
+	for _, sym := range ix.All() {
+		if sym.File != path || sym.Pos.Line == 0 {
+			continue
+		}
+		out = append(out, SymbolInformation{
+			Name: sym.Name,
+			Kind: symbolKind(sym.Kind),
+			Location: Location{
+				URI:   uriFromPath(sym.File),
+				Range: tokenRange(sym.Pos.Line, sym.Pos.Col, runeCount(lastSegmentOf(sym.Name))),
+			},
+		})
+	}
+	if out == nil {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func symbolKind(k symbols.Kind) uint32 {
+	switch k {
+	case symbols.KFunc, symbols.KMethod:
+		return SymbolKindFunction
+	case symbols.KClass:
+		return SymbolKindClass
+	case symbols.KField, symbols.KNBT:
+		return SymbolKindField
+	case symbols.KObj:
+		return SymbolKindObject
+	case symbols.KConst:
+		return SymbolKindConstant
+	}
+	return SymbolKindVariable
+}

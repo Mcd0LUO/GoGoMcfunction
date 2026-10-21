@@ -4,7 +4,10 @@
 // attribute resolves to.
 package syntax
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (p *parser) parseObj() (*ObjDecl, error) {
 	t, err := p.expect(OBJ)
@@ -166,30 +169,88 @@ func (p *parser) parseEnumCases() ([]EnumCase, error) {
 // into the namespace, so a rewritten file keeps the id the rest of the pack
 // already calls.
 func (p *parser) parseFuncPath() (string, error) {
-	t, err := p.expectNameLike()
+	// The first segment goes through the same assembler as the rest, so a
+	// function may be named `1a` -- legal in a 1.12.2 function id, and split
+	// by the lexer into an integer and an identifier.
+	name, err := p.parsePathSegment()
 	if err != nil {
 		return "", err
 	}
-	name := t.Text
 	for p.cur().Kind == SLASH {
 		p.next()
 		// A path segment may be a NUMBER: the reference data pack names
 		// functions like `rpg:skill/1/main` and `rpg:item/buy/cl/1`, where the
 		// directory is a slot or a tier. Rejecting those made roughly
 		// three-quarters of its files impossible to express.
-		var seg string
-		if p.cur().Kind == INT {
-			seg = p.next().Text
-		} else {
-			tok, err := p.expectNameLike()
-			if err != nil {
-				return "", err
-			}
-			seg = tok.Text
+		seg, err := p.parsePathSegment()
+		if err != nil {
+			return "", err
 		}
 		name += "/" + seg
 	}
 	return name, nil
+}
+
+// parsePathSegment reads one path component.
+
+// A component is not one token. 1.12.2 allows `[a-z0-9_-]` in a function id,
+// so `random/1-10` and `a/1_5` are legal names -- and the lexer splits them
+// into INT, MINUS and INT, or INT and IDENT, because a minus is an operator
+// and an underscore starts an identifier. Reading one token gave `1` and then
+// an error at the `-`.
+
+// So the segment is assembled from ADJACENT tokens: those whose positions
+// touch on the same line, restricted to characters a function id may contain.
+// Adjacency is what makes this safe -- `1 - 10` written with spaces stays an
+// arithmetic expression and is still rejected.
+func (p *parser) parsePathSegment() (string, error) {
+	var b strings.Builder
+	lastLine, lastEnd := 0, 0
+	for {
+		tok := p.cur()
+		if tok.Kind == EOF || tok.Kind == NEWLINE || tok.Kind == SEMI || tok.Kind == RBRACE {
+			break
+		}
+		if !pathSegmentRune(tok.Text) {
+			break
+		}
+		// The first token is taken whatever its position; every later one
+		// must start exactly where the previous ended.
+		if b.Len() > 0 {
+			if tok.Pos.Line != lastLine || tok.Pos.Col != lastEnd {
+				break
+			}
+		}
+		b.WriteString(tok.Text)
+		lastLine = tok.Pos.Line
+		lastEnd = tok.Pos.Col + len([]rune(tok.Text))
+		p.next()
+	}
+	if b.Len() == 0 {
+		tok, err := p.expectNameLike()
+		if err != nil {
+			return "", err
+		}
+		return tok.Text, nil
+	}
+	return b.String(), nil
+}
+
+// pathSegmentRune reports whether text is made only of characters a 1.12.2
+// function id may contain.
+func pathSegmentRune(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, r := range text {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (p *parser) parseFunc(attrs []Attr) (*FuncDecl, error) {

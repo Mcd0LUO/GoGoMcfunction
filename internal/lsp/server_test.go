@@ -21,6 +21,9 @@ import (
 type session struct {
 	t *testing.T
 	c *conn
+	// srv is the Server under test. The incremental tests count real parses
+	// through it rather than trusting that the cache hits.
+	srv *Server
 }
 
 // newSession starts a server rooted at dir and completes the handshake.
@@ -34,7 +37,7 @@ func newSession(t *testing.T, dir string) *session {
 		done <- s.Serve(cliR, servW)
 		_ = servW.Close()
 	}()
-	sess := &session{t: t, c: newConn(servR, cliW)}
+	sess := &session{t: t, c: newConn(servR, cliW), srv: s}
 	t.Cleanup(func() {
 		_ = cliW.Close()
 		select {

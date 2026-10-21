@@ -46,9 +46,21 @@ type Server struct {
 	// whole workspace. An entry is cleared when its file changes.
 	nsOf map[string]string
 	// idx holds one symbol index per namespace, rebuilt whenever that module
-	// is recompiled. Hover, definition and completion read it and never
-	// touch the AST themselves.
+	// is recompiled. Hover, definition and completion read it and never touch
+	// the AST themselves.
 	idx map[string]*symbols.Index
+	// ast caches the parse of each file, and astText remembers which text it
+	// came from. A keystroke changes one file; without this, every other file
+	// in the module is parsed again for the symbol index and a third time
+	// inside the compiler.
+	ast     map[string]*syntax.File
+	astText map[string]string
+	// compiled remembers the text of each file at the last successful
+	// compilation, so a save that changed nothing does no work.
+	compiled map[string]string
+	// parses counts real parse calls, so a test can prove the cache works
+	// instead of assuming it does.
+	parses int
 }
 
 // New returns a server rooted at dir.
@@ -58,11 +70,14 @@ func New(dir string) *Server {
 		abs = dir
 	}
 	return &Server{
-		root: abs,
-		open: map[string]string{},
-		disk: map[string]string{},
-		nsOf: map[string]string{},
-		idx:  map[string]*symbols.Index{},
+		root:     abs,
+		open:     map[string]string{},
+		disk:     map[string]string{},
+		nsOf:     map[string]string{},
+		idx:      map[string]*symbols.Index{},
+		ast:      map[string]*syntax.File{},
+		astText:  map[string]string{},
+		compiled: map[string]string{},
 	}
 }
 
@@ -101,9 +116,10 @@ func (s *Server) dispatch(m *msg) error {
 					Change:    TextDocumentSyncKindFull,
 					Save:      &SaveOptions{},
 				},
-				HoverProvider:      true,
-				DefinitionProvider: true,
-				CompletionProvider: &CompletionOptions{TriggerCharacters: []string{"."}},
+				HoverProvider:          true,
+				DefinitionProvider:     true,
+				CompletionProvider:     &CompletionOptions{TriggerCharacters: []string{"."}},
+				DocumentSymbolProvider: true,
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
 		})
@@ -203,6 +219,17 @@ func (s *Server) dispatch(m *msg) error {
 			return s.fail(m, codeInvalidRequest, err)
 		}
 		r, err := s.handleDefinition(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/documentSymbol":
+		var p DocumentSymbolParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleDocumentSymbols(p)
 		if err != nil {
 			return s.fail(m, codeInternalError, err)
 		}
@@ -308,26 +335,41 @@ func (s *Server) textOf(path string) (string, bool) {
 	return t, ok
 }
 
-// namespaceOf returns a file's namespace, caching it.
-func (s *Server) namespaceOf(path string) string {
+// astOf returns a file's parse, re-parsing only when its text changed.
+func (s *Server) astOf(path string) *syntax.File {
 	s.mu.Lock()
-	if ns, ok := s.nsOf[path]; ok && ns != "" {
-		s.mu.Unlock()
-		return ns
-	}
 	text, ok := s.textOf(path)
+	cached, hasCache := s.ast[path]
+	sameText := s.astText[path] == text
 	s.mu.Unlock()
 	if !ok {
-		return ""
+		return nil
 	}
-	f, err := syntax.Parse(text)
-	if err != nil || f == nil || f.Namespace == "" {
-		return ""
+	if hasCache && sameText {
+		return cached
 	}
 	s.mu.Lock()
-	s.nsOf[path] = f.Namespace
+	s.parses++
 	s.mu.Unlock()
-	return f.Namespace
+	f, err := syntax.Parse(text)
+	if err != nil {
+		f = nil
+	}
+	s.mu.Lock()
+	if f != nil {
+		s.ast[path] = f
+	}
+	s.astText[path] = text
+	s.mu.Unlock()
+	return f
+}
+
+// namespaceOf returns a file's namespace, through the AST cache.
+func (s *Server) namespaceOf(path string) string {
+	if f := s.astOf(path); f != nil {
+		return f.Namespace
+	}
+	return ""
 }
 
 // recompile compiles the module the changed file belongs to and publishes
@@ -373,29 +415,45 @@ func (s *Server) recompile(changed string) {
 	}
 	sort.Strings(members)
 
-	s.mu.Lock()
+	// Collect the module's texts and parses. astOf re-parses only the file
+	// whose text actually changed, so a keystroke costs one parse instead of
+	// one per file in the module.
 	srcs := make([]driver.Source, 0, len(members))
 	texts := make(map[string]string, len(members))
+	parsed := make(map[string]*syntax.File, len(members))
 	for _, path := range members {
-		if t, ok := s.textOf(path); ok {
-			srcs = append(srcs, driver.Source{Name: path, Text: t})
-			texts[path] = t
+		s.mu.Lock()
+		t, ok := s.textOf(path)
+		s.mu.Unlock()
+		if !ok {
+			continue
 		}
-	}
-	s.mu.Unlock()
-
-	if len(srcs) == 0 {
-		return
-	}
-	// Build the symbol index from the same texts the compiler just saw, so
-	// hover and go-to-definition cannot describe a file state the
-	// diagnostics do not agree with.
-	parsed := make(map[string]*syntax.File, len(texts))
-	for path, text := range texts {
-		if f, perr := syntax.Parse(text); perr == nil {
+		f := s.astOf(path)
+		texts[path] = t
+		srcs = append(srcs, driver.Source{Name: path, Text: t, Parsed: f})
+		if f != nil {
 			parsed[path] = f
 		}
 	}
+	if len(srcs) == 0 {
+		return
+	}
+
+	// A save with no edits should not recompile at all.
+	s.mu.Lock()
+	unchanged := len(s.compiled) == len(texts)
+	for path, t := range texts {
+		if s.compiled[path] != t {
+			unchanged = false
+			break
+		}
+	}
+	if unchanged {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
 	if ns != "" {
 		s.mu.Lock()
 		s.idx[ns] = symbols.Build(parsed)
@@ -406,6 +464,11 @@ func (s *Server) recompile(changed string) {
 		Target: target.V1_12_2,
 		Level:  optimize.O2,
 	})
+	s.mu.Lock()
+	for path, t := range texts {
+		s.compiled[path] = t
+	}
+	s.mu.Unlock()
 
 	byFile := map[string][]Diagnostic{}
 	for _, d := range diags {

@@ -77,6 +77,14 @@ type objOriginEntry struct {
 type Source struct {
 	Name string
 	Text string
+	// Parsed, when set, is used instead of parsing Text again.
+	//
+	// The language server keeps an AST per file so its symbol index does not
+	// re-parse the module on every keystroke; handing that AST back here
+	// removes the second parse of the same bytes. It must have been produced
+	// from Text: a stale AST would make the diagnostics describe a different
+	// program than the one on screen.
+	Parsed *syntax.File
 }
 
 // Compile runs the full pipeline on one source file.
@@ -112,22 +120,26 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	// declarations being mistaken for a collision with themselves.
 	perFile := make([]map[string]int, 0, len(srcs))
 	for _, s := range srcs {
-		file, err := syntax.Parse(s.Text)
-		if err != nil {
-			// The file name belongs in Pos.File, not in the message.
-			//
-			// It used to be prefixed into the text, because Pos had no file
-			// field and the CLI printed "4:17: error: x.ggm: ...". That made
-			// the message carry a location the renderer did not know about,
-			// so a consumer that had its own idea of the file -- an editor
-			// showing a squiggle -- saw the name twice or not at all.
-			var se *syntax.Error
-			if errors.As(err, &se) {
-				bag.Error(diag.Pos{File: s.Name, Line: se.Pos.Line, Col: se.Pos.Col}, "E_PARSE", "%s", se.Msg)
-			} else {
-				bag.Error(diag.Pos{File: s.Name}, "E_PARSE", "%v", err)
+		file := s.Parsed
+		if file == nil {
+			parsed, err := syntax.Parse(s.Text)
+			if err != nil {
+				// The file name belongs in Pos.File, not in the message.
+				//
+				// It used to be prefixed into the text, because Pos had no file
+				// field and the CLI printed "4:17: error: x.ggm: ...". That made
+				// the message carry a location the renderer did not know about,
+				// so a consumer that had its own idea of the file -- an editor
+				// showing a squiggle -- saw the name twice or not at all.
+				var se *syntax.Error
+				if errors.As(err, &se) {
+					bag.Error(diag.Pos{File: s.Name, Line: se.Pos.Line, Col: se.Pos.Col}, "E_PARSE", "%s", se.Msg)
+				} else {
+					bag.Error(diag.Pos{File: s.Name}, "E_PARSE", "%v", err)
+				}
+				return nil, bag.Sorted()
 			}
-			return nil, bag.Sorted()
+			file = parsed
 		}
 		srcFiles = append(srcFiles, file)
 		own := map[string]int{}

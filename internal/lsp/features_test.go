@@ -145,3 +145,43 @@ func TestQueriesOnWhitespaceReturnNull(t *testing.T) {
 		t.Fatalf("hover on whitespace returned %v, want null", h)
 	}
 }
+
+// The outline lists only the declarations in the requested file.
+//
+// The index is module-wide, which is what hover needs, so a naive outline
+// would list another file's functions in this file's sidebar.
+func TestDocumentSymbolsStayInTheFile(t *testing.T) {
+	dir := t.TempDir()
+	aSrc := "namespace t:o\nobj X\nfn alpha() { X = 1 }\n"
+	writeFiles(t, dir, map[string]string{
+		"a.ggm": aSrc,
+		"b.ggm": "namespace t:o\nfn beta() { X = 2 }\n",
+	})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "a.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: aSrc},
+	})
+	var syms []SymbolInformation
+	sess.ask(40, "textDocument/documentSymbol", DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+	}, &syms)
+	if len(syms) == 0 {
+		t.Fatal("the outline is empty")
+	}
+	var sawAlpha bool
+	for _, s := range syms {
+		if s.Name == "beta" {
+			t.Fatalf("the outline of a.ggm listed b.ggm symbol %q", s.Name)
+		}
+		if s.Name == "alpha" {
+			sawAlpha = true
+		}
+		if s.Kind == 0 {
+			t.Fatalf("symbol %q has no kind", s.Name)
+		}
+	}
+	if !sawAlpha {
+		t.Fatalf("the outline did not list alpha: %+v", syms)
+	}
+}

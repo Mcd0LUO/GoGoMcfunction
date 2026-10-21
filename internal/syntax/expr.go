@@ -306,10 +306,16 @@ func (p *parser) parsePrimary() (Expr, error) {
 			p.next()
 			name += ":" + p.parsePathSegments()
 		}
-		// dotted identifiers
+		// Dotted identifiers.
+		//
+		// The segment after the dot goes through expectName, not expectIdent:
+		// objective names are often words the language reserves. `return` is
+		// the ABI return register in every 1.12.2 library, so `e.return` has to
+		// parse -- the same reason parseDottedName uses expectName for the
+		// first segment.
 		for p.cur().Kind == DOT {
 			p.next()
-			seg, err := p.expectIdent()
+			seg, err := p.expectName()
 			if err != nil {
 				return nil, err
 			}
