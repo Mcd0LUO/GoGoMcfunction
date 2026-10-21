@@ -26,6 +26,22 @@ func Verify(p *ir.Program, maxObjectiveLen int) []Violation {
 		out = append(out, Violation{Func: fn, Msg: fmt.Sprintf(format, args...)})
 	}
 
+	// An objective the AUTHOR declared is checked by the lowerer, which has a
+	// source position and can say where it was written. Repeating it here
+	// reported one mistake twice:
+	//
+	//	-: error: t:lo/f: block 0: objective "AVeryLong..." exceeds 16 characters
+	//	2:1: error: objective "AVeryLong..." is 40 characters; ...
+	//
+	// The second is the useful one -- it has a line, and it says what the
+	// truncation DOES. This check still catches what the lowerer cannot see: a
+	// name the compiler invented or copied into a location, which no
+	// declaration covers.
+	declared := make(map[string]bool, len(p.Objs))
+	for _, od := range p.Objs {
+		declared[od.Name] = true
+	}
+
 	for _, fn := range p.Funcs {
 		if len(fn.Blocks) == 0 {
 			add(fn.Path, "function has no blocks")
@@ -48,7 +64,7 @@ func Verify(p *ir.Program, maxObjectiveLen int) []Violation {
 					// Characters, not bytes: 1.12.2 truncates a Java String by
 					// code unit, and a Chinese objective name is legal at 10
 					// characters while measuring 18 bytes.
-					if maxObjectiveLen > 0 && utf8.RuneCountInString(l.Obj) > maxObjectiveLen {
+					if maxObjectiveLen > 0 && utf8.RuneCountInString(l.Obj) > maxObjectiveLen && !declared[l.Obj] {
 						add(fn.Path, "block %d: objective %q exceeds %d characters", b.ID, l.Obj, maxObjectiveLen)
 					}
 				}
