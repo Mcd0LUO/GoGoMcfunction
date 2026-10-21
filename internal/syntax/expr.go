@@ -115,6 +115,33 @@ func (p *parser) parseUnary() (Expr, error) {
 	return p.parsePrimary()
 }
 
+// parsePathSegments reads `a/b/c` and returns it joined by slashes.
+//
+// A segment may be a NUMBER: the reference data pack names functions
+// `rpg:skill/1/main`, where the directory is a slot or a tier.
+func (p *parser) parsePathSegments() string {
+	var parts []string
+	for {
+		var seg string
+		if p.cur().Kind == INT {
+			seg = p.next().Text
+		} else {
+			tok, err := p.expectIdent()
+			if err != nil {
+				return join(parts, "/")
+			}
+			seg = tok.Text
+		}
+		parts = append(parts, seg)
+		if p.cur().Kind == SLASH {
+			p.next()
+			continue
+		}
+		break
+	}
+	return join(parts, "/")
+}
+
 func (p *parser) parsePrimary() (Expr, error) {
 	t := p.cur()
 	switch t.Kind {
@@ -231,23 +258,20 @@ func (p *parser) parsePrimary() (Expr, error) {
 	case IDENT:
 		p.next()
 		name := t.Text
-		// namespaced path: luo:math/sqrt
+		// A namespaced path: `luo:math/sqrt`.
+		//
+		// Only WITH the colon. A bare `math/sqrt(4)` is indistinguishable from
+		// `math / sqrt(4)` -- both are a valid division whose right operand is
+		// a call -- so treating `/` as a path separator here silently turned
+		// every `a / b` into a call to a function `a/b`. That broke division
+		// across the whole language to make one spelling work.
+		//
+		// The cost is that a bare path call must be spelled with its domain:
+		// `luo:math/sqrt(4)`. That is the same rule a selector and an objective
+		// follow, and it is unambiguous.
 		if p.cur().Kind == COLON {
 			p.next()
-			var parts []string
-			for {
-				seg, err := p.expectIdent()
-				if err != nil {
-					return nil, err
-				}
-				parts = append(parts, seg.Text)
-				if p.cur().Kind == SLASH {
-					p.next()
-					continue
-				}
-				break
-			}
-			name += ":" + join(parts, "/")
+			name += ":" + p.parsePathSegments()
 		}
 		// dotted identifiers
 		for p.cur().Kind == DOT {

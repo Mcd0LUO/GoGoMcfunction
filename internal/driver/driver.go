@@ -249,6 +249,9 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	for _, v := range analysis.Verify(prog, opt.Target.ObjectiveNameLimit) {
 		bag.Error(diag.Pos{}, "E_IR_INVARIANT", "%s", v.String())
 	}
+	for _, m := range checkNoSelfReachability(prog) {
+		bag.Error(diag.Pos{}, "E_NO_SELF_CONTEXT", "%s", m)
+	}
 
 	files, order := mcfunction.Render(prog, mcfunction.Options{Target: opt.Target, Comments: opt.Comments})
 	for p, body := range files {
@@ -263,6 +266,97 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	out.NeedsCycle = cyclePath(srcFiles[0].Namespace)
 	out.HasCycle = prog.Lookup(out.NeedsCycle) != nil
 	return out, bag.Sorted()
+}
+
+// checkNoSelfReachability reports a function that runs without an executor but
+// calls one that needs an entity.
+//
+// [load] runs from a command block, so @s names nothing there. The lowerer
+// already refuses `x = 1` written directly in such a body, but the rule did
+// not cross a call:
+//
+//	[load]
+//	fn on_load() { worker() }
+//	[export]
+//	fn worker() { N = 1 }        // -> scoreboard players set @s N 1
+//
+// compiled cleanly, and 1.12.2 discarded the set because no entity is bound.
+// The program did nothing at world load and said nothing about it.
+//
+// Reachability is transitive: a helper called only from [load] is part of that
+// body for this purpose.
+func checkNoSelfReachability(prog *ir.Program) []string {
+	byPath := map[string]*ir.Function{}
+	for _, fn := range prog.Funcs {
+		byPath[fn.Path] = fn
+	}
+	var roots []*ir.Function
+	for _, fn := range prog.Funcs {
+		if fn.NoSelf {
+			roots = append(roots, fn)
+		}
+	}
+	if len(roots) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	var walk func(fn *ir.Function, from string)
+	walk = func(fn *ir.Function, from string) {
+		if seen[fn.Path] {
+			return
+		}
+		seen[fn.Path] = true
+		for _, blk := range fn.Blocks {
+			for _, op := range blk.Ops {
+				for _, callee := range calleesOf(op) {
+					next, ok := byPath[callee]
+					if !ok {
+						continue
+					}
+					if !next.NoSelf && usesSelf(next) {
+						out = append(out, fmt.Sprintf(`%s runs without an executor (reached from %s) but calls %s, which reads or writes @s; 1.12.2 discards those commands because no entity is bound`, next.Path, from, next.Path))
+						continue
+					}
+					walk(next, from)
+				}
+			}
+		}
+	}
+	for _, r := range roots {
+		walk(r, r.Path)
+	}
+	return out
+}
+
+// calleesOf lists the functions an op calls by name.
+func calleesOf(op ir.Op) []string {
+	switch o := op.(type) {
+	case ir.Call:
+		return []string{o.Path}
+	case ir.FanOut:
+		return []string{o.Path}
+	case ir.Guarded:
+		return calleesOf(o.Inner)
+	}
+	return nil
+}
+
+// usesSelf reports whether a function touches the executing entity.
+func usesSelf(fn *ir.Function) bool {
+	for _, blk := range fn.Blocks {
+		for _, op := range blk.Ops {
+			for _, l := range append(analysis.Uses(op), analysis.Defs(op)...) {
+				if l.Holder == ir.SelfHolder {
+					return true
+				}
+			}
+			if r, ok := op.(ir.Raw); ok && strings.Contains(r.Text, "@s") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // buildClock generates the module's timer: cycle, make_clock, on_cycle, and

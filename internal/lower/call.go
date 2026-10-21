@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -165,6 +166,13 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 	fb.Emit(block, ir.Call{Path: path})
 }
 
+// errAlreadyReported stops lowering after a diagnostic has been recorded.
+//
+// The diagnostic is what the author reads; this only prevents the caller from
+// continuing with a value that does not exist. Reporting it again would be
+// noise, so callers treat it as "stop silently".
+var errAlreadyReported = errors.New("already reported")
+
 // call lowers a call used as a value.
 func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syntax.Call) (ir.Loc, error) {
 	if c.Name == "reduce<min>" || c.Name == "reduce<max>" {
@@ -178,12 +186,16 @@ func (l *Lowerer) call(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c synta
 	}
 	path, ok := l.resolveFunction(ctx, c)
 	if !ok {
-		return ir.Loc{}, nil
+		// The diagnostic is already reported. Return an error as well, so the
+		// caller stops instead of emitting ops around a zero Loc -- that
+		// produced a second, meaningless message ("op with invalid location
+		// {Holder: Obj:}") and, in a larger expression, a half-built command.
+		return ir.Loc{}, errAlreadyReported
 	}
 	n := l.sigs[path]
 	if len(c.Args) != n {
 		l.diags.Error(posOf(c.P), "E_ARITY", "%s takes %d argument(s), got %d", c.Name, n, len(c.Args))
-		return ir.Loc{}, nil
+		return ir.Loc{}, errAlreadyReported
 	}
 	l.marshalArgs(ctx, fb, block, path, c)
 	fb.Emit(block, ir.Call{Path: path})
@@ -510,7 +522,7 @@ func (l *Lowerer) builtin(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c sy
 		}
 		o, err := l.expr(ctx, fb, block, c.Args[i])
 		if err != nil {
-			l.diags.Error(posOf(c.P), "E_EXPR", "%s", err)
+			l.reportExprErr(c.Args[i], err)
 			return ir.Loc{}, false
 		}
 		return o, true

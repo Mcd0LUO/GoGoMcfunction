@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,19 @@ import (
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
+
+// reportExprErr records a lowering error, unless it has been recorded already.
+//
+// A failed sub-expression returns errAlreadyReported after emitting its own
+// diagnostic. Passing that through verbatim showed the author a second line,
+// "already reported [E_EXPR]", which names the compiler's sentinel rather than
+// their mistake.
+func (l *Lowerer) reportExprErr(e syntax.Expr, err error) {
+	if errors.Is(err, errAlreadyReported) {
+		return
+	}
+	l.reportExprErr(e, err)
+}
 
 // assignInto stores the value of e into dst.
 //
@@ -37,7 +51,9 @@ func (l *Lowerer) assignInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, d
 	}
 	src, err := l.expr(ctx, fb, block, e)
 	if err != nil {
-		l.diags.Error(posOf(exprPos(e)), "E_EXPR", "%s", err)
+		// errAlreadyReported means the cause is already in the diagnostic list;
+		// reporting it again would show the author two messages for one mistake.
+		l.reportExprErr(e, err)
 		return
 	}
 	// A failed sub-lowering returns the zero Loc, and emitting a copy from it
@@ -77,7 +93,7 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 		if l.assignBinaryInto(ctx, fb, block, dst, inner) {
 			rhs, err := l.expr(ctx, fb, block, bin.R)
 			if err != nil {
-				l.diags.Error(posOf(exprPos(bin.R)), "E_EXPR", "%s", err)
+				l.reportExprErr(bin.R, err)
 				return true
 			}
 			fb.Emit(block, ir.Arith{Dst: ctx.loc(dst), Op: op, Src: rhs})
@@ -86,13 +102,13 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 	}
 	lhs, err := l.expr(ctx, fb, block, bin.L)
 	if err != nil {
-		l.diags.Error(posOf(exprPos(bin.L)), "E_EXPR", "%s", err)
+		l.reportExprErr(bin.L, err)
 		return true
 	}
 	fb.Emit(block, ir.Copy{Dst: ctx.loc(dst), Src: lhs})
 	rhs, err := l.expr(ctx, fb, block, bin.R)
 	if err != nil {
-		l.diags.Error(posOf(exprPos(bin.R)), "E_EXPR", "%s", err)
+		l.reportExprErr(bin.R, err)
 		return true
 	}
 	fb.Emit(block, ir.Arith{Dst: ctx.loc(dst), Op: op, Src: rhs})
