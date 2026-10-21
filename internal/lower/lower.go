@@ -73,6 +73,16 @@ type Lowerer struct {
 	objs map[string]bool
 	// fields are the `nbt` declarations: an NBT path plus its encoding.
 	fields map[string]syntax.NBTField
+	// holders names the score holders the module has introduced, by the
+	// externs that bind them. A dotted name starting with one of these is
+	// unambiguously the holder.objective shorthand, so the compiler has no
+	// business warning that the author might have meant a declared
+	// objective instead.
+	holders map[string]bool
+	// scope is the module-wide view of the declarations. It is kept whole
+	// because the report of an ambiguous dotted name has to be ONCE for the
+	// module, not once per use.
+	scope Scope
 	// bodyN numbers the functions that `for e in entities<...>` bodies become.
 	// It must be unique across the module: a repeated name silently replaces
 	// an earlier body, and the loops then share one.
@@ -103,8 +113,10 @@ type claimed struct {
 }
 
 // Lower compiles one parsed file.
+//
+// The file is its own module: it sees its own declarations and nothing else.
 func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Diagnostic) {
-	return LowerWith(f, tgt, source, nil)
+	return LowerWith(f, tgt, source, nil, NewScope())
 }
 
 // LowerWith compiles one file in a module that also contains others.
@@ -114,7 +126,13 @@ func Lower(f *syntax.File, tgt target.Target, source string) (*Result, []diag.Di
 // from a call to a name that does not exist, and 1.12.2 cannot tell the
 // difference either: a call to a missing function is valid syntax that simply
 // never runs.
-func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[string]int) (*Result, []diag.Diagnostic) {
+//
+// scope carries the module's obj, extern and nbt declarations, so a name
+// declared in one file means the same thing in every other. It is
+// MODULE-wide on purpose: those three tables say what the module uses, and
+// leaving them per-file made the meaning of a dotted name depend on which
+// file the author happened to be in.
+func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[string]int, scope Scope) (*Result, []diag.Diagnostic) {
 	bag := &diag.Bag{}
 	l := &Lowerer{
 		tgt:     tgt,
@@ -125,6 +143,8 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 		objs:    map[string]bool{},
 		fields:  map[string]syntax.NBTField{},
 		kt:      map[string]int{},
+		holders: scope.holders(),
+		scope:   scope,
 	}
 	l.nsRoot, l.pathPre = f.Namespace, ""
 	if i := strings.Index(f.Namespace, ":"); i >= 0 {
@@ -168,8 +188,27 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 			l.kt[name] = v
 		}
 	}
-	for _, x := range f.Externs {
-		l.externs[x.Name] = x
+	// The three declaration tables are MODULE-wide.
+	//
+	// They were per-file, and that made the meaning of a name depend on
+	// which file the author happened to be in: an objective declared in one
+	// file was a plain local in another, and a dotted name written in the
+	// second file silently became a fake player's score instead. The
+	// specification says the module is one namespace -- boot collects every
+	// file's load bodies and constant pool -- and these three tables say
+	// what the module uses, so they follow the same rule.
+	//
+	// The file's OWN declarations are validated separately, by lowerObjs and
+	// lowerFields, which still see only this file: "declared twice" is a
+	// fact about one file's text.
+	for name := range scope.Objs {
+		l.objs[name] = true
+	}
+	for name, x := range scope.Externs {
+		l.externs[name] = x
+	}
+	for name, fd := range scope.Fields {
+		l.fields[name] = fd
 	}
 	// After externs, so the obj/extern conflict check can see both sides.
 	l.lowerObjs(f)
@@ -573,6 +612,17 @@ type fnCtx struct {
 	// fields maps a field's name to the objective it lives in. The two
 	// differ because objective names are truncated to the version's limit.
 	fields map[string]string
+	// fanout marks a body that became its OWN FUNCTION: the body of a
+	// `for e in entities<...>` loop.
+	//
+	// The body is entered by `execute <sel> ~ ~ ~ function <body>`, so it is a
+	// separate function with its own return. A `return` inside it therefore
+	// leaves the BODY and not the function that wrote the loop -- which is
+	// not what the author wrote and not what they meant.
+	//
+	// See fanoutReturn for the whole story; the flag is what lets the
+	// return path say so.
+	fanout bool
 	// noSelf marks a body entered without an executor: `on load`, and the
 	// boot function that calls it.
 	//
@@ -663,12 +713,24 @@ func (l *Lowerer) lowerObjs(f *syntax.File) {
 // int32: the emitted `add` would carry a constant that wraps to a negative
 // number, so the field would read back wrong with no error anywhere.
 func (l *Lowerer) lowerFields(f *syntax.File) {
+	// The duplicate check is against THIS FILE's declarations, not against
+	// the module's. `l.fields` already holds every field the module
+	// declares, so checking it here would report the file's own
+	// declaration as a duplicate of itself.
+	//
+	// The distinction is the one the language needs: a field declared twice
+	// in one file is a mistake in that file's text, while a field declared
+	// in two files is the same field said twice, which the first
+	// declaration wins.
+	seen := map[string]diag.Pos{}
 	for _, fd := range f.NBTFields {
 		pos := posOf(fd.P)
-		if _, dup := l.fields[fd.Name]; dup {
-			l.diags.Error(pos, "E_FIELD_DUP", "nbt field %q is declared twice", fd.Name)
+		if prev, dup := seen[fd.Name]; dup {
+			l.diags.Error(pos, "E_FIELD_DUP",
+				"nbt field %q is declared twice (first at %s)", fd.Name, prev)
 			continue
 		}
+		seen[fd.Name] = pos
 		switch {
 		case fd.Bits > 0 && len(fd.Enum) > 0:
 			l.diags.Error(pos, "E_FIELD_BITS", "field %q is both bits and enum", fd.Name)

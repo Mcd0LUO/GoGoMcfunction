@@ -959,12 +959,11 @@ fn rand(lo: int, hi: int) -> int {
 }
 
 fn sqrt(n: int) -> int {
-    if n < 4 { return 1 }
-    let x = n / 4
-    let prev = 0
+    let x = n
+    let y = x / 2 + x % 2
     while y < x, budget 64 {
-        prev = x
-        x = (x + n / x) / 2
+        x = y
+        y = (x + n / x) / 2
     }
     x
 }
@@ -1001,7 +1000,16 @@ fn sort_asc() {
 `for e in entities<@a[tag=math.sort]> where sortdiff == 0 { ... }`。
 而且它筛的是**每个被扇出的实体**，所以循环体里的 `self` 就是那个实体。
 
-**这段示例是可以编译的**（`ggm.exe` 退出码 0，生成 14 个 `.mcfunction`）。
+**`sqrt` 的两个初值都不能省。** `let y = x / 2 + x % 2` 是收敛的起点，不是装饰：
+`while y < x` 里的 `y` 必须在循环之前就有定义。少写这一行，`y` 会被当成一个
+**新的局部变量**（初值 0），循环条件于是变成 `0 < x`——编译照样通过，因为
+1.12.2 里读一个没写过的分数就是 0，而编译器没有理由拒绝一个合法的局部变量。
+结果是一个永远不收敛的循环，靠 `budget 64` 兜底跑满 64 次。
+
+这一版 `sqrt` 在 GoMcRuntime 真机上对 2/3/4/5/8/9/15/16/24/100/999/10000/40000
+十三个输入全部正确（含完全平方与平方数减一两侧）。
+
+**这段示例是可以编译的**（`ggm.exe` 退出码 0）。
 仓库里 `examples/luo-math.ggm` 和 `examples/luo-math-full.ggm` 是同一段程序的
 两个可用版本——`examples/luo-math-full.ggm` 是 309 行原库的完整移植。
 

@@ -136,14 +136,41 @@ func (l *Lowerer) assignBinaryInto(ctx *fnCtx, fb *ir.FuncBuilder, block ir.Bloc
 func (l *Lowerer) exprMentions(e syntax.Expr, at ir.Loc, ctx *fnCtx) bool {
 	switch x := e.(type) {
 	case syntax.Ident:
-		if strings.Contains(x.Name, ".") {
-			return false
-		}
+		// A DECLARED OBJECTIVE reads by its own name, dotted or not.
+		//
+		// The dotted case used to return false here, on the grounds that a
+		// dotted name is the holder.objective shorthand. That is true of an
+		// UNDECLARED one, and false of a declared one -- and the shortcut
+		// ran BEFORE the declared check, so a declared objective whose name
+		// contains a dot was never seen as a read of itself.
+		//
+		// The consequence was a silent miscompile. With
+		//
+		//	obj Ap.Amount
+		//	Ap.Amount = X - Ap.Amount
+		//
+		// the right operand was believed not to mention the destination, so
+		// the lowering wrote the left operand into the destination first and
+		// then subtracted the destination from itself:
+		//
+		//	scoreboard players operation @s Ap.Amount = @s X
+		//	scoreboard players operation @s Ap.Amount -= @s Ap.Amount   <- always 0
+		//
+		// The result was always zero, with no error anywhere. The rule this
+		// function has to follow is the one `expr` follows: a declared
+		// objective is the entity's own score, whatever its name looks like.
 		if l.objs[x.Name] {
 			return at.Holder == ctx.selfHolder() && at.Obj == x.Name
 		}
 		if ctx.isField(x.Name) {
 			return at.Obj == ctx.fieldLoc(x.Name)
+		}
+		if strings.Contains(x.Name, ".") {
+			// The holder.objective shorthand: a score on a named holder, not
+			// on the executor. It can only be the destination if the
+			// destination names the same holder and objective.
+			i := strings.Index(x.Name, ".")
+			return at.Holder == x.Name[:i] && at.Obj == x.Name[i+1:]
 		}
 		return at.Holder == "@s" && ctx.slot(x.Name) == at.Obj
 	case syntax.Binary:
@@ -214,6 +241,7 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		// shorthand -- so both spellings keep working, and the one that is
 		// written down explicitly is the one that is unambiguous.
 		if i := strings.Index(x.Name, "."); i > 0 {
+			l.warnAmbiguous(x.Name, x.P)
 			return ir.Loc{Holder: x.Name[:i], Obj: x.Name[i+1:]}, nil
 		}
 		return ctx.loc(ctx.slot(x.Name)), nil

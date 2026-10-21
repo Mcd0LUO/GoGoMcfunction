@@ -61,6 +61,19 @@ type Options struct {
 }
 
 // Source is one file of a module.
+// objOriginEntry is where an objective name was first declared, and what that
+// declaration said.
+//
+// Two files may name the same objective -- a module stating one fact in each
+// file that uses it, which the reference data pack does. That is only legal
+// while they AGREE: the criteria is what the objective counts, so two files
+// disagreeing about it is a contradiction, not a merge.
+type objOriginEntry struct {
+	Criteria string
+	Display  string
+	File     string
+}
+
 type Source struct {
 	Name string
 	Text string
@@ -117,6 +130,19 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		perFile = append(perFile, own)
 	}
 
+	// The module's obj, extern and nbt declarations, collected ONCE.
+	//
+	// These three tables say what the MODULE uses, so they are collected
+	// here and handed to every file's lowering. They used to be per-file,
+	// which made the meaning of a name depend on which file the author
+	// happened to be in: an objective declared in file A was a fresh local
+	// in file B, and a dotted name in file B became a fake player's score
+	// instead of the objective -- a write to a score nobody reads, which
+	// 1.12.2 discards without an error. The specification already says the
+	// module is one namespace (boot collects every file's load bodies and
+	// constant pool); these tables now follow the same rule.
+	scope := lower.CollectScope(srcFiles)
+
 	// Every file contributes its on-load bodies and its constant pool to ONE
 	// module-level boot function. Per-file entries cannot work: the user
 	// wires a single function to the world, and nothing would call a
@@ -147,6 +173,10 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	// "a correctness requirement, not a nicety" and then put them in a
 	// function nothing reached.
 	bootParts = append(bootParts, bootPart{srcFiles[0].Namespace + "/init", "objective declarations"})
+	// objOrigin remembers which file declared each objective, so a second
+	// declaration of the same name can be reported instead of silently
+	// replacing the first.
+	objOrigin := map[string]objOriginEntry{}
 	for i, file := range srcFiles {
 		checkLiterals(file, opt.Target, bag)
 		elsewhere := map[string]int{}
@@ -158,7 +188,7 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 				elsewhere[k] = v
 			}
 		}
-		res, lowerDiags := lower.LowerWith(file, opt.Target, srcs[i].Name, elsewhere)
+		res, lowerDiags := lower.LowerWith(file, opt.Target, srcs[i].Name, elsewhere, scope)
 		for _, d := range lowerDiags {
 			bag.Add(d)
 		}
@@ -210,6 +240,13 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 
 		if prog == nil {
 			prog = res.Program
+			// The first file's declarations still have to be REGISTERED, even
+			// though they need no appending: a later file declaring the same
+			// name must be reported, and it can only be reported if the first
+			// one was recorded.
+			for _, od := range res.Program.Objs {
+				objOrigin[od.Name] = objOriginEntry{Criteria: od.Criteria, Display: od.Display, File: srcs[i].Name}
+			}
 			continue
 		}
 		// Append rather than re-lower: each file has already been lowered in
@@ -217,6 +254,51 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		// objectives that must stay apart.
 		prog.Funcs = append(prog.Funcs, res.Program.Funcs...)
 		prog.Consts = append(prog.Consts, res.Program.Consts...)
+		// The objective DECLARATIONS merge too, and they have to: the
+		// declaration is what carries the criteria and the display name, and
+		// the back end reads them from here.
+		//
+		// They did not, and a second file's declaration lost both:
+		//
+		//	obj Beta stat.killCount "beta"
+		//
+		// became `scoreboard objectives add Beta dummy ggm` -- a different
+		// objective, with a different meaning, because the criteria the author
+		// wrote was thrown away. The name was still declared, so nothing said
+		// so. The first file's declarations were kept only because the first
+		// file's program became the module's program.
+		// A name declared in two files is a contradiction, not a merge: the
+		// criteria decides what the objective COUNTS, and two files cannot
+		// disagree about that. Appending both let the last one silently win,
+		// so `obj Score stat.kills` in one file and `obj Score stat.deaths` in
+		// another produced one declaration with the second's criteria and no
+		// message -- the same class of quiet substitution this whole change is
+		// meant to remove.
+		//
+		// One file declaring a name twice is already E_OBJECTIVE_DUP; this is
+		// the same mistake spread across two files.
+		for _, od := range res.Program.Objs {
+			if prev, seen := objOrigin[od.Name]; seen {
+				// Declaring the same name in two files is fine when they AGREE:
+				// a module that names its objectives in each file that uses
+				// them is stating one fact several times, and the reference
+				// data pack does exactly that.
+				//
+				// It is a contradiction when the CRITERIA differ, because that
+				// is what the objective counts. Appending both let the last one
+				// silently win: `obj Score stat.kills` in one file and
+				// `obj Score stat.deaths` in another produced one declaration
+				// with the second's criteria and no message.
+				if prev.Criteria != od.Criteria || prev.Display != od.Display {
+					bag.Error(diag.Pos{}, "E_OBJECTIVE_DUP",
+						"objective %q is declared twice with different criteria: %s in %s, %s in %s; the criteria decides what it counts, so only one can be right",
+						od.Name, prev.Criteria, prev.File, od.Criteria, srcs[i].Name)
+				}
+				continue
+			}
+			objOrigin[od.Name] = objOriginEntry{Criteria: od.Criteria, Display: od.Display, File: srcs[i].Name}
+			prog.Objs = append(prog.Objs, od)
+		}
 	}
 
 	// The module-wide clock, if anything is scheduled.

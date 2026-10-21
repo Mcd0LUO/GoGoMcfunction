@@ -47,6 +47,14 @@ func (l *Lowerer) lowerSeq(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, bod
 			}
 			l.assignInto(ctx, fb, cur, l.targetLoc(ctx, target, s.P), assignValue(s))
 		case syntax.ReturnStmt:
+			if ctx.fanout {
+				l.fanoutReturn(s)
+				// The body still ends here, so the rest of it is not
+				// lowered into a block that would be unreachable. The
+				// diagnostic above says what to do instead.
+				fb.SetTerm(cur, ir.Return{})
+				return noFallThrough
+			}
 			if s.Value != nil {
 				l.assignInto(ctx, fb, cur, ctx.loc("return"), s.Value)
 			}
@@ -143,6 +151,10 @@ func (l *Lowerer) targetLoc(ctx *fnCtx, name string, p syntax.Pos) ir.Loc {
 	// shape is ambiguous with an objective name containing a dot, and that is
 	// the far more common of the two.
 	if i := strings.Index(name, "."); i > 0 {
+		// The warning is the one the read path gives, for the same reason:
+		// an undeclared dotted name may be a mistyped objective declaration,
+		// and the two readings write to different places.
+		l.warnAmbiguous(name, p)
 		return ir.Loc{Holder: name[:i], Obj: name[i+1:]}
 	}
 	return ctx.loc(ctx.slot(name))
@@ -376,6 +388,7 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 		path: bodyPath, scope: map[string]string{},
 		localN: &l.localN, class: ctx.class, fields: ctx.fields,
 		loopVar: s.Name,
+		fanout:  true,
 	}
 	// `where <cond>` is the body's guard.
 	//
