@@ -67,7 +67,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return LetStmt{Name: n.Text, Value: v, P: t.Pos}, nil
+		return LetStmt{Name: n.Text, Value: v, P: t.Pos, NamePos: n.Pos}, nil
 	case IF:
 		p.next()
 		cond, err := p.parseCond()

@@ -26,14 +26,34 @@ in it and the squiggles appear as you type.
 3. `bin/ggmls.exe` inside the extension folder;
 4. `ggmls` on `PATH`.
 
-## What works, and what does not
+## What works
 
-Diagnostics, published by the compiler itself, updated as you type.
+| Feature | What it shows |
+|---|---|
+| Diagnostics | The compiler's own messages, as you type |
+| Hover | The declaration under the cursor, its signature and where it lives |
+| Go to definition | From a use to the declaration, including locals and params |
+| Completion | Names in the module, filtered by the fragment under the cursor |
 
-Hover, go-to-definition and completion are not implemented. All three need a
-symbol table, and the compiler produces IR rather than symbols; adding them in
-the client would mean re-deriving declarations from the AST and keeping that
-second implementation in sync with the language.
+Hover and jump both report the KIND of a name, which matters here: an
+objective, an extern and a class field look identical at a use site and mean
+three different things. An undeclared dotted name is reported as the
+holder.objective shorthand rather than as a missing declaration.
+
+## Checking a query without the editor
+
+The server and the compiler share `internal/symbols`, and the compiler exposes
+it:
+
+```sh
+ggm -query hover    -at a.ggm:9:13  a.ggm b.ggm
+ggm -query def      -at a.ggm:9:13  a.ggm b.ggm
+ggm -query complete -at a.ggm:9:13  a.ggm b.ggm
+```
+
+Positions are 1-based, the way the compiler reports errors. This exists so
+that changing a hover message is a command and not an editor session; the same
+code path answers the editor, so what the command prints is what ships.
 
 ## How the server groups files
 

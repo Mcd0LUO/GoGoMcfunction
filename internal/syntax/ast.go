@@ -96,6 +96,13 @@ type (
 		Name  string
 		Value Expr
 		P     Pos
+		// NamePos is the position of the NAME, not of the let keyword.
+		//
+		// P points at `let`, which is where a diagnostic about the statement
+		// belongs. An editor wants the other one: go-to-definition on a local
+		// should land on the variable, and a hover should cover the token the
+		// cursor is in.
+		NamePos Pos
 	}
 	AssignStmt struct {
 		Target Expr

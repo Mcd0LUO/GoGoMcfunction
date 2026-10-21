@@ -26,6 +26,7 @@ import (
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/diag"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/driver"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/optimize"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/symbols"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/target"
 )
@@ -44,6 +45,10 @@ type Server struct {
 	// nsOf caches each file's namespace so a keystroke does not re-parse the
 	// whole workspace. An entry is cleared when its file changes.
 	nsOf map[string]string
+	// idx holds one symbol index per namespace, rebuilt whenever that module
+	// is recompiled. Hover, definition and completion read it and never
+	// touch the AST themselves.
+	idx map[string]*symbols.Index
 }
 
 // New returns a server rooted at dir.
@@ -57,6 +62,7 @@ func New(dir string) *Server {
 		open: map[string]string{},
 		disk: map[string]string{},
 		nsOf: map[string]string{},
+		idx:  map[string]*symbols.Index{},
 	}
 }
 
@@ -95,6 +101,9 @@ func (s *Server) dispatch(m *msg) error {
 					Change:    TextDocumentSyncKindFull,
 					Save:      &SaveOptions{},
 				},
+				HoverProvider:      true,
+				DefinitionProvider: true,
+				CompletionProvider: &CompletionOptions{TriggerCharacters: []string{"."}},
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
 		})
@@ -176,6 +185,39 @@ func (s *Server) dispatch(m *msg) error {
 		}
 		s.recompile(path)
 		return nil
+
+	case "textDocument/hover":
+		var p PositionParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleHover(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/definition":
+		var p PositionParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleDefinition(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/completion":
+		var p PositionParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleCompletion(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
 	}
 
 	if m.isCall() {
@@ -345,6 +387,21 @@ func (s *Server) recompile(changed string) {
 	if len(srcs) == 0 {
 		return
 	}
+	// Build the symbol index from the same texts the compiler just saw, so
+	// hover and go-to-definition cannot describe a file state the
+	// diagnostics do not agree with.
+	parsed := make(map[string]*syntax.File, len(texts))
+	for path, text := range texts {
+		if f, perr := syntax.Parse(text); perr == nil {
+			parsed[path] = f
+		}
+	}
+	if ns != "" {
+		s.mu.Lock()
+		s.idx[ns] = symbols.Build(parsed)
+		s.mu.Unlock()
+	}
+
 	_, diags := driver.CompileFiles(srcs, driver.Options{
 		Target: target.V1_12_2,
 		Level:  optimize.O2,

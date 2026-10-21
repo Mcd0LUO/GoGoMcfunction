@@ -34,6 +34,8 @@ func run() error {
 		showVer  = flag.Bool("version", false, "print the version and exit")
 		comments = flag.Bool("comments", false, "put a header naming each generated file's declaration")
 		showIR   = flag.Bool("ir", false, "print the optimised IR instead of writing files")
+		query    = flag.String("query", "", "answer a question about a position: hover, def or complete")
+		at       = flag.String("at", "", "position for -query, as <file>:<line>:<col> (1-based)")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: ggm [flags] <file.ggm> ...")
@@ -47,6 +49,18 @@ func run() error {
 	if flag.NArg() == 0 {
 		flag.Usage()
 		return fmt.Errorf("no input files")
+	}
+	// -query answers a question about the module instead of building it.
+	//
+	// It shares the index with the language server, so checking a hover
+	// message or a jump target is one command rather than an editor session.
+	if *query != "" {
+		text, err := runQuery(*query, *at, flag.Args())
+		if err != nil {
+			return err
+		}
+		fmt.Println(text)
+		return nil
 	}
 	level, ok := optimize.ParseLevel(*levelStr)
 	if !ok {

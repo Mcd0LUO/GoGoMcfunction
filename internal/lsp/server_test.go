@@ -59,11 +59,20 @@ func (s *session) request(id int, method string, params any) *msg {
 	if err := s.c.write(frame); err != nil {
 		s.t.Fatalf("send %s: %v", method, err)
 	}
-	m, err := s.c.read()
-	if err != nil {
-		s.t.Fatalf("read response to %s: %v", method, err)
+	// Skip server notifications until the response arrives. After a didOpen
+	// the server publishes diagnostics first, and reading that as the reply
+	// desynchronises every later request.
+	for i := 0; i < 128; i++ {
+		m, err := s.c.read()
+		if err != nil {
+			s.t.Fatalf("read response to %s: %v", method, err)
+		}
+		if m.Method == "" {
+			return m
+		}
 	}
-	return m
+	s.t.Fatalf("no response to %s after 128 messages", method)
+	return nil
 }
 
 func (s *session) notify(method string, params any) {
