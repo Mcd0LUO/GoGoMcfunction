@@ -26,21 +26,27 @@
 |---|---|
 | 仓库 | `D:\code\go\GoGoMcfunction` |
 | 远端 | https://github.com/Mcd0LUO/GoGoMcfunction （公开） |
-| 最新提交 | `45e96b3` 改名为 GoGoMcfunction / GGM |
-| 标签 | `v0.1.0` … `v0.6.0`（6 个，全部已推送） |
-| 版本 | `ggm 0.6.0 (language spec 1.0, target 1.12.2)` |
-| 测试 | **63 条全绿**（含真机语义测试） |
-| 源码 | 9143 行 Go，14 个包 |
-| 示例产物 | `-O2` → **15 文件 / 124 条命令** |
-| 未提交 | `docs/DESIGN-v0.7.md`（设计稿，待拍板） |
+| 最新提交 | `9776cd1` 声明表提到模块级 + 自减修复 |
+| 标签 | `v0.1.0` … `v0.6.0`（6 个，**停在 0.6.0，之后 21 个版本未打标签**） |
+| 版本 | `ggm 0.27.0 (language spec 1.0, target 1.12.2)` |
+| 测试 | **186 个测试函数 / 394 次运行全绿**（含真机语义测试） |
+| 源码 | 11940 行 Go，14 个包 |
+| 示例产物 | `-O2` → **16 文件 / 129 条命令** |
+| 未提交 | 无 |
 
 ### 1.1 版本号有两个，它们不是同一个
 
-- `Version` = 编译器版本（0.6.0）
+- `Version` = 编译器版本（0.27.0）
 - `SpecVersion` = 语言规范版本（1.0）
 
 编译器实现的是规范的一个**子集**。两者都印在 `ggm -version` 里。
 三条测试强制这个一致性（`internal/version/version_test.go`）。
+
+**标签落后于版本号。** 编译器已到 0.27.0，但 git 标签停在 `v0.6.0`：
+0.7 之后的 21 个版本都是直接提交、没有打标签。
+这不影响使用（版本号来自 `internal/version/version.go`，不是来自标签），
+但「标签 = 可复现的发布点」这条约定目前不成立。要恢复它，
+从 `v0.7.0` 起补标签，或者接受「标签只是历史遗迹」。
 
 ### 1.2 版本号规则
 
@@ -56,7 +62,7 @@
 cd D:\code\go\GoGoMcfunction
 
 go build ./...                    # 构建
-go test -count=1 ./...            # 63 条测试
+go test -count=1 ./...            # 186 个测试函数
 go build -o ggm.exe ./cmd/ggm     # 出二进制
 
 go run ./cmd/ggm -q -O 2 -out OUT examples\luo-math-full.ggm   # 编译示例
@@ -472,7 +478,7 @@ scoreboard players add @s <obj> 2^k {Inventory:[{Slot:<n>b,tag:{dat:{<字段>:{k
 
 ```powershell
 cd D:\code\go\GoGoMcfunction
-go build ./... && go test -count=1 ./...        # 应当 63 条全绿
+go build ./... && go test -count=1 ./...        # 应当 186 个测试函数全绿
 cd D:\code\go\GoMcRuntime; go build -o gomc.exe ./cmd/gomc   # 刷新运行时
 ```
 

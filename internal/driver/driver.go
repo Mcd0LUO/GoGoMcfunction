@@ -290,9 +290,12 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 				// `obj Score stat.deaths` in another produced one declaration
 				// with the second's criteria and no message.
 				if prev.Criteria != od.Criteria || prev.Display != od.Display {
-					bag.Error(diag.Pos{}, "E_OBJECTIVE_DUP",
-						"objective %q is declared twice with different criteria: %s in %s, %s in %s; the criteria decides what it counts, so only one can be right",
-						od.Name, prev.Criteria, prev.File, od.Criteria, srcs[i].Name)
+					// "%s", not the message itself: bag.Error treats its third
+					// argument as a format string, and the message is already
+					// formatted. Passing it directly lets a % in an objective
+					// name be re-read as a verb.
+					bag.Error(diag.Pos{}, "E_OBJECTIVE_DUP", "%s",
+						objConflictMessage(od, prev, srcs[i].Name))
 				}
 				continue
 			}
@@ -631,6 +634,39 @@ func bootPath(ns string) string { return ns + "/boot" }
 
 // cyclePath is the module-wide tick entry, the one gameLoopFunction names.
 func cyclePath(ns string) string { return ns + "/cycle" }
+
+// objConflictMessage explains why two files disagree about one objective.
+//
+// The two fields are NOT equally important, and a message that always talks
+// about the criteria prints the same criteria twice when the criteria agree
+// and only the DISPLAY name differs:
+//
+//	obj Score stat.kills "kills"    file A
+//	obj Score stat.kills "deaths"   file B
+//
+// would be reported as "different criteria: stat.kills in A, stat.kills in B".
+// That reads as a mistake in the message rather than in the source, and the
+// author has to work out which field actually moved.
+//
+// So the message names the field that differs, and says what it decides.
+// The CRITERIA decides what the objective counts, so a disagreement there is
+// a contradiction about the program. The DISPLAY NAME is only the label
+// shown in the scoreboard sidebar, so a disagreement there is a presentation
+// disagreement -- still worth saying, but a different kind of thing, and the
+// message says so.
+func objConflictMessage(od ir.ObjDecl, prev objOriginEntry, file string) string {
+	if prev.Criteria != od.Criteria {
+		return fmt.Sprintf(
+			"objective %q is declared twice with different criteria: %s in %s, %s in %s; "+
+				"the criteria decides what the objective counts, so only one can be right",
+			od.Name, prev.Criteria, prev.File, od.Criteria, file)
+	}
+	return fmt.Sprintf(
+		"objective %q is declared twice with different display names: %q in %s, %q in %s; "+
+			"the display name is only the label shown in the scoreboard sidebar, "+
+			"so this is a presentation disagreement rather than a different objective",
+		od.Name, prev.Display, prev.File, od.Display, file)
+}
 
 // collectSigs records every function a file declares, qualified the way the
 // lowerer names them.
