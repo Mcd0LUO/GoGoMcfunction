@@ -232,6 +232,12 @@ func (l *Lowerer) resolveFunction(ctx *fnCtx, c syntax.Call) (string, bool) {
 			"%s is a builtin that this build does not implement in this position", c.Name)
 		return path, false
 	}
+	if valueBuiltins[c.Name] {
+		l.diags.Error(posOf(c.P), "E_STMT",
+			"%s returns a value, so it cannot stand alone as a statement: the result would be thrown away. Use it in an expression, e.g. `let x = %s(...)`",
+			c.Name, c.Name)
+		return path, false
+	}
 	l.diags.Error(posOf(c.P), "E_UNKNOWN_CALLEE",
 		"no function named %q in this module; 1.12.2 does not treat that as an error, the call simply never runs", c.Name)
 	return path, false
@@ -285,6 +291,18 @@ func (l *Lowerer) hasSig(path string) bool {
 // is rewritten algebraically and never becomes a call. count has no
 // implementation at all.
 var reservedCalls = map[string]bool{"abs": true, "clamp": true, "count": true}
+
+// valueBuiltins return a value and exist only in expression position.
+//
+// `reduce<max>(@a[tag=b], Hp)` works inside `let`, and as a bare statement it
+// was reported as "no function named reduce<max> in this module" -- which sends
+// the reader looking for a declaration that is not supposed to exist. The
+// call is real; it is the position that is wrong, and the value it computes
+// would be thrown away.
+var valueBuiltins = map[string]bool{
+	"min": true, "max": true, "rem_euclid": true, "str": true,
+	"reduce<min>": true, "reduce<max>": true,
+}
 
 // marshalArgs moves arguments into the callee's ABI registers.
 // 1.12.2 has no call stack, so parameters are entity-scoped objectives.

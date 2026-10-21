@@ -480,13 +480,16 @@ for p in entities<@a[tag=math.sort]> { p.temp1 = ... }   // N 次调用
 
 ```ggm
 decode <objective> from <容器> {
-    init 0
-    <NBT 谓词> add <v>
     <NBT 谓词> set <v>
+    <NBT 谓词> add <v>
 }
 ```
 
-发射 `set @s <obj> <init>`，然后每条 case 一条命令。
+块里**只有 case**，没有 `init` 子句。没有 `into` 时先发射 `set @s <obj> 0`，
+然后每条 case 一条命令；带 `into` 时跳过那条 `set`，各条 case 累加到已有值上。
+
+（本节早先写过一个 `init 0` 子句。解析器从来不接受它 —— 照那段抄会得到
+`expected an NBT literal in the decode block, got identifier`。）
 
 **位梯子、枚举、标签枚举、哨兵位都是它的缩写：**
 
