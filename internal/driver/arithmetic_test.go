@@ -40,11 +40,14 @@ func TestWrapArithmeticMatchesInt32(t *testing.T) {
 	files := compile(t, lcgSrc, optimize.O2)
 	h := newHarness(t, "t:r", files)
 	seeds := []int{0, 1, 2, 7, 12345, 67108863, 1103515245, 2147483647, -1, -12345, -2147483648}
-	for _, s := range seeds {
-		got, _ := h.Call("t:r/advance", map[string]int{"a0": s})
-		want := int(refStep(int32(s)))
-		if got != want {
-			t.Errorf("step(%d) = %d, want %d", s, got, want)
+	sets := make([]map[string]int, len(seeds))
+	for i, s := range seeds {
+		sets[i] = map[string]int{"a0": s}
+	}
+	got := h.Calls("t:r/advance", sets)
+	for i, s := range seeds {
+		if want := int(refStep(int32(s))); got[i] != want {
+			t.Errorf("step(%d) = %d, want %d", s, got[i], want)
 		}
 	}
 }
@@ -81,10 +84,15 @@ func TestWrapArithmeticAtEveryLevel(t *testing.T) {
 		t.Run(level.String(), func(t *testing.T) {
 			files := compile(t, lcgSrc, level)
 			h := newHarness(t, "t:r", files)
-			for _, s := range []int{0, 12345, 67108863, 2147483647, -2147483648} {
-				got, _ := h.Call("t:r/advance", map[string]int{"a0": s})
-				if want := int(refStep(int32(s))); got != want {
-					t.Errorf("step(%d) = %d, want %d", s, got, want)
+			seeds := []int{0, 12345, 67108863, 2147483647, -2147483648}
+			sets := make([]map[string]int, len(seeds))
+			for i, s := range seeds {
+				sets[i] = map[string]int{"a0": s}
+			}
+			got := h.Calls("t:r/advance", sets)
+			for i, s := range seeds {
+				if want := int(refStep(int32(s))); got[i] != want {
+					t.Errorf("step(%d) = %d, want %d", s, got[i], want)
 				}
 			}
 		})

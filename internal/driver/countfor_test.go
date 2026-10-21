@@ -35,26 +35,36 @@ fn backwards(n: int) -> int {
 
 	// 1..n sums to n(n+1)/2, computed here so the expectation does not come
 	// from the code under test.
-	for _, n := range []int{1, 2, 3, 10, 64} {
-		got, _ := h.Call("t:c/sum_to", map[string]int{"a0": n})
-		if want := n * (n + 1) / 2; got != want {
-			t.Errorf("sum_to(%d) = %d, want %d", n, got, want)
+	ns := []int{1, 2, 3, 10, 64}
+	sets := make([]map[string]int, len(ns))
+	for i, n := range ns {
+		sets[i] = map[string]int{"a0": n}
+	}
+	sums := h.Calls("t:c/sum_to", sets)
+	for i, n := range ns {
+		if want := n * (n + 1) / 2; sums[i] != want {
+			t.Errorf("sum_to(%d) = %d, want %d", n, sums[i], want)
 		}
 	}
 	// `for i in n..1` walks n up to 1 inclusive, so it is empty only when
 	// n > 1. Counting the iterations each way pins both the empty case and
 	// the inclusive upper bound -- an exclusive bound would be off by one on
 	// every one of these.
-	for _, tc := range []struct{ n, want int }{
+	cases := []struct{ n, want int }{
 		{5, 0},  // 5 > 1: empty range, not one iteration
 		{2, 0},  // 2 > 1: still empty
 		{1, 1},  // 1..1: exactly one
 		{0, 2},  // 0..1
 		{-5, 7}, // -5..1
-	} {
-		got, _ := h.Call("t:c/backwards", map[string]int{"a0": tc.n})
-		if got != tc.want {
-			t.Errorf("backwards(%d) = %d iterations, want %d", tc.n, got, tc.want)
+	}
+	bsets := make([]map[string]int, len(cases))
+	for i, tc := range cases {
+		bsets[i] = map[string]int{"a0": tc.n}
+	}
+	back := h.Calls("t:c/backwards", bsets)
+	for i, tc := range cases {
+		if back[i] != tc.want {
+			t.Errorf("backwards(%d) = %d iterations, want %d", tc.n, back[i], tc.want)
 		}
 	}
 }
@@ -78,10 +88,15 @@ fn sum_to(n: int) -> int {
 		t.Run(level.String(), func(t *testing.T) {
 			files := compile(t, src, level)
 			h := newHarness(t, "t:c", files)
-			for _, n := range []int{1, 4, 9} {
-				got, _ := h.Call("t:c/sum_to", map[string]int{"a0": n})
-				if want := n * (n + 1) / 2; got != want {
-					t.Errorf("sum_to(%d) = %d, want %d", n, got, want)
+			ns := []int{1, 4, 9}
+			sets := make([]map[string]int, len(ns))
+			for i, n := range ns {
+				sets[i] = map[string]int{"a0": n}
+			}
+			sums := h.Calls("t:c/sum_to", sets)
+			for i, n := range ns {
+				if want := n * (n + 1) / 2; sums[i] != want {
+					t.Errorf("sum_to(%d) = %d, want %d", n, sums[i], want)
 				}
 			}
 		})

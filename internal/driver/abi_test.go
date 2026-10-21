@@ -43,11 +43,15 @@ func TestParametersSurviveNestedCall(t *testing.T) {
 		{9, 9, 9},
 		{100, 1, 1},
 	}
-	for _, tc := range cases {
-		got, _ := h.Call("t:p/keep", map[string]int{"a0": tc.a, "a1": tc.b, "a2": tc.c})
+	sets := make([]map[string]int, len(cases))
+	for i, tc := range cases {
+		sets[i] = map[string]int{"a0": tc.a, "a1": tc.b, "a2": tc.c}
+	}
+	got := h.Calls("t:p/keep", sets)
+	for i, tc := range cases {
 		want := r*1000000 + tc.a*10000 + tc.b*100 + tc.c
-		if got != want {
-			t.Errorf("keep(%d, %d, %d) = %d, want %d", tc.a, tc.b, tc.c, got, want)
+		if got[i] != want {
+			t.Errorf("keep(%d, %d, %d) = %d, want %d", tc.a, tc.b, tc.c, got[i], want)
 		}
 	}
 }

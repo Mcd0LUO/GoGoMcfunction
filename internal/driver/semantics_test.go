@@ -33,11 +33,16 @@ fn sqrt(n: int) -> int {
 func TestSqrtMatchesMath(t *testing.T) {
 	files := compile(t, sqrtSrc, optimize.O2)
 	h := newHarness(t, "t:x", files)
-	for _, n := range []int{0, 1, 2, 3, 4, 5, 8, 15, 24, 100, 999, 10000, 40000} {
+	ns := []int{0, 1, 2, 3, 4, 5, 8, 15, 24, 100, 999, 10000, 40000}
+	sets := make([]map[string]int, len(ns))
+	for i, n := range ns {
+		sets[i] = map[string]int{"a0": n}
+	}
+	got := h.Calls("t:x/sqrt", sets)
+	for i, n := range ns {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
-			got, _ := h.Call("t:x/sqrt", map[string]int{"a0": n})
-			if want := isqrt(n); got != want {
-				t.Fatalf("sqrt(%d) = %d, want %d", n, got, want)
+			if want := isqrt(n); got[i] != want {
+				t.Fatalf("sqrt(%d) = %d, want %d", n, got[i], want)
 			}
 		})
 	}
@@ -53,10 +58,15 @@ func TestSqrtAllLevels(t *testing.T) {
 		t.Run(level.String(), func(t *testing.T) {
 			files := compile(t, sqrtSrc, level)
 			h := newHarness(t, "t:x", files)
-			for _, n := range []int{0, 4, 8, 24, 999} {
-				got, _ := h.Call("t:x/sqrt", map[string]int{"a0": n})
-				if want := isqrt(n); got != want {
-					t.Fatalf("sqrt(%d) = %d, want %d", n, got, want)
+			ns := []int{0, 4, 8, 24, 999}
+			sets := make([]map[string]int, len(ns))
+			for i, n := range ns {
+				sets[i] = map[string]int{"a0": n}
+			}
+			got := h.Calls("t:x/sqrt", sets)
+			for i, n := range ns {
+				if want := isqrt(n); got[i] != want {
+					t.Fatalf("sqrt(%d) = %d, want %d", n, got[i], want)
 				}
 			}
 		})

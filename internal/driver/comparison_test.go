@@ -34,12 +34,17 @@ func TestEveryComparisonOperator(t *testing.T) {
 		"ge": func(a, b int) int { return btoi(a >= b) },
 		"gt": func(a, b int) int { return btoi(a > b) },
 	}
+	pairs := [][2]int{{3, 5}, {5, 5}, {7, 5}, {-1, 0}, {0, -1}}
 	for _, op := range []string{"lt", "le", "eq", "ne", "ge", "gt"} {
-		for _, pair := range [][2]int{{3, 5}, {5, 5}, {7, 5}, {-1, 0}, {0, -1}} {
+		sets := make([]map[string]int, len(pairs))
+		for i, p := range pairs {
+			sets[i] = map[string]int{"a0": p[0], "a1": p[1]}
+		}
+		got := h.Calls("t:o/"+op, sets)
+		for i, pair := range pairs {
 			t.Run(fmt.Sprintf("%s/%d,%d", op, pair[0], pair[1]), func(t *testing.T) {
-				got, _ := h.Call("t:o/"+op, map[string]int{"a0": pair[0], "a1": pair[1]})
-				if exp := want[op](pair[0], pair[1]); got != exp {
-					t.Fatalf("%s(%d, %d) = %d, want %d", op, pair[0], pair[1], got, exp)
+				if exp := want[op](pair[0], pair[1]); got[i] != exp {
+					t.Fatalf("%s(%d, %d) = %d, want %d", op, pair[0], pair[1], got[i], exp)
 				}
 			})
 		}
@@ -55,12 +60,19 @@ func TestComparisonOperatorsAtEveryLevel(t *testing.T) {
 		t.Run(level.String(), func(t *testing.T) {
 			files := compile(t, opsSrc, level)
 			h := newHarness(t, "t:o", files)
-			for _, pair := range [][2]int{{3, 5}, {5, 5}, {7, 5}} {
-				if got, _ := h.Call("t:o/ne", map[string]int{"a0": pair[0], "a1": pair[1]}); got != btoi(pair[0] != pair[1]) {
-					t.Fatalf("ne(%d, %d) = %d", pair[0], pair[1], got)
+			pairs := [][2]int{{3, 5}, {5, 5}, {7, 5}}
+			sets := make([]map[string]int, len(pairs))
+			for i, p := range pairs {
+				sets[i] = map[string]int{"a0": p[0], "a1": p[1]}
+			}
+			ne := h.Calls("t:o/ne", sets)
+			eq := h.Calls("t:o/eq", sets)
+			for i, pair := range pairs {
+				if ne[i] != btoi(pair[0] != pair[1]) {
+					t.Fatalf("ne(%d, %d) = %d", pair[0], pair[1], ne[i])
 				}
-				if got, _ := h.Call("t:o/eq", map[string]int{"a0": pair[0], "a1": pair[1]}); got != btoi(pair[0] == pair[1]) {
-					t.Fatalf("eq(%d, %d) = %d", pair[0], pair[1], got)
+				if eq[i] != btoi(pair[0] == pair[1]) {
+					t.Fatalf("eq(%d, %d) = %d", pair[0], pair[1], eq[i])
 				}
 			}
 		})

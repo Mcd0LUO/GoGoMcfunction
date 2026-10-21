@@ -76,11 +76,16 @@ func TestCompoundAssignmentComputes(t *testing.T) {
 	// 7 exercises non-zero quotient and remainder; -7 checks the sign, which
 	// is where "the operator was dropped" and "the operator is inverted"
 	// would look the same on non-negative inputs alone.
-	for _, x := range []int{7, -7, 0, 1, 2, 100, -100} {
-		for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
-			got, _ := h.Call("t:as/"+fn, map[string]int{"a0": x})
-			if want := refCompound(fn, x); got != want {
-				t.Errorf("%s(%d) = %d, want %d", fn, x, got, want)
+	xs := []int{7, -7, 0, 1, 2, 100, -100}
+	for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
+		sets := make([]map[string]int, len(xs))
+		for i, x := range xs {
+			sets[i] = map[string]int{"a0": x}
+		}
+		got := h.Calls("t:as/"+fn, sets)
+		for i, x := range xs {
+			if want := refCompound(fn, x); got[i] != want {
+				t.Errorf("%s(%d) = %d, want %d", fn, x, got[i], want)
 			}
 		}
 	}
@@ -91,11 +96,16 @@ func TestCompoundAssignmentAtEveryLevel(t *testing.T) {
 		t.Run(level.String(), func(t *testing.T) {
 			files := compile(t, compoundSrc, level)
 			h := newHarness(t, "t:as", files)
-			for _, x := range []int{7, -7, 12345} {
-				for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
-					got, _ := h.Call("t:as/"+fn, map[string]int{"a0": x})
-					if want := refCompound(fn, x); got != want {
-						t.Errorf("%s(%d) = %d, want %d", fn, x, got, want)
+			xs := []int{7, -7, 12345}
+			for _, fn := range []string{"add", "sub", "mul", "div", "mod"} {
+				sets := make([]map[string]int, len(xs))
+				for i, x := range xs {
+					sets[i] = map[string]int{"a0": x}
+				}
+				got := h.Calls("t:as/"+fn, sets)
+				for i, x := range xs {
+					if want := refCompound(fn, x); got[i] != want {
+						t.Errorf("%s(%d) = %d, want %d", fn, x, got[i], want)
 					}
 				}
 			}

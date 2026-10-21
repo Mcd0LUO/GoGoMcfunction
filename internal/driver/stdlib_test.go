@@ -81,12 +81,15 @@ fn run() -> int {
 	}, optimize.O2)
 	h := newHarness(t, "t:app", files)
 
-	for _, n := range []int{0, 1, 2, 3, 4, 15, 16, 17, 99, 100, 1000, 9999, 1000000, 2147483647} {
-		n := n
-		want := isqrt(n)
-		got, _ := h.Call("t:app/run", map[string]int{"a0": n})
-		if got != want {
-			t.Errorf("sqrt(%d) = %d, want %d", n, got, want)
+	ns := []int{0, 1, 2, 3, 4, 15, 16, 17, 99, 100, 1000, 9999, 1000000, 2147483647}
+	sets := make([]map[string]int, len(ns))
+	for i, n := range ns {
+		sets[i] = map[string]int{"a0": n}
+	}
+	got := h.Calls("t:app/run", sets)
+	for i, n := range ns {
+		if want := isqrt(n); got[i] != want {
+			t.Errorf("sqrt(%d) = %d, want %d", n, got[i], want)
 		}
 	}
 }
@@ -148,10 +151,15 @@ func TestExampleSqrtOnRealRuntime(t *testing.T) {
 			// 0 exercises the case the old guard returned 1 for; 99 the one
 			// the oscillating test settled on 10 for; MaxInt32 the one the
 			// (x+1)/2 seed wrapped on.
-			for _, n := range []int{0, 1, 2, 3, 4, 8, 15, 16, 99, 100, 999, 10000, 46339, 46340, 2147483647} {
-				got, _ := h.Call("luo:math/sqrt", map[string]int{"a0": n})
-				if want := isqrt(n); got != want {
-					t.Errorf("sqrt(%d) = %d, want %d", n, got, want)
+			ns := []int{0, 1, 2, 3, 4, 8, 15, 16, 99, 100, 999, 10000, 46339, 46340, 2147483647}
+			sets := make([]map[string]int, len(ns))
+			for i, n := range ns {
+				sets[i] = map[string]int{"a0": n}
+			}
+			got := h.Calls("luo:math/sqrt", sets)
+			for i, n := range ns {
+				if want := isqrt(n); got[i] != want {
+					t.Errorf("sqrt(%d) = %d, want %d", n, got[i], want)
 				}
 			}
 		})

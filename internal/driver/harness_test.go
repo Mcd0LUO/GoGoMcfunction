@@ -53,6 +53,50 @@ func newHarness(t *testing.T, ns string, files map[string]string) *harness {
 	return &harness{t: t, world: w, ns: ns, tag: markerTag}
 }
 
+// Calls runs one function once per argument set, in ONE runtime process.
+//
+// The runtime is a subprocess: each World.Run spawns it, and a spawn costs
+// about 55ms regardless of how much work it does. Calling Call in a loop over
+// eleven seeds therefore spent 600ms on process starts, which was most of the
+// package's five-second test time.
+//
+// The calls are independent -- each gets a fresh entity and its own result
+// holder -- so they can share a process without sharing state. A test that
+// needs the SEQUENCE to matter should use CallSeq instead.
+func (h *harness) Calls(fn string, argSets []map[string]int) []int {
+	h.t.Helper()
+	setup := []string{
+		"function " + h.ns + "/init",
+	}
+	var run []string
+	for i, args := range argSets {
+		// One entity per call, so a leftover score cannot be mistaken for a
+		// result this call produced.
+		run = append(run, "kill @e[tag="+h.tag+"]")
+		run = append(run, "summon armor_stand 0 0 0 {Marker:1b}")
+		run = append(run, "scoreboard players tag @e[type=armor_stand] add "+h.tag)
+		for _, k := range sortedKeys(args) {
+			run = append(run, fmt.Sprintf("scoreboard players set @e[tag=%s] %s %d", h.tag, k, args[k]))
+		}
+		run = append(run, fmt.Sprintf("execute @e[tag=%s] ~ ~ ~ function %s", h.tag, fn))
+		run = append(run, fmt.Sprintf("scoreboard players operation R%d return = @e[tag=%s] return", i, h.tag))
+	}
+	st, err := h.world.Run(setup, run)
+	if err != nil {
+		h.t.Fatalf("run %s: %v", fn, err)
+	}
+	out := make([]int, len(argSets))
+	for i := range argSets {
+		holder := fmt.Sprintf("R%d", i)
+		if !st.Has("return", holder) {
+			h.t.Fatalf("call %d of %s produced no result\nstate: %v\nerrors: %v",
+				i, fn, st.Keys(), st.Errors)
+		}
+		out[i] = st.Get("return", holder)
+	}
+	return out
+}
+
 // Call runs one function with @s bound to a fresh entity and reads back
 // what it left in the `return` objective.
 //
