@@ -64,6 +64,39 @@ if x == 3 { y = 3 }
 实测：`rpg/projectile/player/cycle` 从 16 文件 46 行降到 **3 文件 26 行**
 （数据包 1 文件 21 行）。
 
+
+### 修掉嵌套 `if` 的答案反转
+
+**这是移植实测里最严重的 bug：不崩溃、不报错、答案相反。**
+
+```ggm
+if a >= 1 {
+    if a == 1 { b = c }
+}
+```
+
+两个条件都编译到同一个临时量 `t0`，内联后变成：
+
+```mcfunction
+guarded [t0 >= 0] copy t0 = a
+guarded [t0 >= 0] arith t0 -= 1
+guarded [t0 >= 0] guarded [t0 == 0] copy b = c
+```
+
+第一条 guard 用外层的值通过，然后把 `t0` 覆盖成内层的值。后面的 op 声称受外层
+guard 保护，实际测的是内层。运行时 `a = 0` 进了分支、`a = 1` 没进——**完全反了**。
+
+修法：内联前检查臂是否写入条件读的 objective。写了就不内联。改名也能解决，
+但那需要活跃区间分析，这个 pass 不做。
+
+实测验证：a=0 → b 不变，a=1 → b=7，a=2 → b 不变。
+
+### 修掉 `Guarded` 里的 objective 不声明
+
+`usedObjectives` 里有 `case ir.Guarded: // handled below by recursion`——**没有那个递归**。
+只出现在 guarded op 里的 objective 从不声明，1.12.2 静默丢弃写它的命令。
+
+注释描述的是意图，代码没实现。现在真的递归了。
 ### `matches` 的容器不再限于三个
 
 `@s.ActiveEffects matches n"{Id:12b}"` 之前报「expected a quoted objective name」——

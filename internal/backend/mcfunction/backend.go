@@ -365,6 +365,17 @@ func renderOp(t target.Target, op ir.Op) []mc.Command {
 		return []mc.Command{mc.ScoreboardOp{Target: o.Dst.Holder, Objective: o.Dst.Obj, Op: o.Op, Source: o.Src.Holder, SrcObj: o.Src.Obj}}
 	case ir.Guarded:
 		inner := renderOp(t, o.Inner)
+		// An existence test cannot be a guarded op.
+		//
+		// `execute <sel> ~ ~ ~ <cmd>` is a fan-out: it runs the command once
+		// per matching entity, while an existence test must run it at most
+		// once. Only `function F if <sel>` has that meaning, and an inlined
+		// op is not a function. The optimiser refuses to inline such an arm,
+		// so reaching here is a bug in that refusal -- and emitting nothing
+		// would silently delete the command.
+		if o.Cond.Exist != nil || o.Cond.Block != nil {
+			panic("ir.Guarded with an existence or block probe reached the back end; inlineLeafArms must keep such an arm a Branch")
+		}
 		var out []mc.Command
 		for _, alt := range o.Cond.Alts {
 			sel := selectorFor(t, alt)
@@ -555,6 +566,11 @@ func collectCalls(c mc.Command, out map[string]bool) {
 // usedObjectives returns every objective the program touches, sorted.
 //
 // The constant objective is excluded: it is declared alongside the pool.
+//
+// Every op is scanned RECURSIVELY. A Guarded holds another op, and skipping
+// it left the guarded op's objectives undeclared -- 1.12.2 then discards the
+// command that writes them, with no error. `if a >= 1 { if a == 1 { b = c } }`
+// lost the declarations for both b and c this way.
 func usedObjectives(prog *ir.Program) []string {
 	seen := map[string]bool{}
 	note := func(l ir.Loc) {
@@ -566,33 +582,7 @@ func usedObjectives(prog *ir.Program) []string {
 	for _, fn := range prog.Funcs {
 		for _, blk := range fn.Blocks {
 			for _, op := range blk.Ops {
-				switch o := op.(type) {
-				case ir.Set:
-					note(o.Dst)
-				case ir.Copy:
-					note(o.Dst)
-					note(o.Src)
-				case ir.Arith:
-					note(o.Dst)
-					note(o.Src)
-				case ir.Add:
-					note(o.Dst)
-				case ir.Remove:
-					note(o.Dst)
-				case ir.Guarded:
-					// handled below by recursion
-				case ir.Raw:
-					// Broadcast writes and codec commands are Raw text, so their
-					// objectives are invisible to the Loc scan above. Missing
-					// them left `@e[tag=x] temp1 = key math` writing an
-					// objective that was never declared -- silently discarded,
-					// exactly the failure obj exists to prevent.
-					for _, obj := range objectivesInRaw(o.Text) {
-						if obj != ir.ConstObjective {
-							seen[obj] = true
-						}
-					}
-				}
+				noteOpObjectives(op, note)
 			}
 			for _, c := range termConds(blk.Term) {
 				seen[c] = true
@@ -605,6 +595,39 @@ func usedObjectives(prog *ir.Program) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// noteOpObjectives records every objective an op reads or writes, recursing
+// through Guarded.
+func noteOpObjectives(op ir.Op, note func(ir.Loc)) {
+	switch o := op.(type) {
+	case ir.Set:
+		note(o.Dst)
+	case ir.Copy:
+		note(o.Dst)
+		note(o.Src)
+	case ir.Arith:
+		note(o.Dst)
+		note(o.Src)
+	case ir.Add:
+		note(o.Dst)
+	case ir.Remove:
+		note(o.Dst)
+	case ir.Guarded:
+		noteOpObjectives(o.Inner, note)
+	case ir.Raw:
+		// Broadcast writes and codec commands are Raw text, so their
+		// objectives are invisible to a Loc scan. Missing them left
+		// `@e[tag=x] temp1 = key math` writing an objective that was never
+		// declared -- silently discarded, exactly the failure obj exists to
+		// prevent.
+		for _, l := range o.Writes {
+			note(l)
+		}
+		for _, l := range o.Reads {
+			note(l)
+		}
+	}
 }
 
 // objectivesInRaw finds the objective names in a rendered command.

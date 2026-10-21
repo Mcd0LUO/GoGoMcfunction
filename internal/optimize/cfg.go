@@ -1,6 +1,9 @@
 package optimize
 
-import "github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+import (
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
+)
 
 // ── CFG shape optimisation ──────────────────────────────────────────────
 //
@@ -249,6 +252,30 @@ func inlineLeafArms(fn *ir.Function) bool {
 				continue
 			}
 			if !canInline(target.Ops) {
+				continue
+			}
+			// The arm must not write anything the guard reads.
+			//
+			// A guard is re-evaluated for EVERY op it protects, so an op that
+			// writes one of the condition's objectives changes the condition
+			// for the ops after it. The reference case:
+			//
+			//     if a >= 1 { if a == 1 { b = c } }
+			//
+			// both conditions compile to t0, and inlining produced
+			//
+			//     guarded [t0 >= 0] copy t0 = a
+			//     guarded [t0 >= 0] arith t0 -= 1
+			//     guarded [t0 >= 0] guarded [t0 == 0] copy b = c
+			//
+			// The first guard runs with the outer value, then overwrites t0;
+			// the rest run with the inner one. At runtime that gave b = 7 when
+			// a was 0 (the outer condition was false) and b unchanged when a
+			// was 1 (the outer was true) -- the answer was inverted.
+			//
+			// Keeping the arm as a block is always correct; a rename would
+			// also work but needs a live-range analysis this pass does not do.
+			if writesAnyOf(target.Ops, condObjectives(br.Cond)) {
 				continue
 			}
 			cond := br.Cond
@@ -520,6 +547,31 @@ func threadEmptyJumps(fn *ir.Function) bool {
 	return changed
 }
 
+// condObjectives lists the objectives a predicate reads.
+func condObjectives(p ir.Predicate) map[string]bool {
+	out := map[string]bool{}
+	for _, alt := range p.Alts {
+		for _, c := range alt {
+			out[c.Obj] = true
+		}
+	}
+	return out
+}
+
+// writesAnyOf reports whether any op writes one of the named objectives.
+func writesAnyOf(ops []ir.Op, objs map[string]bool) bool {
+	if len(objs) == 0 {
+		return false
+	}
+	for _, op := range ops {
+		for _, l := range analysis.Defs(op) {
+			if objs[l.Obj] {
+				return true
+			}
+		}
+	}
+	return false
+}
 func blockByID(fn *ir.Function, id ir.BlockID) *ir.Block {
 	for _, b := range fn.Blocks {
 		if b.ID == id {

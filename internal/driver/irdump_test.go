@@ -62,7 +62,11 @@ func TestIndependentIfsCollapse(t *testing.T) {
 	for _, b := range files {
 		total += strings.Count(b, "\n")
 	}
-	if total > 16 {
+	// 2 lines to build the condition and 1 to act on it, per if, plus the
+	// constant pool. The data pack writes each as a single
+	// `execute … if …`, which 1.12.2 allows only for a function call, so three
+	// lines per if is the floor for a body that is not a whole function.
+	if total > 18 {
 		t.Fatalf("3 independent ifs produced %d lines", total)
 	}
 	// And no block may be called twice for one condition.
