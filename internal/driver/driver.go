@@ -210,9 +210,12 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 			// silently drop every constant in the program.
 			id := strings.ToLower(file.Namespace + "/comptime")
 			if what, taken := res.FuncIDs[id]; taken {
-				pos := diag.Pos{}
+				// Name the file either way. The position is the first comptime
+				// block when there is one, and the file alone otherwise -- a
+				// bare `-:` would not say which file took the name.
+				pos := diag.Pos{File: srcs[i].Name}
 				if len(file.Comptime) > 0 {
-					pos = diag.Pos{Line: file.Comptime[0].P.Line, Col: file.Comptime[0].P.Col}
+					pos = diag.Pos{File: srcs[i].Name, Line: file.Comptime[0].P.Line, Col: file.Comptime[0].P.Col}
 				}
 				bag.Error(pos, "E_FN_RESERVED",
 					"the compiler-generated constant pool needs the name %q, which %s already uses", id, what)

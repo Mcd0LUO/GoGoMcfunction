@@ -26,16 +26,28 @@ func (s Severity) String() string {
 }
 
 // Pos is a 1-based source position.
+//
+// File is optional. A diagnostic about a whole file -- "this file has no
+// namespace" -- has no line to point at, and without the name it printed as
+// `-:`, which does not say WHICH file. Phases that know the file name set it;
+// the front end does not, because it is handed text rather than a path.
 type Pos struct {
+	File string
 	Line int
 	Col  int
 }
 
 func (p Pos) String() string {
-	if p.Line == 0 {
+	switch {
+	case p.Line == 0 && p.File == "":
 		return "-"
+	case p.Line == 0:
+		return p.File
+	case p.File == "":
+		return fmt.Sprintf("%d:%d", p.Line, p.Col)
+	default:
+		return fmt.Sprintf("%s:%d:%d", p.File, p.Line, p.Col)
 	}
-	return fmt.Sprintf("%d:%d", p.Line, p.Col)
 }
 
 // Diagnostic is a single compiler message.

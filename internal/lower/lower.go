@@ -160,18 +160,16 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 		// blames the compiler for the author's mistake. It also meant `boot`
 		// could never resolve `init`, so no objective was declared and every
 		// scoreboard write was silently discarded.
-		// The file name goes IN the message, as E_PARSE does it.
-		//
-		// diag.Pos carries only line and column, so a diagnostic raised with
-		// the zero Pos prints as `-:` -- and this one is about the whole
-		// file, so it has no line to name. Without the name the author cannot
-		// tell which of several files is missing its namespace.
-		bag.Error(diag.Pos{}, "E_NO_NAMESPACE",
-			"%s: namespace %q has no domain: write `namespace <domain>:%s`, because 1.12.2 function ids are always domain-qualified",
-			source, f.Namespace, f.Namespace)
+		// Pos carries the file name because this is a statement about the
+		// WHOLE file: there is no line to point at, and without the name the
+		// diagnostic printed as `-:` and did not say which of several files
+		// was missing its namespace.
+		bag.Error(diag.Pos{File: source}, "E_NO_NAMESPACE",
+			"namespace %q has no domain: write `namespace <domain>:%s`, because 1.12.2 function ids are always domain-qualified",
+			f.Namespace, f.Namespace)
 	}
 	if f.Namespace == "" {
-		bag.Error(diag.Pos{}, "E_NO_NAMESPACE", "%s: file has no `namespace` declaration", source)
+		bag.Error(diag.Pos{File: source}, "E_NO_NAMESPACE", "file has no `namespace` declaration")
 	}
 	l.prog = ir.NewProgram(f.Namespace)
 	l.funcIDs = map[string]claimed{}
