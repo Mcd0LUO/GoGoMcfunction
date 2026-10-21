@@ -16,6 +16,58 @@
 
 ---
 
+## [0.20.0] - 2026-10-21
+
+### 补齐命令：20 条，一张表
+
+上一版加了 5 条命令，每条一个 `case`。这一版补到 20 条，并把它们收进一张表：
+
+```go
+var commandBuiltins = map[string]commandSpec{
+    "give":         {verb: "give", targetAt: 0, minArgs: 2},
+    "playsound":    {verb: "playsound", targetAt: 2, minArgs: 3},
+    "replaceitem":  {verb: "replaceitem", targetAt: 1, minArgs: 3},
+    ...
+}
+```
+
+表里只有三列：动词、**哪个参数是选择器**、最少参数个数。这些命令是同一个形状
+——`<动词> <参数...>`——而编译器唯一需要知道的结构就是选择器在哪。
+
+新增的 15 条：`give` `clear` `replaceitem` `spreadplayers` `spawnpoint`
+`particle` `tellraw` `title` `playsound` `advancement` `trigger` `stats`
+`tag_add` `tag_remove` `say`。加上原有的 `summon` `entitydata` `effect`
+`tp` `kill` `cmd`，覆盖了参考数据包里 1964 个函数用到的绝大部分命令。
+
+### 参数位置照实际写法核对，不是照命令手册
+
+这一步连错了三次，每次都生成一条看着合理、1.12.2 却会在运行期拒掉的命令：
+
+| 命令 | 猜的 | 实际 |
+|---|---|---|
+| `playsound` | 选择器第 0 位 | 第 2 位（**最后**） |
+| `replaceitem` | 选择器第 0 位 | 第 1 位（`entity` 之后） |
+| `advancement` | 选择器第 0 位 | 第 1 位（动作词之后） |
+
+改法是照着参考数据包的实际用法核对，而不是照着命令名猜。这也是为什么现在
+每一条都有一条断言**整行输出**的测试——只断言前缀的话，这三种错误全都通不过
+眼。
+
+### `stats` 不进表
+
+它是唯一把同一个选择器写两遍的命令：
+
+```mcfunction
+stats entity @s set SuccessCount @s tmp
+```
+
+一次是「绑定谁的数据」，一次是「写进谁的分数」。塞进表里需要一条「重复这个
+参数」的规则，那比一条命令该有的分量更重，所以单独处理。
+
+### 仍不支持
+
+世界编辑类命令（`setblock` `fill` `clone` `blockdata`）没有内置。数据包驱动
+的是实体和分数——1964 个真实函数里没有一条写方块。要发它们用 `cmd`。
 ## [0.19.0] - 2026-10-21
 
 ### 破坏性：`emit` 改名 `score`，`emit_line` 改名 `cmd`

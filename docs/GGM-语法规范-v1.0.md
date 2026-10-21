@@ -638,8 +638,30 @@ no-op 比缺功能更糟。**
 | `effect(target, effect, seconds, [amp], [hide])` | `effect <target> <...>` |
 | `tp(target, x, y, z)` | `tp <target> <x> <y> <z>` |
 | `kill(target)` | `kill <target>` |
+| `give(target, item, [count], [data], [nbt])` | `give <target> <...>` |
+| `clear(target, [item], [data], [count], [nbt])` | `clear <target> <...>` |
+| `replaceitem("entity", target, slot, item, [nbt])` | `replaceitem entity <target> ...` |
+| `spreadplayers(x, z, spread, range, team, target)` | `spreadplayers <...>` |
+| `spawnpoint(target, x, y, z)` | `spawnpoint <target> <x> <y> <z>` |
+| `particle(name, x, y, z, dx, dy, dz, speed, count)` | `particle <...>` |
+| `tellraw(target, n"...")` | `tellraw <target> <json>` |
+| `title(target, "title\|subtitle\|actionbar", n"...")` | `title <target> <...>` |
+| `playsound(sound, source, target)` | `playsound <sound> <source> <target>` |
+| `advancement("grant\|revoke", target, "only\|through\|from\|until", id)` | `advancement <...>` |
+| `trigger(objective, "set\|add\|remove", value)` | `trigger <objective> <...>` |
+| `stats(target, "set\|clear", stat, objective)` | `stats entity <target> <...> <target> <obj>` |
+| `tag_add(target, tag)` / `tag_remove(target, tag)` | `scoreboard players tag <target> add\|remove <tag>` |
 | `say(text)` | `say <text>` |
 | `cmd(text)` | `<text>`，原样 |
+
+这些命令没有各自的分支。它们共用一张表，表里只有三列：动词、**哪个参数是
+选择器**、最少参数个数。因为它们是同一个形状——`<动词> <参数...>`——而编译器
+唯一需要知道的结构就是选择器在哪。
+
+> 参数位置是照着参考数据包的实际写法核对的，不是照着命令手册。两者会不一样：
+> `playsound` 的选择器在**最后**，`replaceitem` 的在 `entity` 这个词之后，
+> `advancement` 的在动作词之后。照名字猜连错了三次，每次都生成一条看着合理、
+> 1.12.2 却会在运行期拒掉的命令。
 
 #### 参数只能是字面量
 

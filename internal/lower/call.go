@@ -8,138 +8,110 @@ import (
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 )
 
+// commandSpec describes one builtin that emits a whole command.
+//
+// The commands in this table are not special: each is a verb followed by
+// arguments, and every argument is command text. What the compiler has to know
+// is only two things -- the verb, and WHICH argument is a selector.
+//
+// Writing twenty `case` arms that differ only in a verb was the alternative,
+// and it is the shape this file already had for kill/tp/say. Each new command
+// would have been a branch to add, test and get subtly wrong. A table makes a
+// new command one line, and makes it obvious that none of them does anything
+// clever.
+//
+// targetAt is the argument index that must be a selector (or self), or -1 when
+// the command takes no target. A selector is the only argument with structure:
+// it is validated against the version's argument whitelist, and it is the only
+// thing an author writes that the compiler can check.
+type commandSpec struct {
+	verb     string
+	targetAt int
+	// minArgs is the number of arguments the command needs, so that a call
+	// missing its verb's operands is reported here rather than becoming a
+	// command 1.12.2 will reject at run time.
+	minArgs int
+}
+
+// commandBuiltins is the whole table.
+//
+// It covers the commands the reference data pack actually uses, in the
+// proportions it uses them: `particle` (839) and `tellraw` (333) dwarf
+// `advancement` (26). The ones left out are the world-editing commands
+// (setblock, fill, clone, blockdata) -- a data pack drives entities and
+// scores, and nothing in 1964 functions of real code writes a block.
+// The argument positions below were checked against the reference data pack's
+// own usage rather than against the command reference, because that is where
+// they differ: `playsound` puts the selector LAST, `replaceitem` puts it
+// after the word `entity`, and `advancement` puts an action word in front of
+// it. Guessing from the command name gave three wrong tables in a row.
+var commandBuiltins = map[string]commandSpec{
+	// entity and item
+	"summon":        {verb: "summon", targetAt: -1, minArgs: 1},
+	"entitydata":    {verb: "entitydata", targetAt: 0, minArgs: 2},
+	"effect":        {verb: "effect", targetAt: 0, minArgs: 3},
+	"tp":            {verb: "tp", targetAt: 0, minArgs: 4},
+	"kill":          {verb: "kill", targetAt: 0, minArgs: 1},
+	"give":          {verb: "give", targetAt: 0, minArgs: 2},
+	"clear":         {verb: "clear", targetAt: 0, minArgs: 1},
+	"replaceitem":   {verb: "replaceitem", targetAt: 1, minArgs: 3},
+	"spreadplayers": {verb: "spreadplayers", targetAt: 5, minArgs: 6},
+	"spawnpoint":    {verb: "spawnpoint", targetAt: 0, minArgs: 2},
+
+	// presentation
+	"particle":  {verb: "particle", targetAt: -1, minArgs: 1},
+	"tellraw":   {verb: "tellraw", targetAt: 0, minArgs: 2},
+	"title":     {verb: "title", targetAt: 0, minArgs: 2},
+	"playsound": {verb: "playsound", targetAt: 2, minArgs: 3},
+	"say":       {verb: "say", targetAt: -1, minArgs: 1},
+
+	// progress and score-adjacent
+	"advancement": {verb: "advancement", targetAt: 1, minArgs: 3},
+	"trigger":     {verb: "trigger", targetAt: -1, minArgs: 1},
+	"tag_add":     {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
+	"tag_remove":  {verb: "scoreboard players tag", targetAt: 0, minArgs: 2},
+}
+
 func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, s syntax.ExprStmt) {
 	call, ok := s.X.(syntax.Call)
 	if !ok {
 		l.diags.Error(posOf(s.P), "E_STMT", "expression statement must be a call")
 		return
 	}
-	switch call.Name {
-	case "tag_add", "tag_remove":
-		// Two things were wrong here. 1.12.2 has no bare tag command --
-		// that arrived in 1.13 -- and an unknown command makes the WHOLE
-		// function file fail to load, so the short spelling silently
-		// disabled every other command in the same file. And the target
-		// was hard-coded to @s while the tag was read from argument 1, so
-		// tag_add(@a, "x") dropped its selector and tag_add("x") read an
-		// argument that does not exist.
-		verb := "add"
-		if call.Name == "tag_remove" {
-			verb = "remove"
-		}
-		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("scoreboard players tag %s %s %s",
-			l.targetArg(call, 0), verb, l.rawString(call, 1))})
-		return
-	case "kill":
-		fb.Emit(block, ir.Raw{Text: "kill " + l.targetArg(call, 0)})
-		return
-	case "tp":
-		// tp(<target>, <x>, <y>, <z>) -- the coordinates are command text.
-		//
-		//	tp(self, "~-2.5", "~", "~")   relative, three offsets from here
-		//	tp(self, "100", "64", "-20")  absolute, to that block
-		//
-		// The author writes the `~` themselves. The old form added it for them
-		// and therefore could ONLY express a relative move, which is why an
-		// absolute teleport was impossible to write. Making the tilde visible
-		// costs one character per axis and makes both forms say what they mean;
-		// it is also exactly how 1.12.2 itself distinguishes them, so there is
-		// no translation left to get wrong.
-		//
-		// Decimal offsets stay strings because GGM has no float type, and a
-		// coordinate is the one place a non-integer legitimately appears.
+	// stats is the one command that does not fit the table: it names the same
+	// selector twice, once as the entity whose statistic is bound and once as
+	// the score that receives it.
+	//
+	//	stats entity @s set SuccessCount @s temp4
+	//
+	// Folding it into the table would need a "repeat this argument" rule,
+	// which is a bigger idea than one command deserves.
+	if call.Name == "stats" {
 		if len(call.Args) != 4 {
-			l.diags.Error(posOf(call.P), "E_ARG", "tp needs (target, x, y, z)")
-			return
-		}
-		coords, ok := l.positionalArgs(call, 1)
-		if !ok {
-			return
-		}
-		fb.Emit(block, ir.Raw{Text: "tp " + l.targetArg(call, 0) + " " + coords})
-		return
-	case "stats":
-		// stats(<target>, "<stat>", <objective holder name>) binds a command's
-		// result count to a score. 1.12.2 writes the count AFTER the command
-		// runs, so the score must be read on the next command -- that is what
-		// makes the coordinate probe's binary search work.
-		if len(call.Args) != 3 {
-			l.diags.Error(posOf(call.P), "E_ARG", "stats needs (target, \"stat\", objective)")
-			return
-		}
-		obj, ok := call.Args[2].(syntax.Ident)
-		if !ok {
-			l.diags.Error(posOf(call.P), "E_ARG", "stats needs an objective name as argument 3")
+			l.diags.Error(posOf(call.P), "E_ARG", "stats needs (target, \"set|clear\", stat, objective)")
 			return
 		}
 		target := l.targetArg(call, 0)
-		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s set %s %s %s",
-			target, l.rawString(call, 1), target, obj.Name)})
+		verb := l.rawString(call, 1)
+		stat := l.rawString(call, 2)
+		obj := l.rawString(call, 3)
+		fb.Emit(block, ir.Raw{Text: fmt.Sprintf("stats entity %s %s %s %s %s",
+			target, verb, stat, target, obj)})
 		return
-	case "summon":
-		// summon(<type>, [nbt], [x, y, z])
-		//
-		// This is the missing half of `class`. A class says "an instance is an
-		// entity carrying this tag", but until now nothing in the language could
-		// create one, so the only way to get the first instance was a command
-		// block outside the program.
-		//
-		// The position is optional because `summon armor_stand ~ ~ ~` is by far
-		// the common case and writing three tildes for it is noise. When it is
-		// omitted the command gets no position at all, which 1.12.2 reads as
-		// the executor's own -- the same thing, spelled once.
-		typ, ok := l.rawArg(call, 0)
-		if !ok {
-			return
-		}
-		// Everything after the type is one optional tail. Separating "the NBT
-		// payload" from "the position" would need a type test to tell an
-		// n"..." from a coordinate, and both are just command text:
-		//
-		//	summon("pig")
-		//	summon("armor_stand", n"{Tags:[\"x\"]}")
-		//	summon("armor_stand", n"{Tags:[\"x\"]}", "~", "~", "~")
-		//
-		// A trailing space is not cosmetic: 1.12.2 splits on whitespace so
-		// `summon pig ` is the same command, but it is not the same text, and
-		// the golden files are compared byte for byte.
-		text := "summon " + typ
-		if tail, ok := l.positionalArgs(call, 1); ok && tail != "" {
-			text += " " + tail
-		}
-		fb.Emit(block, ir.Raw{Text: text})
+	}
+	// Every command builtin goes through one table. Only two things differ
+	// between them: the verb, and which argument is a selector.
+	if spec, ok := commandBuiltins[call.Name]; ok {
+		l.emitCommand(ctx, fb, block, call, spec)
 		return
-	case "entitydata":
-		// entitydata(<target>, n"...")
-		//
-		// The write side of the NBT codec. `encode` already emits this command,
-		// but only for a declared `nbt` field; a raw payload had no route out.
-		target := l.targetArg(call, 0)
-		payload, ok := l.rawArg(call, 1)
-		if !ok {
-			return
-		}
-		fb.Emit(block, ir.Raw{Text: "entitydata " + target + " " + payload})
-		return
-	case "effect":
-		// effect(<target>, <effect>, <seconds>, [amplifier], [hideParticles])
-		//
-		// The reference data pack writes `effect @a resistance 10 10 true`, so
-		// the tail is positional text rather than a typed signature.
-		target := l.targetArg(call, 0)
-		tail, ok := l.positionalArgs(call, 1)
-		if !ok {
-			return
-		}
-		fb.Emit(block, ir.Raw{Text: "effect " + target + " " + tail})
-		return
-	case "cmd":
+	}
+	if call.Name == "cmd" {
 		// cmd("<verb and args>") -- one command, verbatim.
 		//
-		// This is the escape hatch, and it is deliberately spelled the same as
-		// the comptime builtin of the same name so that "emit an arbitrary
-		// command" has ONE name in the language. At compile time the text is
-		// assembled from constants; here it is a literal typed into the source.
+		// The escape hatch, deliberately spelled the same as the comptime
+		// builtin of the same name so that "emit an arbitrary command" has ONE
+		// name in the language. At compile time the text is assembled from
+		// constants; here it is a literal typed into the source.
 		//
 		// It bypasses the builtin table but NOT the validator: the rendered
 		// line still goes through mcfunction.Validate, so a selector argument
@@ -150,9 +122,6 @@ func (l *Lowerer) lowerCallStmt(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID
 			return
 		}
 		fb.Emit(block, ir.Raw{Text: text})
-		return
-	case "say":
-		fb.Emit(block, ir.Raw{Text: "say " + l.rawString(call, 0)})
 		return
 	}
 	if xd, ok := l.externs[call.Name]; ok {
@@ -552,6 +521,43 @@ func (l *Lowerer) builtin(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c sy
 		return ir.Loc{}, true
 	}
 	return ir.Loc{}, false
+}
+
+// emitCommand renders one table-driven command.
+//
+// The whole body is: put the verb first, then walk the arguments, reading the
+// one at targetAt as a selector and every other one as literal text.
+//
+// Selectors are read separately because they are the only argument with
+// structure -- and the only one the compiler can check. Everything else is
+// command text, and text has to be a literal: 1.12.2 builds a command from a
+// string and nothing can splice a runtime value into one.
+func (l *Lowerer) emitCommand(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syntax.Call, spec commandSpec) {
+	if len(c.Args) < spec.minArgs {
+		l.diags.Error(posOf(c.P), "E_ARG", "%s needs at least %d argument(s), got %d",
+			c.Name, spec.minArgs, len(c.Args))
+		return
+	}
+	// tag_add / tag_remove share one verb and differ in the word after the
+	// selector, so the word is appended right after the target.
+	parts := []string{spec.verb}
+	for i := range c.Args {
+		if i == spec.targetAt {
+			parts = append(parts, l.targetArg(c, i))
+			if c.Name == "tag_add" {
+				parts = append(parts, "add")
+			} else if c.Name == "tag_remove" {
+				parts = append(parts, "remove")
+			}
+			continue
+		}
+		text, ok := l.rawArg(c, i)
+		if !ok {
+			return
+		}
+		parts = append(parts, text)
+	}
+	fb.Emit(block, ir.Raw{Text: strings.Join(parts, " ")})
 }
 
 // rawArg reads an argument that becomes literal command text.
