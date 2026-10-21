@@ -114,13 +114,18 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 	for _, s := range srcs {
 		file, err := syntax.Parse(s.Text)
 		if err != nil {
-			// A syntax error already carries its position; repeating the
-			// filename around it would print the location twice.
+			// The file name belongs in Pos.File, not in the message.
+			//
+			// It used to be prefixed into the text, because Pos had no file
+			// field and the CLI printed "4:17: error: x.ggm: ...". That made
+			// the message carry a location the renderer did not know about,
+			// so a consumer that had its own idea of the file -- an editor
+			// showing a squiggle -- saw the name twice or not at all.
 			var se *syntax.Error
 			if errors.As(err, &se) {
-				bag.Error(diag.Pos{Line: se.Pos.Line, Col: se.Pos.Col}, "E_PARSE", "%s: %s", s.Name, se.Msg)
+				bag.Error(diag.Pos{File: s.Name, Line: se.Pos.Line, Col: se.Pos.Col}, "E_PARSE", "%s", se.Msg)
 			} else {
-				bag.Error(diag.Pos{}, "E_PARSE", "%s: %v", s.Name, err)
+				bag.Error(diag.Pos{File: s.Name}, "E_PARSE", "%v", err)
 			}
 			return nil, bag.Sorted()
 		}
