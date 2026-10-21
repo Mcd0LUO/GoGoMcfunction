@@ -427,6 +427,71 @@ func interferenceRename(fn *ir.Function, base int) (map[string]string, int) {
 		}
 	}
 
+	// When BOTH arms stay separate blocks, neither may write the slot the
+	// branch condition is tested on.
+	//
+	// renderBranch emits the two arms as two guarded calls, and it emits the
+	// ELSE call first -- the `unless` has to run before the condition can be
+	// disturbed. Both calls name the same condition slot. So the else arm's
+	// body runs while the then call's selector has not been evaluated yet:
+	//
+	//	copy t0 = a; t0 -= 1
+	//	function f$b2 unless @s[score_t0_min=0]   <- else arm runs, writes t0
+	//	function f$b1 if @s[score_t0_min=0]       <- tests the NEW t0
+	//
+	// Measured on the engine, `if a >= 1 { r = helper(a) } else { r = helper(a + 1) }`
+	// gave r = 2 at -O0 and r = 0 at -O2 for a = 0: the else arm computed 2,
+	// then the then call fired as well and overwrote it with helper(0) = 0.
+	//
+	// The premise is that both arms stay separate. When an arm CAN be
+	// inlined, its ops move inside the guard and run after the condition was
+	// consumed, which is why `if A == 1 { if A == 5 { X = 1 } } else { Y = 2 }`
+	// is correct even though its then arm writes the outer condition's slot.
+	// Requiring the slots to differ unconditionally would forbid that shape
+	// and grow the output of every nested if, which is what an earlier
+	// attempt at this fix did.
+	//
+	// Liveness does not see the conflict either way: the condition is
+	// live-in to the block and the arm's temporary is defined inside it.
+	// The constraint comes from the RENDERING ORDER of the two edges.
+	for _, b := range fn.Blocks {
+		br, ok := b.Term.(ir.Branch)
+		if !ok {
+			continue
+		}
+		thenArm := blockByID(fn, br.Then)
+		elseArm := blockByID(fn, br.Else)
+		if thenArm == nil || elseArm == nil {
+			continue
+		}
+		if thenArm.ID == b.ID || elseArm.ID == b.ID || thenArm.ID == elseArm.ID {
+			continue
+		}
+		if canInline(thenArm.Ops) || canInline(elseArm.Ops) {
+			// At least one arm folds into the guard; the condition is
+			// consumed before that arm's writes can matter.
+			continue
+		}
+		condObjs := condObjectives(br.Cond)
+		if len(condObjs) == 0 {
+			continue
+		}
+		for _, arm := range []*ir.Block{thenArm, elseArm} {
+			for _, op := range arm.Ops {
+				for _, d := range analysis.Defs(op) {
+					if !isTempName(d.Obj) {
+						continue
+					}
+					for c := range condObjs {
+						if isTempName(c) && c != d.Obj {
+							addEdge(interfere, d.Obj, c)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// greedy colouring in a deterministic order
 	var names []string
 	for n := range all {
