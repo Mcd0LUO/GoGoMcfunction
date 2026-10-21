@@ -298,7 +298,14 @@ func inlineLeafArms(fn *ir.Function) bool {
 			if writesAnyOf(target.Ops, condObjectives(br.Cond)) {
 				continue
 			}
-			cond := br.Cond
+			// A COPY of the predicate, not the branch's own.
+			//
+			// Sharing the Alts slice between the Branch terminator and the
+			// Guarded ops made one array reachable from two places, and any
+			// pass that rewrote a condition in place then rewrote it twice --
+			// see renamePred. The allocator is cheap here; a silently
+			// different condition is not.
+			cond := ir.ClonePredicate(br.Cond)
 			for _, op := range target.Ops {
 				// A constant's materialisation is NOT conditional.
 				//

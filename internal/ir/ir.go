@@ -286,6 +286,25 @@ type BlockTest struct {
 	Data     string
 }
 
+// ClonePredicate returns a predicate that shares no memory with p.
+//
+// The Alts slice is the only part that is not a value. A predicate is copied
+// by assignment everywhere else, so two ops can end up pointing at one array
+// without anything looking wrong -- and then a pass that rewrites a condition
+// in place rewrites it for both. That produced a guard testing one register
+// twice where the author wrote a range.
+func ClonePredicate(p Predicate) Predicate {
+	if len(p.Alts) == 0 {
+		return p
+	}
+	alts := make([][]Cond, len(p.Alts))
+	for i := range p.Alts {
+		alts[i] = append([]Cond(nil), p.Alts[i]...)
+	}
+	p.Alts = alts
+	return p
+}
+
 // IsAlways reports whether the predicate imposes no condition.
 func (p Predicate) IsAlways() bool {
 	return p.Exist == nil && p.Block == nil && len(p.Alts) == 0

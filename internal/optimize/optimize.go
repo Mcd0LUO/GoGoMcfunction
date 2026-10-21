@@ -393,6 +393,30 @@ func interferenceRename(fn *ir.Function, base int) (map[string]string, int) {
 					}
 				}
 			}
+			// ...and the same for the values this op READS.
+			//
+			// Interference was built from defs alone, so two temporaries that are
+			// simultaneously live only as USES of one instruction never got an
+			// edge. `guarded [t1 <= 0 and t3 >= 0]` reads both and defines
+			// neither, so the allocator was free to give them one slot -- and
+			// did. The guard then tested the same register twice, which is a
+			// different condition from the one the author wrote:
+			//
+			//     if W <= -9 && W >= -100      (a range)
+			//
+			// collapsed to `t0 <= 0 and t0 >= 0`, that is `W == -9` exactly.
+			// The reference pack's random-number wraparound guard is written in
+			// this shape, so the port produced different numbers from the pack.
+			for _, u := range uses {
+				if !isTempName(u.Obj) {
+					continue
+				}
+				for l := range liveNow {
+					if isTempName(l.Obj) && l.Obj != u.Obj {
+						addEdge(interfere, u.Obj, l.Obj)
+					}
+				}
+			}
 			for _, d := range defs {
 				delete(live, d)
 			}
@@ -532,14 +556,37 @@ func renameOp(op ir.Op, rename map[string]string) ir.Op {
 }
 
 // renamePred applies a temporary renaming to every condition in a predicate.
+//
+// It COPIES the alternatives rather than editing them in place, because a
+// predicate's Alts slice can be shared by more than one op. `inlineLeafArms`
+// hands the branch's own Cond to the Guarded it creates, so the Guarded and
+// the Branch terminator point at one array -- and this function used to run
+// for each of them. The second run then saw names the first had already
+// rewritten and rewrote them AGAIN:
+//
+//	[t1 <= 0 and t3 >= 0]
+//	-> [t0 <= 0 and t1 >= 0]      first run, correct
+//	-> [t0 <= 0 and t0 >= 0]      second run, t1 renamed as if it were t3
+//
+// That collapsed a two-sided range into `t0 == 0` -- a different condition,
+// and one that fires on different inputs. The reference data pack's
+// random-number wraparound guard is written exactly this way, so -O2 produced
+// different numbers from the pack while compiling cleanly.
 func renamePred(p ir.Predicate, rename map[string]string) ir.Predicate {
+	if len(p.Alts) == 0 {
+		return p
+	}
+	alts := make([][]ir.Cond, len(p.Alts))
 	for ai := range p.Alts {
-		for ci := range p.Alts[ai] {
-			if n, ok := rename[p.Alts[ai][ci].Obj]; ok {
-				p.Alts[ai][ci].Obj = n
+		alts[ai] = make([]ir.Cond, len(p.Alts[ai]))
+		copy(alts[ai], p.Alts[ai])
+		for ci := range alts[ai] {
+			if n, ok := rename[alts[ai][ci].Obj]; ok {
+				alts[ai][ci].Obj = n
 			}
 		}
 	}
+	p.Alts = alts
 	return p
 }
 
