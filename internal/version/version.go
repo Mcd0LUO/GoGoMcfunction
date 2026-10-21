@@ -20,7 +20,7 @@ package version
 // change in incompatible ways between minor releases; that is the point
 // of staying below 1.0. Every released version is a baseline: a git tag,
 // a golden output tree under testdata/golden, and a CHANGELOG entry.
-const Version = "0.28.0"
+const Version = "0.29.0"
 
 // SpecVersion is the language specification this build targets.
 const SpecVersion = "1.0"
