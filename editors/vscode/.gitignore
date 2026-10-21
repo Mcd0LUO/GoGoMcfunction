@@ -1,0 +1,5 @@
+# Dependencies are installed with `npm install`, not checked in.
+node_modules/
+
+# Packaging output.
+*.vsix

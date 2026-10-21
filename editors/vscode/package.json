@@ -1,0 +1,56 @@
+{
+  "name": "ggm",
+  "displayName": "GGM",
+  "description": "GGM language support: compiler diagnostics in the editor",
+  "version": "0.1.0",
+  "publisher": "mcd0luo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:ggm"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ggm",
+        "aliases": [
+          "GGM"
+        ],
+        "extensions": [
+          ".ggm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "GGM",
+      "properties": {
+        "ggm.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to ggmls. Empty means look for ggmls.exe in the workspace root, then on PATH."
+        },
+        "ggm.optimizeLevel": {
+          "type": "number",
+          "default": 2,
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "description": "Optimisation level. Diagnostics are the same at every level; this only affects how long a check takes."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}
