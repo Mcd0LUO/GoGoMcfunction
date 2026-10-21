@@ -16,6 +16,72 @@
 
 ---
 
+## [0.27.0] - 2026-10-21
+
+### 修掉 `-O2` 把常量物化包进 guard 的误编译
+
+**运行时会算错答案，且只在 -O2 及以上。**
+
+```ggm
+if Ap.Amount <= -1 { Ap.Amount *= -1 }
+```
+
+`x *= -1` 降级成 `t = -1; x *= t`。内联把**两条**都包进了 guard：
+
+```mcfunction
+execute @s[score_t0.ggm=0] ~ ~ ~ scoreboard players set @s t2.ggm -1
+execute @s[score_t0.ggm=0] ~ ~ ~ scoreboard players operation @s Ap.Amount *= @s t2.ggm
+```
+
+guard 不成立时 `t2.ggm` 保留上一轮的值，乘法用了脏数据。
+
+实测数据包的 `rpg/monster/hurt/operation/light`（Defence=10, Amount=3）：
+原库给 `Ap.Amount = 3`，-O0 给 3，**-O2 给 7**。
+
+现在常量物化被提到 guard 外面——临时量在这个臂之外是死的，无条件填充总是安全的，
+而且比包 guard 少一条命令。修复后 O0 与 O2 在三个用例上逐位一致。
+
+### 修掉 `fn` 路径段不能是数字
+
+数据包有 `rpg:skill/1/main`、`rpg:item/buy/cl/1` 这种命名，目录是槽位或档位。
+拒绝数字开头的段让大约四分之三的文件无法表达。
+
+```ggm
+fn atk/1/main() { }
+```
+
+生成 `rpg/player/atk/1/main.mcfunction`。
+
+### 编译器 panic 改成诊断
+
+```ggm
+if !(any<@e[tag=mob]> && A == 1) { X = 1 }
+```
+
+之前直接 panic。`!(e && c)` 是 `(没有实体匹配) OR (c 不成立)`，需要两条独立调用和一个
+析取，`Predicate` 表示不了。只取补存在性那一半会**静默丢掉 c 那一半**——分支在作者
+没写的输入上触发。
+
+现在报错并给出能用的写法：`if !any<...> { } else if !(...) { }`。
+
+### 失败的子降级不再发射畸形命令
+
+`let a = str(1)` 正确报了 `E_STR_RUNTIME`，然后又发射 `scoreboard players operation @s l0 = `
+（空操作数）。1.12.2 会拒收这一行，导致**整个函数文件加载失败**——一个不支持的 builtin
+静默废掉周围所有代码。同时多出的那条 `E_IR_INVARIANT` 也没了。
+
+### 一个永远不可能失败的测试
+
+`TestTemporariesAreProgramWideUnique` 声称测「临时量不跨函数共享」，但它的源是局部变量
+算术，降级后全是 `l0`/`l1` 槽位拷贝——**一个临时量都不产生**，循环走零次，断言永不执行。
+
+变异验证：把 `Tmp` 改成恒返回 0，测试**仍然通过**。
+
+现在用比较表达式（会产生临时量），找不到临时量就 `t.Fatal`，并且能抓住变异：
+
+```
+temp t0.ggm shared by ns:g and ns:f
+```
 ## [0.26.0] - 2026-10-21
 
 六路移植报告里剩下的缺口，逐条修。

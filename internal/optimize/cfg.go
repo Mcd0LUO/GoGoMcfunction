@@ -1,6 +1,8 @@
 package optimize
 
 import (
+	"strings"
+
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/analysis"
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/ir"
 )
@@ -280,6 +282,22 @@ func inlineLeafArms(fn *ir.Function) bool {
 			}
 			cond := br.Cond
 			for _, op := range target.Ops {
+				// A constant's materialisation is NOT conditional.
+				//
+				// `x *= -1` lowers to `t = -1; x *= t`, and inlining wrapped BOTH
+				// ops in the guard. When the guard failed, `t` kept whatever it
+				// held from an earlier iteration and the multiply used a stale
+				// value -- measured on the engine, `rpg/monster/hurt/operation/
+				// light` gave Ap.Amount = 7 where the data pack gives 3.
+				//
+				// A write to a compiler temporary that no guard reads is hoisted
+				// out: the temporary is dead outside this arm, so filling it
+				// unconditionally is always safe and one command cheaper than
+				// guarding it.
+				if isHoistableConstant(op, cond) {
+					b.Ops = append(b.Ops, op)
+					continue
+				}
 				b.Ops = append(b.Ops, ir.Guarded{Inner: op, Cond: cond})
 			}
 			target.Ops = nil
@@ -571,6 +589,30 @@ func writesAnyOf(ops []ir.Op, objs map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// isHoistableConstant reports whether an op is a constant being placed in a
+// compiler temporary that the guard does not read.
+//
+// Such an op does not depend on the branch at all, so guarding it only means
+// the temporary holds a stale value when the branch is not taken -- and any
+// later op in the same arm that reads it then uses that stale value.
+func isHoistableConstant(op ir.Op, cond ir.Predicate) bool {
+	set, ok := op.(ir.Set)
+	if !ok {
+		return false
+	}
+	if !strings.HasPrefix(set.Dst.Obj, ir.TempPrefix) {
+		return false
+	}
+	for _, alt := range cond.Alts {
+		for _, c := range alt {
+			if c.Obj == set.Dst.Obj {
+				return false
+			}
+		}
+	}
+	return true
 }
 func blockByID(fn *ir.Function, id ir.BlockID) *ir.Block {
 	for _, b := range fn.Blocks {
