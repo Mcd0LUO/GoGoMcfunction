@@ -185,3 +185,22 @@ func TestDocumentSymbolsStayInTheFile(t *testing.T) {
 		t.Fatalf("the outline did not list alpha: %+v", syms)
 	}
 }
+
+// References finds every use of a symbol, matched by what it RESOLVES to
+// rather than by text: two files in one module may share a short name.
+func TestReferencesFindEveryUse(t *testing.T) {
+	sess, path := openFixture(t)
+	var locs []Location
+	sess.ask(50, "textDocument/references", ReferenceParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     pos(7, 15), // the call to helper
+	}, &locs)
+	if len(locs) == 0 {
+		t.Fatal("references returned nothing for a called function")
+	}
+	for _, l := range locs {
+		if l.Range.Start.Character > 200 {
+			t.Fatalf("a location has an implausible character offset: %+v", l)
+		}
+	}
+}

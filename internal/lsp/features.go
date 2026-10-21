@@ -319,3 +319,39 @@ func symbolKind(k symbols.Kind) uint32 {
 	}
 	return SymbolKindVariable
 }
+
+// handleReferences answers textDocument/references.
+func (s *Server) handleReferences(p ReferenceParams) (any, error) {
+	path, _, ns, line, col, ok := s.locate(PositionParams{
+		TextDocument: p.TextDocument,
+		Position:     p.Position,
+	})
+	if !ok {
+		return nil, nil
+	}
+	ix := s.indexFor(ns)
+	if ix == nil {
+		return nil, nil
+	}
+	sym, ok := ix.At(path, line, col)
+	if !ok || sym.Kind == symbols.KShorthand {
+		return nil, nil
+	}
+	var out []Location
+	for _, occ := range ix.Occurrences(sym) {
+		out = append(out, Location{
+			URI:   uriFromPath(occ.File),
+			Range: tokenRange(occ.Pos.Line, occ.Pos.Col, runeCount(occ.Name)),
+		})
+	}
+	if p.Context.IncludeDeclaration && sym.Pos.Line > 0 {
+		out = append(out, Location{
+			URI:   uriFromPath(sym.File),
+			Range: tokenRange(sym.Pos.Line, sym.Pos.Col, runeCount(lastSegmentOf(sym.Name))),
+		})
+	}
+	if out == nil {
+		return nil, nil
+	}
+	return out, nil
+}

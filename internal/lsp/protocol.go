@@ -93,6 +93,7 @@ type ServerCapabilities struct {
 	DefinitionProvider     bool                    `json:"definitionProvider,omitempty"`
 	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
 	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
+	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
 }
 
 // CompletionOptions configures completion. The trigger characters are the ones
@@ -263,4 +264,19 @@ type SymbolInformation struct {
 // DocumentSymbolParams names a document.
 type DocumentSymbolParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// ReferenceParams asks for the places a symbol is used.
+type ReferenceParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	// Context.IncludeDeclaration asks whether the declaration itself belongs
+	// in the answer. Most clients send false and draw the declaration
+	// separately.
+	Context ReferenceContext `json:"context"`
+}
+
+// ReferenceContext is the options of a references request.
+type ReferenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
 }

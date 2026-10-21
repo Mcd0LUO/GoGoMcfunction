@@ -120,6 +120,7 @@ func (s *Server) dispatch(m *msg) error {
 				DefinitionProvider:     true,
 				CompletionProvider:     &CompletionOptions{TriggerCharacters: []string{"."}},
 				DocumentSymbolProvider: true,
+				ReferencesProvider:     true,
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
 		})
@@ -219,6 +220,17 @@ func (s *Server) dispatch(m *msg) error {
 			return s.fail(m, codeInvalidRequest, err)
 		}
 		r, err := s.handleDefinition(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/references":
+		var p ReferenceParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleReferences(p)
 		if err != nil {
 			return s.fail(m, codeInternalError, err)
 		}

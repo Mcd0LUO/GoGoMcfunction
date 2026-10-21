@@ -297,6 +297,38 @@ func lastSegment(name string) string {
 
 func runeLen(s string) int { return len([]rune(s)) }
 
+// Occurrence is one place a symbol is used.
+type Occurrence struct {
+	File string
+	Pos  diag.Pos
+	// Name is the text at that place, which differs from the declaration for
+	// a shorthand or a qualified spelling.
+	Name string
+}
+
+// Occurrences returns every place that refers to the same declaration.
+//
+// Matching is by the resolved symbol's identity, not by text: two functions
+// in one module may share a short name, and a field of one class must not
+// answer for a field of another.
+func (ix *Index) Occurrences(s Symbol) []Occurrence {
+	var out []Occurrence
+	for at, got := range ix.occ {
+		if got.Kind != s.Kind || got.Pos != s.Pos || got.File != s.File || got.Name != s.Name {
+			continue
+		}
+		out = append(out, Occurrence{File: at.file,
+			Pos: diag.Pos{File: at.file, Line: at.line, Col: at.col}, Name: got.Name})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		return out[i].Pos.Line < out[j].Pos.Line
+	})
+	return out
+}
+
 // Lookup returns every declaration of a name, for go-to-definition.
 func (ix *Index) Lookup(name string) []Symbol { return ix.byName[name] }
 

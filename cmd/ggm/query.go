@@ -24,7 +24,7 @@ import (
 )
 
 // queryKinds are the questions this mode can answer.
-var queryKinds = map[string]bool{"hover": true, "def": true, "complete": true}
+var queryKinds = map[string]bool{"hover": true, "def": true, "complete": true, "refs": true}
 
 // runQuery answers one question about a position and prints the answer.
 //
@@ -55,6 +55,8 @@ func runQuery(kind, at string, files []string) (string, error) {
 		return definition(ix, file, line, col), nil
 	case "complete":
 		return completion(ix, file, line, col), nil
+	case "refs":
+		return references(ix, file, line, col), nil
 	}
 	return "", nil
 }
@@ -129,6 +131,19 @@ func definition(ix *symbols.Index, file string, line, col int) string {
 		out = append(out, loc)
 	}
 	sort.Strings(out)
+	return strings.Join(out, "\n")
+}
+
+// references prints every place a symbol is used, one file:line:col per line.
+func references(ix *symbols.Index, file string, line, col int) string {
+	sym, ok := ix.At(file, line, col)
+	if !ok || sym.Kind == symbols.KShorthand {
+		return ""
+	}
+	var out []string
+	for _, o := range ix.Occurrences(sym) {
+		out = append(out, fmt.Sprintf("%s:%d:%d", o.File, o.Pos.Line, o.Pos.Col))
+	}
 	return strings.Join(out, "\n")
 }
 
