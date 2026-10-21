@@ -259,6 +259,17 @@ func (ix *Index) addBody(file, owner string, params []syntax.Param, body []synta
 				return
 			}
 		}
+	}, NBTField: func(name string, p syntax.Pos) {
+		// The field named in a decode or encode statement.
+		if p.Line <= 0 {
+			return
+		}
+		s, ok := ix.resolveDecl(name, "")
+		if !ok || s.Kind != KNBT {
+			return
+		}
+		ix.occ[occ{file: file, line: p.Line, col: p.Col,
+			end: p.Col + runeLen(name)}] = s
 	}, Field: func(name string, p syntax.Pos, self bool) {
 		// `self.<field>` and a bare field access both name a class member.
 		// Nothing else would report it: the field's name is not an identifier

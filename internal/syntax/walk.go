@@ -16,6 +16,11 @@ type Visitor struct {
 	// could see it: `self.hp` reported only the `self`, and an editor asking
 	// what `hp` means had nothing to answer with.
 	Field func(name string, p Pos, self bool)
+	// NBTField is called for the field named in a decode or encode statement.
+	//
+	// A statement holds names, not nodes, so without this the field in
+	// `decode X from @s.Inventory(0)[flags]` was invisible to every traversal.
+	NBTField func(name string, p Pos)
 	// IntLit is called for every integer literal.
 	//
 	// A leading minus is part of the literal rather than an operator: the
@@ -86,11 +91,17 @@ func walkStmt(s Stmt, v Visitor) {
 		Walk(x.Sel, v)
 		Walk(x.Value, v)
 	case DecodeStmt:
+		if v.NBTField != nil && x.Field != "" {
+			v.NBTField(x.Field, x.FieldPos)
+		}
 		// A decode carries no expression, but leaving the case out made the
 		// walker incomplete: any future check that walks the tree -- literal
 		// range today, something else tomorrow -- silently skips decode
 		// statements, and a silently skipped check is worse than no check.
 	case EncodeStmt:
+		if v.NBTField != nil && x.Field != "" {
+			v.NBTField(x.Field, x.FieldPos)
+		}
 	}
 }
 

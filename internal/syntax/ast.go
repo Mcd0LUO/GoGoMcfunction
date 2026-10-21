@@ -312,7 +312,11 @@ type DecodeStmt struct {
 	Target    string
 	Container Container
 	Field     string
-	Cases     []DecodeCase
+	// FieldPos is where the field's NAME is written. Without it the name in a
+	// decode could not be described or jumped to, because a statement stores
+	// names and not nodes.
+	FieldPos Pos
+	Cases    []DecodeCase
 	// Add is set by the `[add]` attribute, which accumulates instead of
 	// resetting first.
 	//
@@ -341,6 +345,7 @@ type DecodeCase struct {
 type EncodeStmt struct {
 	Container Container
 	Field     string
+	FieldPos  Pos
 	Source    string
 	Lo, Hi    int
 	P         Pos

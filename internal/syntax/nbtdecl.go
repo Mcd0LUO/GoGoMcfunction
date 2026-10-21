@@ -110,6 +110,7 @@ func (p *parser) parseDecode() (Stmt, error) {
 			return nil, err
 		}
 		s.Field = f.Text
+		s.FieldPos = f.Pos
 		if _, err := p.expect(RBRACK); err != nil {
 			return nil, err
 		}
@@ -230,5 +231,5 @@ func (p *parser) parseEncode() (Stmt, error) {
 	if hi < lo {
 		return nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("over range %d..%d is empty", lo, hi)}
 	}
-	return EncodeStmt{Container: c, Field: f.Text, Source: src, Lo: lo, Hi: hi, P: t.Pos}, nil
+	return EncodeStmt{Container: c, Field: f.Text, FieldPos: f.Pos, Source: src, Lo: lo, Hi: hi, P: t.Pos}, nil
 }

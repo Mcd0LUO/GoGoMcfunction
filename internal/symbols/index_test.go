@@ -223,3 +223,28 @@ func TestSelfFieldResolvesToTheClassField(t *testing.T) {
 		t.Fatalf("%d occurrences, want the bare use and the self use", len(occ))
 	}
 }
+
+// The field named in a decode or encode statement resolves to its declaration.
+//
+// A statement stores names rather than nodes, so no traversal could see the
+// field: decode X from @s.Inventory(0)[flags] carried no information about
+// flags at all, and the editor could not describe or jump to it.
+func TestDecodeFieldResolves(t *testing.T) {
+	src := "namespace t:n\nobj X\nnbt flags = p\"tag.f\" : bits 4\n[export]\nfn run() {\n    decode X from @s.Inventory(0)[flags]\n}\n"
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ix := Build(map[string]*syntax.File{"a.ggm": f}, map[string]string{"a.ggm": src})
+
+	s, ok := ix.At("a.ggm", 6, 35)
+	if !ok {
+		t.Fatal("the decode field did not resolve")
+	}
+	if s.Kind != KNBT || s.Name != "flags" {
+		t.Fatalf("resolved to %s %q", s.Kind, s.Name)
+	}
+	if s.Pos.Line != 3 {
+		t.Fatalf("declaration at line %d, want 3", s.Pos.Line)
+	}
+}
