@@ -110,10 +110,14 @@ func Render(prog *ir.Program, opt Options) (map[string]string, []string) {
 		for _, blk := range fn.Blocks {
 			name := blockName(fn, blk.ID)
 			var cmds []mc.Command
-			for _, op := range blk.Ops {
-				cmds = append(cmds, renderOp(opt.Target, op)...)
+			holder := fn.RegHolder
+			if holder == "" {
+				holder = ir.SelfHolder
 			}
-			cmds = append(cmds, renderTerm(opt.Target, fn.Path, blk.Term, func(f string, id ir.BlockID) string {
+			for _, op := range blk.Ops {
+				cmds = append(cmds, renderOp(opt.Target, holder, op)...)
+			}
+			cmds = append(cmds, renderTerm(opt.Target, holder, fn.Path, blk.Term, func(f string, id ir.BlockID) string {
 				if id == 0 {
 					return f
 				}
@@ -222,14 +226,14 @@ func dedupe(xs []int) []int {
 // A Branch becomes one conditional call per alternative. 1.12.2 selectors can
 // express a conjunction but not a disjunction, so a DNF predicate with N
 // alternatives becomes N parallel `execute` lines.
-func renderTerm(t target.Target, fn string, term ir.Terminator, bp func(string, ir.BlockID) string) []mc.Command {
+func renderTerm(t target.Target, holder, fn string, term ir.Terminator, bp func(string, ir.BlockID) string) []mc.Command {
 	switch x := term.(type) {
 	case ir.Jump:
 		return []mc.Command{mc.Function{Name: bp(fn, x.Target)}}
 	case ir.TailCall:
 		return []mc.Command{mc.Function{Name: x.Path}}
 	case ir.Branch:
-		return renderBranch(t, fn, x, bp)
+		return renderBranch(t, holder, fn, x, bp)
 	case ir.Return:
 		return nil
 	}
@@ -242,7 +246,7 @@ func silent(blocks map[string][]mc.Command, name string) bool {
 	return len(blocks[name]) == 0
 }
 
-func renderBranch(t target.Target, fn string, br ir.Branch, bp func(string, ir.BlockID) string) []mc.Command {
+func renderBranch(t target.Target, holder, fn string, br ir.Branch, bp func(string, ir.BlockID) string) []mc.Command {
 	thenName := bp(fn, br.Then)
 	elseName := bp(fn, br.Else)
 
@@ -380,7 +384,7 @@ func selectorFor(t target.Target, conds []ir.Cond) *mc.Selector {
 	return sel
 }
 
-func renderOp(t target.Target, op ir.Op) []mc.Command {
+func renderOp(t target.Target, holder string, op ir.Op) []mc.Command {
 	switch o := op.(type) {
 	case ir.Set:
 		return []mc.Command{mc.ScoreboardSet{Target: o.Dst.Holder, Objective: o.Dst.Obj, Value: o.Value}}
@@ -393,7 +397,7 @@ func renderOp(t target.Target, op ir.Op) []mc.Command {
 	case ir.Arith:
 		return []mc.Command{mc.ScoreboardOp{Target: o.Dst.Holder, Objective: o.Dst.Obj, Op: o.Op, Source: o.Src.Holder, SrcObj: o.Src.Obj}}
 	case ir.Guarded:
-		inner := renderOp(t, o.Inner)
+		inner := renderOp(t, holder, o.Inner)
 		// An existence test cannot be a guarded op.
 		//
 		// `execute <sel> ~ ~ ~ <cmd>` is a fan-out: it runs the command once

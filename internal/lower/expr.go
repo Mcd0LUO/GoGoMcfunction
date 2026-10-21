@@ -298,6 +298,23 @@ func (l *Lowerer) comparison(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, x
 // lowerCond lowers a condition to a predicate, appending any ops it needs to
 // the given block.
 func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e syntax.Expr) (ir.Predicate, error) {
+	// A body with no executor cannot express a condition.
+	//
+	// Every guard this compiler emits is a selector: `execute @s[score_x=0] ~ ~ ~
+	// <cmd>` or `function F if <sel>`. Both name an ENTITY, and a `[load]` body
+	// runs from a command block where @s names nothing. Its registers live on
+	// the fake player #ggm.reg, which is not a selector at all.
+	//
+	// The previous code emitted the selector anyway. The engine reported
+	// "Entity '@s[score_t0.ggm_min=1]' cannot be found" and skipped the
+	// command, so every comparison inside `[load]` was silently false:
+	// `let x = 5; if x > 3 { G = 1 }` set nothing, at -O0 and -O2 alike.
+	//
+	// Saying so is the only honest option. A flag would need the same guard to
+	// set it, and `function F if <sel>` needs an entity too.
+	if ctx.noSelf {
+		return ir.Predicate{}, fmt.Errorf("a condition needs an executing entity, and a [load] body runs from a command block: 1.12.2 cannot test a score there. Move the branch into an [every(...)] function")
+	}
 	if call, ok := e.(syntax.Call); ok && call.Name == "any" && len(call.Args) == 1 {
 		if sel, ok := call.Args[0].(syntax.Ident); ok && strings.HasPrefix(sel.Name, "@") {
 			return ir.Predicate{Exist: &ir.ExistTest{Selector: sel.Name}}, nil

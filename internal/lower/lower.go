@@ -129,6 +129,20 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 	l.nsRoot, l.pathPre = f.Namespace, ""
 	if i := strings.Index(f.Namespace, ":"); i >= 0 {
 		l.nsRoot, l.pathPre = f.Namespace[:i], f.Namespace[i+1:]
+	} else if f.Namespace != "" {
+		// A namespace must be `domain:path`. Without the colon every generated
+		// id loses its domain -- `big/boot` instead of `big:boot` -- and
+		// 1.12.2 requires one.
+		//
+		// The old path accepted it and then failed in the CLI's own writer,
+		// which is the worst of both: `-check` reported success, and `-out`
+		// exited with "internal: malformed function path", an error that
+		// blames the compiler for the author's mistake. It also meant `boot`
+		// could never resolve `init`, so no objective was declared and every
+		// scoreboard write was silently discarded.
+		bag.Error(diag.Pos{}, "E_NO_NAMESPACE",
+			"namespace %q has no domain: write `namespace <domain>:%s`, because 1.12.2 function ids are always domain-qualified",
+			f.Namespace, f.Namespace)
 	}
 	if f.Namespace == "" {
 		bag.Error(diag.Pos{}, "E_NO_NAMESPACE", "file has no `namespace` declaration")

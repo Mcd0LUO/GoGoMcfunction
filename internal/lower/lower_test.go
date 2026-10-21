@@ -30,25 +30,25 @@ func mustLower(t *testing.T, src string) *ir.Program {
 // miscompile, not a crash.
 func TestLowerProducesValidIR(t *testing.T) {
 	sources := []string{
-		`namespace ns
+		`namespace test:ns
 fn f(a: int) -> int { a + 1 }`,
-		`namespace ns
+		`namespace test:ns
 fn f(a: int, b: int) -> int {
   if a < b { return 1 }
   a - b
 }`,
-		`namespace ns
+		`namespace test:ns
 fn f(a: int, b: int) -> int {
   while a < b, budget 4 { a = a + 1 }
   a
 }`,
-		`namespace ns
+		`namespace test:ns
 fn f(a: int) -> int {
   if a > 5 { return 10 }
   if a < 0 { return -1 }
   a + 1
 }`,
-		`namespace ns
+		`namespace test:ns
 fn g(x: int) -> int { x * 2 }
 fn f(a: int) -> int { g(a) + g(a) }`,
 	}
@@ -65,7 +65,7 @@ fn f(a: int) -> int { g(a) + g(a) }`,
 // An early return must terminate its block: the statements after it are only
 // reachable from the paths that actually fall through.
 func TestEarlyReturnTerminatesBlock(t *testing.T) {
-	prog := mustLower(t, `namespace ns
+	prog := mustLower(t, `namespace test:ns
 fn f(a: int) -> int {
   if a < 4 { return 1 }
   a * 2
@@ -124,7 +124,7 @@ func TestTemporariesAreProgramWideUnique(t *testing.T) {
 	// temporary appeared, the loop below walked zero names, and the assertion
 	// could not fail. A comparison materialises into a temporary, which is the
 	// shape under test.
-	prog := mustLower(t, `namespace ns
+	prog := mustLower(t, `namespace test:ns
 fn g(x: int, y: int) -> int { if x > y { 1 } else { 0 } }
 fn f(a: int, b: int) -> int { if a >= b { 2 } else { 3 } }`)
 	sawTemp := false
@@ -163,7 +163,7 @@ func isTemp(obj string) bool {
 
 // abs(x - y) >= 1 must not materialise the absolute value.
 func TestAbsComparisonAvoidsMaterialisation(t *testing.T) {
-	prog := mustLower(t, `namespace ns
+	prog := mustLower(t, `namespace test:ns
 fn f(a: int, b: int) -> int {
   while abs(a - b) >= 1, budget 4 { a = a + 1 }
   a

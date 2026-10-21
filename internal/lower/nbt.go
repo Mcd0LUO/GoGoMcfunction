@@ -116,15 +116,20 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 	if fd.Bits > 0 {
 		for _, slot := range slots {
 			for k := 0; k < fd.Bits; k++ {
-				fb.Emit(cur, ir.Raw{Text: fmt.Sprintf("scoreboard players add @s %s %d %s",
-					dst.Obj, 1<<uint(k), nbtMatch(s.Container, slot, fd.Path, fmt.Sprintf("%d:1b", k), true))})
+				fb.Emit(cur, ir.Raw{
+					Text:   fmt.Sprintf("scoreboard players add @s %s %d %s", dst.Obj, 1<<uint(k), nbtMatch(s.Container, slot, fd.Path, fmt.Sprintf("%d:1b", k), true)),
+					Writes: []ir.Loc{dst},
+					Reads:  []ir.Loc{dst},
+				})
 			}
 		}
 	} else {
 		for _, ec := range fd.Enum {
 			for _, slot := range slots {
-				fb.Emit(cur, ir.Raw{Text: fmt.Sprintf("scoreboard players set @s %s %d %s",
-					dst.Obj, ec.Value, nbtMatch(s.Container, slot, fd.Path, enumKeyBody(ec.Key), false))})
+				fb.Emit(cur, ir.Raw{
+					Text:   fmt.Sprintf("scoreboard players set @s %s %d %s", dst.Obj, ec.Value, nbtMatch(s.Container, slot, fd.Path, enumKeyBody(ec.Key), false)),
+					Writes: []ir.Loc{dst},
+				})
 			}
 		}
 	}
@@ -146,8 +151,11 @@ func (l *Lowerer) lowerDecode(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s 
 				c.Val, l.tgt.Name, l.tgt.ScoreMin, l.tgt.ScoreMax)
 			continue
 		}
-		fb.Emit(cur, ir.Raw{Text: fmt.Sprintf("scoreboard players %s @s %s %d %s",
-			c.Op, dst.Obj, c.Val, c.NBT)})
+		fb.Emit(cur, ir.Raw{
+			Text:   fmt.Sprintf("scoreboard players %s @s %s %d %s", c.Op, dst.Obj, c.Val, c.NBT),
+			Writes: []ir.Loc{dst},
+			Reads:  []ir.Loc{dst},
+		})
 	}
 }
 
