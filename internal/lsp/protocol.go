@@ -94,6 +94,7 @@ type ServerCapabilities struct {
 	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
 	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
 	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
+	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
 }
 
 // CompletionOptions configures completion. The trigger characters are the ones
@@ -279,4 +280,30 @@ type ReferenceParams struct {
 // ReferenceContext is the options of a references request.
 type ReferenceContext struct {
 	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+// SignatureHelp is the result of textDocument/signatureHelp: what the call
+// being typed expects.
+type SignatureHelp struct {
+	Signatures      []SignatureInformation `json:"signatures"`
+	ActiveSignature uint32                 `json:"activeSignature,omitempty"`
+	ActiveParameter uint32                 `json:"activeParameter,omitempty"`
+}
+
+// SignatureInformation is one candidate signature.
+type SignatureInformation struct {
+	Label         string                 `json:"label"`
+	Documentation string                 `json:"documentation,omitempty"`
+	Parameters    []ParameterInformation `json:"parameters,omitempty"`
+}
+
+// ParameterInformation is one parameter of a signature.
+type ParameterInformation struct {
+	Label string `json:"label"`
+}
+
+// SignatureHelpOptions configures the trigger characters for signature help.
+type SignatureHelpOptions struct {
+	TriggerCharacters   []string `json:"triggerCharacters,omitempty"`
+	RetriggerCharacters []string `json:"retriggerCharacters,omitempty"`
 }

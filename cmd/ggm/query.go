@@ -24,7 +24,7 @@ import (
 )
 
 // queryKinds are the questions this mode can answer.
-var queryKinds = map[string]bool{"hover": true, "def": true, "complete": true, "refs": true}
+var queryKinds = map[string]bool{"hover": true, "def": true, "complete": true, "refs": true, "sig": true}
 
 // runQuery answers one question about a position and prints the answer.
 //
@@ -57,6 +57,8 @@ func runQuery(kind, at string, files []string) (string, error) {
 		return completion(ix, file, line, col), nil
 	case "refs":
 		return references(ix, file, line, col), nil
+	case "sig":
+		return signature(ix, file, line, col), nil
 	}
 	return "", nil
 }
@@ -132,6 +134,83 @@ func definition(ix *symbols.Index, file string, line, col int) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, "\n")
+}
+
+// signature prints the call the cursor is inside, and which argument it is on.
+func signature(ix *symbols.Index, file string, line, col int) string {
+	name, active, ok := callAt(file, line, col)
+	if !ok {
+		return ""
+	}
+	for _, s := range ix.Lookup(name) {
+		if s.Kind != symbols.KFunc && s.Kind != symbols.KMethod {
+			continue
+		}
+		want := fmt.Sprintf("argument %d of %d", active+1, len(s.Params))
+		if len(s.Params) == 0 {
+			want = "takes no arguments"
+		}
+		return s.Type + "\n" + want
+	}
+	return ""
+}
+
+// callAt finds the nearest unclosed paren before the cursor and the name in
+// front of it, plus which comma-separated argument the cursor is on.
+func callAt(file string, line, col int) (string, int, bool) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return "", 0, false
+	}
+	lines := strings.Split(string(b), "\n")
+	if line < 1 || line > len(lines) {
+		return "", 0, false
+	}
+	src := []rune(strings.TrimSuffix(lines[line-1], "\r"))
+	cur := col - 1
+	if cur < 0 || cur > len(src) {
+		return "", 0, false
+	}
+	depth, open := 0, -1
+	for i := cur - 1; i >= 0; i-- {
+		switch src[i] {
+		case ')':
+			depth++
+		case '(':
+			if depth == 0 {
+				open = i
+			} else {
+				depth--
+			}
+		}
+		if open >= 0 {
+			break
+		}
+	}
+	if open < 0 {
+		return "", 0, false
+	}
+	start := open
+	for start > 0 && isIdentRune(src[start-1]) {
+		start--
+	}
+	if start == open {
+		return "", 0, false
+	}
+	active, depth := 0, 0
+	for i := open + 1; i < cur && i < len(src); i++ {
+		switch src[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				active++
+			}
+		}
+	}
+	return string(src[start:open]), active, true
 }
 
 // references prints every place a symbol is used, one file:line:col per line.

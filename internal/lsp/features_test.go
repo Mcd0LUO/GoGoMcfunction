@@ -204,3 +204,67 @@ func TestReferencesFindEveryUse(t *testing.T) {
 		}
 	}
 }
+
+// Signature help names the call and the argument the cursor is on.
+//
+// The call is found by scanning the line, because the AST does not record
+// where an argument list ends. The rule is strict on purpose: no unclosed
+// paren means no answer, and a client showing nothing beats a client
+// pointing at the wrong signature.
+func TestSignatureHelpTracksTheActiveArgument(t *testing.T) {
+	dir := t.TempDir()
+	src := "namespace t:sig\nobj X\nfn pair(a: int, b: int) -> int { a + b }\n[export]\nfn run() { X = pair(1, 2) }\n"
+	writeFiles(t, dir, map[string]string{"s.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "s.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+
+	cases := []struct {
+		char int
+		arg  uint32
+	}{
+		{20, 0}, // the `1`, before the comma
+		{23, 1}, // the `2`, after it
+	}
+	for _, c := range cases {
+		var h SignatureHelp
+		sess.ask(60, "textDocument/signatureHelp", PositionParams{
+			TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+			Position:     Position{Line: 4, Character: uint32(c.char)},
+		}, &h)
+		if len(h.Signatures) == 0 {
+			t.Fatalf("no signature at char %d", c.char)
+		}
+		if !strings.Contains(h.Signatures[0].Label, "pair") {
+			t.Fatalf("signature at char %d was %q", c.char, h.Signatures[0].Label)
+		}
+		if h.ActiveParameter != c.arg {
+			t.Fatalf("at char %d active parameter = %d, want %d", c.char, h.ActiveParameter, c.arg)
+		}
+		if len(h.Signatures[0].Parameters) != 2 {
+			t.Fatalf("signature listed %d parameters, want 2", len(h.Signatures[0].Parameters))
+		}
+	}
+}
+
+// Outside a call the answer is null, not a guess.
+func TestSignatureHelpIsSilentOutsideACall(t *testing.T) {
+	dir := t.TempDir()
+	src := "namespace t:sig2\nobj X\n[export]\nfn run() { X = 1 }\n"
+	writeFiles(t, dir, map[string]string{"s.ggm": src})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "s.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: src},
+	})
+	var h any
+	sess.ask(61, "textDocument/signatureHelp", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     Position{Line: 3, Character: 10},
+	}, &h)
+	if h != nil {
+		t.Fatalf("signature help answered outside a call: %v", h)
+	}
+}

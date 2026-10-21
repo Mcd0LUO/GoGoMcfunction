@@ -121,6 +121,7 @@ func (s *Server) dispatch(m *msg) error {
 				CompletionProvider:     &CompletionOptions{TriggerCharacters: []string{"."}},
 				DocumentSymbolProvider: true,
 				ReferencesProvider:     true,
+				SignatureHelpProvider:  &SignatureHelpOptions{TriggerCharacters: []string{"(", ","}},
 			},
 			ServerInfo: &ServerInfo{Name: "ggmls", Version: serverVersion},
 		})
@@ -220,6 +221,17 @@ func (s *Server) dispatch(m *msg) error {
 			return s.fail(m, codeInvalidRequest, err)
 		}
 		r, err := s.handleDefinition(p)
+		if err != nil {
+			return s.fail(m, codeInternalError, err)
+		}
+		return s.reply(m, r)
+
+	case "textDocument/signatureHelp":
+		var p PositionParams
+		if err := decode(m.Params, &p); err != nil {
+			return s.fail(m, codeInvalidRequest, err)
+		}
+		r, err := s.handleSignatureHelp(p)
 		if err != nil {
 			return s.fail(m, codeInternalError, err)
 		}

@@ -355,3 +355,103 @@ func (s *Server) handleReferences(p ReferenceParams) (any, error) {
 	}
 	return out, nil
 }
+
+// handleSignatureHelp answers textDocument/signatureHelp.
+//
+// Finding the call is a scan of the cursor's line rather than a walk of the
+// AST, because the AST does not record where a call's argument list ends. The
+// rule is deliberately strict: the nearest unclosed `(` before the cursor,
+// immediately preceded by a name that resolves to a function. Anything else
+// answers null, and a client shows nothing -- which is better than pointing at
+// the wrong signature.
+func (s *Server) handleSignatureHelp(p PositionParams) (any, error) {
+	_, text, ns, line, col, ok := s.locate(p)
+	if !ok {
+		return nil, nil
+	}
+	ix := s.indexFor(ns)
+	if ix == nil {
+		return nil, nil
+	}
+	lines := strings.Split(text, "\n")
+	if line < 1 || line > len(lines) {
+		return nil, nil
+	}
+	src := []rune(strings.TrimSuffix(lines[line-1], "\r"))
+	cur := col - 1
+	if cur < 0 || cur > len(src) {
+		return nil, nil
+	}
+
+	// Walk back to the nearest unclosed paren.
+	depth := 0
+	open := -1
+	for i := cur - 1; i >= 0; i-- {
+		switch src[i] {
+		case ')':
+			depth++
+		case '(':
+			if depth == 0 {
+				open = i
+			} else {
+				depth--
+			}
+		}
+		if open >= 0 {
+			break
+		}
+	}
+	if open < 0 {
+		return nil, nil
+	}
+	start := open
+	for start > 0 && identRune(src[start-1]) {
+		start--
+	}
+	if start == open {
+		return nil, nil
+	}
+	name := string(src[start:open])
+
+	var found *symbols.Symbol
+	for _, cand := range ix.Lookup(name) {
+		if cand.Kind == symbols.KFunc || cand.Kind == symbols.KMethod {
+			c := cand
+			found = &c
+			break
+		}
+	}
+	if found == nil {
+		return nil, nil
+	}
+
+	// The active parameter is the number of commas between the paren and the
+	// cursor, counting only those at depth zero.
+	active := 0
+	depth = 0
+	for i := open + 1; i < cur && i < len(src); i++ {
+		switch src[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				active++
+			}
+		}
+	}
+
+	params := make([]ParameterInformation, 0, len(found.Params))
+	for _, t := range found.Params {
+		params = append(params, ParameterInformation{Label: t})
+	}
+	return &SignatureHelp{
+		Signatures: []SignatureInformation{{
+			Label:         found.Type,
+			Documentation: found.Detail,
+			Parameters:    params,
+		}},
+		ActiveParameter: uint32(active),
+	}, nil
+}

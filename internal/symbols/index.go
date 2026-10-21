@@ -49,6 +49,10 @@ type Symbol struct {
 	// Detail is a second line of context: the period of a function, the
 	// holder of an extern, the objective a field packs into.
 	Detail string
+	// Params are the declared parameters, in order, as "name: type". Kept
+	// structured as well as rendered so signature help can point at the
+	// active argument without re-parsing the rendered text.
+	Params []string
 }
 
 // Index is the symbol table for one module.
@@ -122,7 +126,8 @@ func (ix *Index) addFile(file string, f *syntax.File) {
 		ix.declare(Symbol{Name: fn.Name, Kind: KFunc, File: file,
 			Pos:    diag.Pos{File: file, Line: fn.P.Line, Col: fn.P.Col},
 			Type:   funcType(fn.Name, fn.Params, fn.RetType),
-			Detail: funcDetail(fn)})
+			Detail: funcDetail(fn),
+			Params: paramTexts(fn.Params)})
 		ix.addBody(file, fn.Name, fn.Params, fn.Body, "")
 	}
 	for _, cl := range f.Classes {
@@ -141,7 +146,8 @@ func (ix *Index) addFile(file string, f *syntax.File) {
 			ix.declare(Symbol{Name: full, Kind: KMethod, File: file,
 				Pos:    diag.Pos{File: file, Line: m.P.Line, Col: m.P.Col},
 				Type:   funcType(full, m.Params, ""),
-				Detail: methodDetail(m)})
+				Detail: methodDetail(m),
+				Params: paramTexts(m.Params)})
 			ix.addBody(file, full, m.Params, m.Body, cl.Name)
 		}
 	}
@@ -397,6 +403,18 @@ func fieldEncoding(fd syntax.NBTField) string {
 		return "enum with " + itoa(len(fd.Enum)) + " cases"
 	}
 	return ""
+}
+
+// paramTexts renders each parameter as "name: type".
+func paramTexts(params []syntax.Param) []string {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(params))
+	for _, p := range params {
+		out = append(out, p.Name+": "+p.Type)
+	}
+	return out
 }
 
 func funcType(name string, params []syntax.Param, ret string) string {
