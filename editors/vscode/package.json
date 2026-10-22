@@ -2,7 +2,7 @@
   "name": "ggm",
   "displayName": "GGM",
   "description": "GGM language support: compiler diagnostics, hover, go to definition, completion, rename",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "mcd0luo",
   "license": "MIT",
   "engines": {
@@ -37,7 +37,14 @@
           "description": "Path to the ggmls binary. Empty means: ggmls.exe in the workspace root, then the copy bundled with this extension, then PATH."
         }
       }
-    }
+    },
+    "grammars": [
+      {
+        "language": "ggm",
+        "scopeName": "source.ggm",
+        "path": "./syntaxes/ggm.tmLanguage.json"
+      }
+    ]
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

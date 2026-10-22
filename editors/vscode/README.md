@@ -64,13 +64,31 @@ Any folder with `.ggm` files. The most useful are:
 | `stdlib/` | Committed, one namespace over several files -- shows cross-file jumps |
 | a real ported pack | Hundreds of lines; the place where diagnostics and performance actually matter |
 
-## Known limitation
+## Syntax highlighting
 
-There is no syntax highlighting yet: no TextMate grammar is contributed, so a
-`.ggm` file renders as plain text with brackets and comments handled only by
-`language-configuration.json`. Diagnostics, hover, jumps and the rest are
-unaffected -- they come from the server, not from colouring -- but the file will
-look monochrome until a grammar is added.
+A TextMate grammar (`syntaxes/ggm.tmLanguage.json`) colours the language against
+the scope names every theme knows:
+
+| What | Scope |
+|---|---|
+| Keywords, declaration words | `storage.type`, `keyword.control` |
+| `int` / `str` / `bool` | `storage.type.primitive` |
+| Function declarations and calls | `entity.name.function` |
+| Class names | `entity.name.type.class` |
+| Objectives, constants, decode targets | `variable.other.constant` |
+| `self.x`, `@s.Inventory` | `variable.other.property` |
+| Selectors and their filters | `variable.language.selector` |
+| `#fakeplayer` | `variable.other.fakeplayer` |
+| Builtins and `any<` / `reduce<max>` | `support.function.builtin` |
+| `n"..."` / `p"..."` | `string.quoted.nbt` |
+| Numbers, `true` / `false` / `none` | `constant.numeric`, `constant.language` |
+| `[export]` and friends | `entity.other.attribute-name` |
+
+`node grammar.test.js` checks the file mechanically: every expression must
+compile, every `#include` must resolve, and every scope name must be one a theme
+is likely to have a rule for. A grammar typo does not fail a build -- it just
+stops colouring -- so the check is the only thing standing between a typo and a
+silently plain file.
 ## Where it looks for the server
 
 1. `ggm.serverPath`, if set;

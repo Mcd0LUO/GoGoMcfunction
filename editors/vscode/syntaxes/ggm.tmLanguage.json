@@ -1,0 +1,252 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "GGM",
+  "scopeName": "source.ggm",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#nbtliteral"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#attribute"
+    },
+    {
+      "include": "#namespacedecl"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#selector"
+    },
+    {
+      "include": "#fakelayer"
+    },
+    {
+      "include": "#quantifier"
+    },
+    {
+      "include": "#builtincall"
+    },
+    {
+      "include": "#call"
+    },
+    {
+      "include": "#property"
+    },
+    {
+      "include": "#constant"
+    },
+    {
+      "include": "#type"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#operator"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.ggm",
+      "match": "//.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.ggm",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ggm",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "nbtliteral": {
+      "match": "\\b([np])(\"(?:[^\"\\\\]|\\\\.)*\")",
+      "captures": {
+        "1": {
+          "name": "storage.type.nbt.ggm"
+        },
+        "2": {
+          "name": "string.quoted.nbt.ggm"
+        }
+      }
+    },
+    "attribute": {
+      "match": "^([ \\t]*)(\\[)([\\p{L}\\p{N}_]+)(\\])",
+      "captures": {
+        "2": {
+          "name": "punctuation.definition.attribute.begin.ggm"
+        },
+        "3": {
+          "name": "entity.other.attribute-name.ggm"
+        },
+        "4": {
+          "name": "punctuation.definition.attribute.end.ggm"
+        }
+      }
+    },
+    "namespacedecl": {
+      "match": "\\b(namespace)(\\s+)([\\p{L}\\p{N}_./:-]+)",
+      "captures": {
+        "1": {
+          "name": "storage.type.ggm"
+        },
+        "3": {
+          "name": "entity.name.namespace.ggm"
+        }
+      }
+    },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "\\b(fn)(\\s+)([\\p{L}\\p{N}_./:-]+)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.ggm"
+            },
+            "3": {
+              "name": "entity.name.function.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(class)(\\s+)([\\p{L}\\p{N}_]+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.ggm"
+            },
+            "3": {
+              "name": "entity.name.type.class.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(obj|extern|nbt)(\\s+)([\\p{L}\\p{N}_.]+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.ggm"
+            },
+            "3": {
+              "name": "variable.other.constant.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(const)(\\s+)([\\p{L}\\p{N}_]+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.ggm"
+            },
+            "3": {
+              "name": "variable.other.constant.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(let)(\\s+)([\\p{L}\\p{N}_]+)",
+          "captures": {
+            "1": {
+              "name": "storage.type.ggm"
+            },
+            "3": {
+              "name": "variable.other.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(decode|encode)(\\s+)([\\p{L}\\p{N}_.]+)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.ggm"
+            },
+            "3": {
+              "name": "variable.other.constant.ggm"
+            }
+          }
+        }
+      ]
+    },
+    "selector": {
+      "patterns": [
+        {
+          "match": "(@[saerp])(?:\\[([^\\]\\n]*)\\])?",
+          "captures": {
+            "1": {
+              "name": "variable.language.selector.ggm"
+            },
+            "2": {
+              "name": "variable.parameter.selector.ggm"
+            }
+          }
+        }
+      ]
+    },
+    "fakelayer": {
+      "match": "#[\\p{L}\\p{N}_]+(?:\\.[\\p{L}\\p{N}_]+)*",
+      "name": "variable.other.fakeplayer.ggm"
+    },
+    "builtincall": {
+      "match": "\\b(summon|entitydata|effect|tp|kill|give|clear|replaceitem|spreadplayers|spawnpoint|particle|tellraw|title|playsound|say|advancement|trigger|enable|tag_add|tag_remove|stats|min|max|rem_euclid|str|reduce<(?:min|max)>)(?=\\s*\\()",
+      "name": "support.function.builtin.ggm"
+    },
+    "call": {
+      "match": "(?<![.\\p{L}\\p{N}_])([\\p{L}\\p{N}_./:-]+)(?=\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.call.ggm"
+        }
+      }
+    },
+    "property": {
+      "match": "(?<=\\.)([\\p{L}\\p{N}_]+(?:\\.[\\p{L}\\p{N}_]+)*)",
+      "captures": {
+        "1": {
+          "name": "variable.other.property.ggm"
+        }
+      }
+    },
+    "constant": {
+      "match": "\\b(true|false|none)\\b",
+      "name": "constant.language.ggm"
+    },
+    "number": {
+      "match": "-?\\b\\d+\\b",
+      "name": "constant.numeric.ggm"
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "match": "\\b(namespace|obj|extern|nbt|const|class|fn|var)\\b",
+          "name": "storage.type.ggm"
+        },
+        {
+          "match": "\\b(comptime|let|if|else|while|loop|for|in|step|where|return|decode|encode|over|bits|enum|budget|wrapping|self|entities|selector)\\b",
+          "name": "keyword.control.ggm"
+        }
+      ]
+    },
+    "operator": {
+      "match": "->|==|!=|<=|>=|&&|\\|\\||[-+*/%<>=!]",
+      "name": "keyword.operator.ggm"
+    },
+    "type": {
+      "match": "\\b(int|str|bool)\\b",
+      "name": "storage.type.primitive.ggm"
+    },
+    "quantifier": {
+      "match": "\\b(any|count|reduce)(?=\\s*<)",
+      "name": "support.function.builtin.ggm"
+    }
+  }
+}
