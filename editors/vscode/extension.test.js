@@ -44,8 +44,20 @@ assert.strictEqual(
   "with no local binary the bare name must be returned so PATH is consulted"
 );
 
-// 3. An explicit setting is used verbatim, even if it does not exist yet.
+// 3. The copy shipped inside the extension is used when the workspace has
+// none, so an installed .vsix works on a project that never built the server.
+const bundled = fs.mkdtempSync(path.join(os.tmpdir(), "ggm-bundled-"));
+fs.mkdirSync(path.join(bundled, "bin"));
+fs.writeFileSync(path.join(bundled, "bin", exe), "");
+fakeVscode.workspace.workspaceFolders = [{ uri: { fsPath: empty } }];
+assert.strictEqual(
+  resolveServer({ extensionPath: bundled }),
+  path.join(bundled, "bin", exe),
+  "the bundled server must be used before falling back to PATH"
+);
+
+// 4. An explicit setting is used verbatim, even if it does not exist yet.
 fakeVscode.workspace.getConfiguration = () => ({ get: () => "/opt/custom/ggmls" });
 assert.strictEqual(resolveServer({ extensionPath: empty }), "/opt/custom/ggmls");
 
-console.log("extension: 3 checks passed");
+console.log("extension: 4 checks passed");

@@ -1,0 +1,5 @@
+# Development files, not part of an installed extension.
+.vscode/**
+extension.test.js
+package-lock.json
+**/*.map

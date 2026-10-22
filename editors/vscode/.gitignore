@@ -1,5 +1,7 @@
 # Dependencies are installed with `npm install`, not checked in.
 node_modules/
 
-# Packaging output.
+# Packaging output: the server is copied in here to make the .vsix
+# self-contained, and a built .vsix is an artifact either way.
+bin/
 *.vsix

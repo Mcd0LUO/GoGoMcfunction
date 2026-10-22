@@ -2,6 +2,24 @@
 
 Shows the compiler's diagnostics in the editor. That is all it does.
 
+## Install the packaged extension
+
+```sh
+code --install-extension ggm-0.1.0.vsix
+```
+
+or in VS Code: Extensions panel -> `...` -> **Install from VSIX**. The server is
+bundled inside the package, so nothing else has to be installed or configured:
+open any folder containing `.ggm` files and diagnostics start.
+
+Rebuild the package with:
+
+```sh
+go build -o ggmls.exe ./cmd/ggmls          # from the repository root
+cp ggmls.exe editors/vscode/bin/ggmls.exe  # bundled on purpose
+cd editors/vscode && vsce package --no-git-tag-version
+```
+
 ## Run it from this repository (F5)
 
 ```sh

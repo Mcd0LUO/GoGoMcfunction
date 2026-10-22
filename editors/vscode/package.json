@@ -1,7 +1,7 @@
 {
   "name": "ggm",
   "displayName": "GGM",
-  "description": "GGM language support: compiler diagnostics in the editor",
+  "description": "GGM language support: compiler diagnostics, hover, go to definition, completion, rename",
   "version": "0.1.0",
   "publisher": "mcd0luo",
   "license": "MIT",
@@ -34,23 +34,16 @@
         "ggm.serverPath": {
           "type": "string",
           "default": "",
-          "description": "Path to ggmls. Empty means look for ggmls.exe in the workspace root, then on PATH."
-        },
-        "ggm.optimizeLevel": {
-          "type": "number",
-          "default": 2,
-          "enum": [
-            0,
-            1,
-            2,
-            3
-          ],
-          "description": "Optimisation level. Diagnostics are the same at every level; this only affects how long a check takes."
+          "description": "Path to the ggmls binary. Empty means: ggmls.exe in the workspace root, then the copy bundled with this extension, then PATH."
         }
       }
     }
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mcd0LUO/GoGoMcfunction.git"
   }
 }
