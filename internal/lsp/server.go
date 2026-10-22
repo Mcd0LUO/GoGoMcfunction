@@ -502,12 +502,23 @@ func (s *Server) recompile(changed string) {
 		// still show while the module it belongs to is not yet known.
 		members = []string{changed}
 	} else {
-		// The module is every file declaring this namespace. namespaceOf caches,
-		// so a repeated keystroke only re-parses files that actually changed.
+		// The module is every file declaring this namespace UNDER THE MODULE
+		// ROOT -- not every file in the workspace that happens to say the same
+		// namespace.
+		//
+		// Grouping by namespace alone merged unrelated trees: this repository
+		// has three files claiming `luo:math` (two examples and a ported
+		// reference), and opening one of them reported `objective "arg1" is
+		// both declared with obj and bound with extern` in the OTHER. The
+		// diagnostics were true of the file set the server chose; the file set
+		// was the mistake, and it is the failure mode this server exists to
+		// avoid -- a false alarm on correct code.
+		root := moduleRoot(ns, changed, s.root)
 		for _, path := range seen {
-			if s.namespaceOf(path) == ns {
-				members = append(members, path)
+			if s.namespaceOf(path) != ns || !underRoot(path, root) {
+				continue
 			}
+			members = append(members, path)
 		}
 	}
 	sort.Strings(members)
@@ -668,4 +679,60 @@ func decode(raw json.RawMessage, into any) error {
 		return fmt.Errorf("decode params: %w", err)
 	}
 	return nil
+}
+
+// moduleRoot is the directory a namespace's files live under.
+//
+// A 1.12.2 function id IS a path: `luo:math` with `fn sqrt` is emitted as
+// `luo:math/sqrt`, and the data pack stores it at `luo/math/sqrt.mcfunction`.
+// So the namespace names a directory, and that directory is the module: what is
+// under it belongs, what is not does not.
+//
+// The search walks UP from the file, so `luo/math/sort/x.ggm` still finds
+// `luo/math` and stays in the same module as its parent. A file that does not
+// sit in a directory chain matching its namespace -- a flat `examples/` file, a
+// scratch copy -- falls back to its own directory, which makes it a module of
+// one rather than a member of somebody else's.
+//
+// Grouping by namespace alone merged unrelated trees: this repository has three
+// files claiming `luo:math`, and opening one reported an objective conflict
+// that existed only because the server had put a ported reference copy from
+// another directory into the same module.
+func moduleRoot(ns, file, stop string) string {
+	dir := filepath.Dir(file)
+	parts := strings.Split(strings.ReplaceAll(ns, ":", "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return dir
+	}
+	for d := dir; ; {
+		if matchesTail(d, parts) {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d || (stop != "" && !underRoot(parent, stop)) {
+			return dir
+		}
+		d = parent
+	}
+}
+
+// matchesTail reports whether a directory's last components are exactly parts.
+func matchesTail(dir string, parts []string) bool {
+	cur := dir
+	for i := len(parts) - 1; i >= 0; i-- {
+		if !strings.EqualFold(filepath.Base(cur), parts[i]) {
+			return false
+		}
+		cur = filepath.Dir(cur)
+	}
+	return true
+}
+
+// underRoot reports whether a path is the root or inside it.
+func underRoot(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }

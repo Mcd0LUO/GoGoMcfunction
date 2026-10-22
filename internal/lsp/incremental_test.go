@@ -155,3 +155,78 @@ func TestNamespaceLessFileStillGetsHelp(t *testing.T) {
 		t.Fatal("completion in a namespace-less file offered nothing")
 	}
 }
+
+// A module is a namespace under its own directory, not everywhere in the
+// workspace.
+//
+// Grouping by namespace alone merged unrelated trees. This repository has three
+// files claiming `luo:math` -- two examples and a ported reference copy -- and
+// opening one of them reported an objective conflict caused only by the server
+// having put the other directory's file into the same module. The diagnostics
+// were true of the file set the server chose; the file set was the bug.
+func TestModulesDoNotMergeAcrossDirectories(t *testing.T) {
+	dir := t.TempDir()
+	// Two trees, one namespace. `a` declares an objective, `b` binds the same
+	// name as an extern -- a real contradiction IF they are one module, and
+	// nothing at all if they are two.
+	shared := "namespace luo:math\nobj arg1\n[export]\nfn f() { arg1 = 1 }\n"
+	other := "namespace luo:math\nextern arg1: int = @s.arg1\n[export]\nfn g() { arg1 = 2 }\n"
+	writeFiles(t, dir, map[string]string{
+		"one/math.ggm": shared,
+		"two/math.ggm": other,
+	})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "one", "math.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: shared},
+	})
+	for _, d := range sess.diagnostics(uriFromPath(path)) {
+		if d.Code == "E_OBJECTIVE_CONFLICT" {
+			t.Fatalf("a file in another directory was merged into this module: %s", d.Message)
+		}
+	}
+}
+
+// Two files in the SAME directory still form one module, or cross-file calls
+// would report an unknown callee -- the false alarm this grouping exists to
+// avoid.
+func TestSameDirectoryIsStillOneModule(t *testing.T) {
+	dir := t.TempDir()
+	caller := "namespace luo:math\nobj X\n[export]\nfn f() { X = g() }\n"
+	callee := "namespace luo:math\n[export]\nfn g() -> int { 1 }\n"
+	writeFiles(t, dir, map[string]string{
+		"luo/math/a.ggm": caller,
+		"luo/math/b.ggm": callee,
+	})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "luo", "math", "a.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: caller},
+	})
+	for _, d := range sess.diagnostics(uriFromPath(path)) {
+		if d.Code == "E_UNKNOWN_CALLEE" {
+			t.Fatalf("a call to a sibling file was reported as unknown: %s", d.Message)
+		}
+	}
+}
+
+// A subdirectory of the module root stays in the module.
+func TestSubdirectoryStaysInTheModule(t *testing.T) {
+	dir := t.TempDir()
+	deep := "namespace luo:math\nobj X\n[export]\nfn f() { X = g() }\n"
+	root := "namespace luo:math\n[export]\nfn g() -> int { 1 }\n"
+	writeFiles(t, dir, map[string]string{
+		"luo/math/sort/deep.ggm": deep,
+		"luo/math/root.ggm":      root,
+	})
+	sess := newSession(t, dir)
+	path := filepath.Join(dir, "luo", "math", "sort", "deep.ggm")
+	sess.notify("textDocument/didOpen", DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uriFromPath(path), Text: deep},
+	})
+	for _, d := range sess.diagnostics(uriFromPath(path)) {
+		if d.Code == "E_UNKNOWN_CALLEE" {
+			t.Fatalf("the module root above the file was not found: %s", d.Message)
+		}
+	}
+}

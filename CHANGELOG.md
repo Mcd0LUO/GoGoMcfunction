@@ -6,7 +6,7 @@
 
 | | 含义 | 当前值 |
 |---|---|---|
-| 编译器版本 | 这个二进制做什么 | `0.29.1` |
+| 编译器版本 | 这个二进制做什么 | `0.29.2` |
 | 语言规范版本 | 语言是什么 | `1.0` |
 
 编译器实现的是规范的一个**子集**。二进制到 0.27 不代表语言到 0.27；
@@ -15,6 +15,42 @@
 
 ---
 
+## [0.29.2] - 2026-10-22
+
+### 修掉：语言服务器把不同目录的同名空间文件并成一个模块
+
+第一次真机对拍（VS Code 扩展跑起来）暴露的。打开了 `examples/luo-math.ggm`，
+编辑器里却报出别的目录文件的错：
+
+```
+probe/port-jiu-mofa/src/luo/math/math.ggm:18:1: error: objective "arg1" is both declared
+  with obj and bound with extern var; only one of them can create it [E_OBJECTIVE_CONFLICT]
+```
+
+这个文件没人打开过。仓库里有**三个**文件声明 `namespace luo:math`（两个示例 + 一份移植参考），
+服务器按「工作区里所有同名空间的文件」分组，把三份互不相干的代码并成了一个模块。
+
+诊断本身是对的，**错的服务器选的文件集合**——正是这个服务器存在的意义所要避免的
+（正确代码上的误报）。
+
+### 现在的模块边界：命名空间指向的那个目录
+
+1.12.2 的函数 id 就是路径：`luo:math` + `fn sqrt` → `luo:math/sqrt`，落盘在
+`luo/math/sqrt.mcfunction`。所以命名空间**命名了一个目录**，那个目录就是模块。
+
+- 从被编辑的文件往上找目录链，匹配命名空间就停（`luo/math/sort/x.ggm` 仍属于 `luo/math`）
+- 匹配不到（扁平的 `examples/`、临时拷贝）就退回到它自己的目录，成为独立的一模块
+
+实测：`probe/.../src/luo/math/math.ggm` 的 4 条 `E_OBJECTIVE_CONFLICT` 全部消失，
+只剩 7 条真实的 `W_UNREACHABLE_FN`。
+
+### 治不了的那种冲突
+
+`examples/luo-math.ggm` 和 `examples/luo-math-full.ggm` 在**同一个目录**、同一个命名空间、
+定义同名函数——那是内容层面的真冲突，任何分组策略都救不了。已验证把其中一个挪到独立的
+顶层目录（`examples-full/`）后两边都干净。**没有替用户动这两个文件。**
+
+---
 ## [0.29.1] - 2026-10-22
 
 ### 定了：选择器后面的 objective 一律加引号
