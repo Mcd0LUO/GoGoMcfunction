@@ -26,6 +26,16 @@ type Program struct {
 	// criteria and display name, plus the guarantee that the objective was
 	// named on purpose rather than by a typo.
 	Objs []ObjDecl
+	// CheckedObjs are objective names the author wrote somewhere other than an
+	// `obj` declaration and that the lowerer has already validated at their
+	// source position -- today, an `extern X = holder.objective` binding.
+	//
+	// It exists so the structural check does not report the same mistake a
+	// second time, with no line number and in the vocabulary of compiler
+	// internals. `Objs` cannot serve: it drives `scoreboard objectives add`,
+	// and a bound objective is created by the backend from the locations it
+	// sees, not by a declaration.
+	CheckedObjs map[string]bool
 	// tmpN backs program-wide temporary numbering. It is a deliberate
 	// over-approximation: @s is shared by every function, so a callee reusing
 	// the caller's slot would corrupt live state. Register allocation replaces

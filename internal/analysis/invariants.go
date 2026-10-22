@@ -41,6 +41,13 @@ func Verify(p *ir.Program, maxObjectiveLen int) []Violation {
 	for _, od := range p.Objs {
 		declared[od.Name] = true
 	}
+	// A name the author wrote in an extern binding was checked at its own
+	// position by the lowerer, for the same reason and with the same
+	// consequence: a second complaint here would carry no line and speak of
+	// invariants.
+	for name := range p.CheckedObjs {
+		declared[name] = true
+	}
 
 	for _, fn := range p.Funcs {
 		if len(fn.Blocks) == 0 {

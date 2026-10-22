@@ -285,6 +285,16 @@ func CompileFiles(srcs []Source, opt Options) (*Output, []diag.Diagnostic) {
 		// objectives that must stay apart.
 		prog.Funcs = append(prog.Funcs, res.Program.Funcs...)
 		prog.Consts = append(prog.Consts, res.Program.Consts...)
+		// Names the lowerer already validated at their source position travel
+		// with the merge for the same reason the functions do. Dropping them
+		// made the structural check report the same mistake again, once per
+		// function that used the name, with no line and no explanation.
+		for name := range res.Program.CheckedObjs {
+			if prog.CheckedObjs == nil {
+				prog.CheckedObjs = map[string]bool{}
+			}
+			prog.CheckedObjs[name] = true
+		}
 		// The objective DECLARATIONS merge too, and they have to: the
 		// declaration is what carries the criteria and the display name, and
 		// the back end reads them from here.

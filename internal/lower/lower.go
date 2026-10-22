@@ -216,6 +216,7 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 	}
 	// After externs, so the obj/extern conflict check can see both sides.
 	l.lowerObjs(f)
+	l.lowerExterns(f)
 	l.lowerFields(f)
 	// Signatures from every file in the module. A library is a separate
 	// source file whose functions live in another namespace, so its
@@ -721,6 +722,34 @@ func (l *Lowerer) lowerObjs(f *syntax.File) {
 		}
 		l.objs[od.Name] = true
 		l.prog.Objs = append(l.prog.Objs, ir.ObjDecl{Name: od.Name, Criteria: od.Criteria, Display: od.Display})
+	}
+}
+
+// lowerExterns checks the objective name an extern binds.
+//
+// `extern SEARCHMAX: int = num.SearchMax.math.operation1` names a 25-character
+// objective, and 1.12.2 truncates at 16 -- so it collides with any other name
+// sharing that prefix. Nothing checked it at the source, so the first complaint
+// came from the structural invariant, as
+//
+//	-: error: t:f/block 0: objective ... exceeds 16 characters [E_IR_INVARIANT]
+//
+// which reads as a compiler fault and points at no line. The lowerer has the
+// declaration's position, so it can say where and why.
+func (l *Lowerer) lowerExterns(f *syntax.File) {
+	for _, x := range f.Externs {
+		if x.Objective == "" {
+			continue
+		}
+		if l.prog.CheckedObjs == nil {
+			l.prog.CheckedObjs = map[string]bool{}
+		}
+		l.prog.CheckedObjs[x.Objective] = true
+		if n := l.tgt.ObjectiveNameLimit; n > 0 && utf8.RuneCountInString(x.Objective) > n {
+			l.diags.Error(posOf(x.P), "E_OBJECTIVE_NAME",
+				"objective %q is %d characters; %s truncates at %d, so it collides with any name sharing that prefix",
+				x.Objective, utf8.RuneCountInString(x.Objective), l.tgt.Name, n)
+		}
 	}
 }
 
