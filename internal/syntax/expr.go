@@ -7,6 +7,13 @@ import "fmt"
 // rendered selector text. Selectors are opaque strings to the parser.
 func (p *parser) parseSelectorLiteral() (Expr, error) {
 	t := p.cur()
+	// A bare name is a selector SET: `sel Monsters = @e[tag=mob]` and then
+	// `entities<Monsters>`. It is resolved when the program is lowered, because
+	// the table is module-wide and the parser sees one file at a time.
+	if t.Kind == IDENT {
+		p.next()
+		return Ident{Name: t.Text, P: t.Pos}, nil
+	}
 	if _, err := p.expect(AT); err != nil {
 		return nil, err
 	}

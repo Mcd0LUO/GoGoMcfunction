@@ -1,4 +1,4 @@
-# Baseline：ggm 0.29.3
+# Baseline：ggm 0.30.0
 
 **这个 baseline 冻结的是生成结果，不是功能列表。**
 

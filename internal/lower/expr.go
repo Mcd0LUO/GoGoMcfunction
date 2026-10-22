@@ -292,8 +292,10 @@ func (l *Lowerer) expr(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e synta
 		// of, never assigned to. That asymmetry is the engine's, and hiding it
 		// would mean copying through a temporary and writing back, which is a
 		// different operation with different failure modes.
-		if base, ok := x.X.(syntax.Ident); ok && strings.HasPrefix(base.Name, "@") {
-			return ir.Loc{Holder: base.Name, Obj: x.Name}, nil
+		if base, ok := x.X.(syntax.Ident); ok {
+			if text, isSel := l.selText(base); isSel {
+				return ir.Loc{Holder: text, Obj: x.Name}, nil
+			}
 		}
 		if _, ok := x.X.(syntax.SelfExpr); ok {
 			return l.entityScore(ctx, x.Name, x.P), nil
@@ -405,8 +407,10 @@ func (l *Lowerer) lowerCond(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, e 
 		return ir.Predicate{}, fmt.Errorf("a condition needs an executing entity, and a [load] body runs from a command block: 1.12.2 cannot test a score there. Move the branch into an [every(...)] function")
 	}
 	if call, ok := e.(syntax.Call); ok && call.Name == "any" && len(call.Args) == 1 {
-		if sel, ok := call.Args[0].(syntax.Ident); ok && strings.HasPrefix(sel.Name, "@") {
-			return ir.Predicate{Exist: &ir.ExistTest{Selector: sel.Name}}, nil
+		if sel, ok := call.Args[0].(syntax.Ident); ok {
+			if text, isSel := l.selText(sel); isSel {
+				return ir.Predicate{Exist: &ir.ExistTest{Selector: text}}, nil
+			}
 		}
 	}
 	if mc, ok := e.(syntax.MatchCond); ok {

@@ -22,6 +22,7 @@ func TopLevelKeywords() []Keyword {
 	return []Keyword{
 		{"namespace", "declares this file's module"},
 		{"obj", "declares an objective"},
+		{"sel", "names a whole selector so it can be reused"},
 		{"extern", "binds a name to a score or a command"},
 		{"nbt", "declares a bit-packed or enumerated NBT field"},
 		{"const", "declares an integer constant"},

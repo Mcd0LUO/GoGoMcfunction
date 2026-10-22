@@ -40,6 +40,8 @@ obj Score stat.kills "击杀"   // 带 criteria 和显示名
 extern ATK: int = @s.atk      // 绑定既有分数：执行者身上
 extern SEED: int = seed.val   // 绑定假玩家 seed 的 val
 
+sel Monsters = @e[tag=mob,r=12]   // 给一整个选择器起名（模块级）
+
 nbt level = p"tag.level" : bits 8                        // 位折叠
 nbt kind  = p"tag.kind"  : enum 1..4                     // 恒等枚举
 nbt 残响  = p"tag.cast"  : enum { "残响": 1, "回响": 2 }  // 映射枚举
@@ -52,6 +54,32 @@ comptime {
 fn clamp(v: int, lo: int, hi: int) -> int { ... }
 class Boss { ... }
 ```
+
+### `sel`：给整个选择器起名
+
+```ggm
+sel Monsters = @e[tag=mob,r=12]
+sel Low      = @e[tag=low]
+
+fn main() {
+    for e in entities<Monsters> { Hp = 1 }   // 展开成 @e[tag=mob,r=12]
+    kill(Monsters)
+    if any<Low> { Hp = 2 }
+}
+```
+
+**名字代表整个选择器**，所以写在用选择器的位置，不能写进方括号里：
+
+| 写法 | 结果 |
+|---|---|
+| `kill(Monsters)` | 对 |
+| `entities<Monsters>` | 对 |
+| `[selector(Monsters)]` | 对 |
+| `kill(@e[Monsters])` | **错**：名字是整个选择器，不是参数列 |
+| `sel A = tag=mob` | **错**：必须从 `@` 开始 |
+
+名字是模块级的（A 文件声明、B 文件使用）。名字里的过滤器在**声明处**校验，出错报到那一行，
+而不是等到每条用到它的命令都没有行号地报一次。
 
 ### 属性（写在声明前）
 

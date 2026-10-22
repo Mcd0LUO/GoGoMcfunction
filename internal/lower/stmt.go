@@ -368,9 +368,15 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 		return l.lowerCountFor(ctx, fb, cur, s, b)
 	}
 	sel, ok := s.Sel.(syntax.Ident)
-	if !ok || !strings.HasPrefix(sel.Name, "@") {
+	if !ok {
 		l.diags.Error(posOf(s.P), "E_FOR_SELECTOR",
 			"`for` needs either a range (for i in 0..64) or an entities<@sel> source")
+		return cur
+	}
+	selText, isSel := l.selText(sel)
+	if !isSel {
+		l.diags.Error(posOf(sel.P), "E_FOR_SELECTOR",
+			"%q is not a selector: write @e[...] or a `sel` name", sel.Name)
 		return cur
 	}
 	// The body becomes a FUNCTION of its own, not a block of this one.
@@ -436,7 +442,7 @@ func (l *Lowerer) lowerFor(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID, s syn
 		bb.SetTerm(end, ir.Return{})
 	}
 
-	fb.Emit(cur, ir.Raw{Text: "execute " + sel.Name + " ~ ~ ~ function " + bodyPath})
+	fb.Emit(cur, ir.Raw{Text: "execute " + selText + " ~ ~ ~ function " + bodyPath})
 	return cur
 }
 
@@ -548,11 +554,17 @@ func (l *Lowerer) lowerBroadcast(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID,
 	// A panic, not a silent skip: dropping the write would be exactly the
 	// quiet wrong answer this compiler exists to prevent.
 	sel, ok := s.Sel.(syntax.Ident)
-	if !ok || !strings.HasPrefix(sel.Name, "@") {
+	if !ok {
 		panic(fmt.Sprintf("lower: broadcast at line %d reached the lowerer with a non-selector left side (%T); the parser only builds one from a selector", s.P.Line, s.Sel))
 	}
+	selText, isSel := l.selText(sel)
+	if !isSel {
+		l.diags.Error(posOf(sel.P), "E_ASSIGN_TARGET",
+			"%q is not a selector: write @e[...] or a `sel` name", sel.Name)
+		return
+	}
 	if lit, ok := constInt(s.Value); ok {
-		fb.Emit(cur, ir.Set{Dst: ir.Loc{Holder: sel.Name, Obj: s.Field}, Value: lit})
+		fb.Emit(cur, ir.Set{Dst: ir.Loc{Holder: selText, Obj: s.Field}, Value: lit})
 		return
 	}
 	op, err := l.expr(ctx, fb, cur, s.Value)
@@ -560,7 +572,7 @@ func (l *Lowerer) lowerBroadcast(ctx *fnCtx, fb *ir.FuncBuilder, cur ir.BlockID,
 		l.reportErr(s.P, "E_BROADCAST_VALUE", err)
 		return
 	}
-	fb.Emit(cur, ir.Copy{Dst: ir.Loc{Holder: sel.Name, Obj: s.Field}, Src: op})
+	fb.Emit(cur, ir.Copy{Dst: ir.Loc{Holder: selText, Obj: s.Field}, Src: op})
 }
 
 // lvalueName renders an assignment target as the name targetLoc expects.

@@ -73,6 +73,11 @@ type Lowerer struct {
 	objs map[string]bool
 	// fields are the `nbt` declarations: an NBT path plus its encoding.
 	fields map[string]syntax.NBTField
+	// sels are the `sel` declarations: a name and the filter text it stands
+	// for. A selector naming one is spliced at the point the command text is
+	// built, because a selector is text all the way down and inventing a
+	// second selector representation would mean a second validator.
+	sels map[string]string
 	// holders names the score holders the module has introduced, by the
 	// externs that bind them. A dotted name starting with one of these is
 	// unambiguously the holder.objective shorthand, so the compiler has no
@@ -143,6 +148,7 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 		objs:    map[string]bool{},
 		fields:  map[string]syntax.NBTField{},
 		kt:      map[string]int{},
+		sels:    map[string]string{},
 		holders: scope.holders(),
 		scope:   scope,
 	}
@@ -211,12 +217,16 @@ func LowerWith(f *syntax.File, tgt target.Target, source string, extra map[strin
 	for name, x := range scope.Externs {
 		l.externs[name] = x
 	}
+	for name, filters := range scope.Sels {
+		l.sels[name] = filters
+	}
 	for name, fd := range scope.Fields {
 		l.fields[name] = fd
 	}
 	// After externs, so the obj/extern conflict check can see both sides.
 	l.lowerObjs(f)
 	l.lowerExterns(f)
+	l.lowerSels(f)
 	l.lowerFields(f)
 	// Signatures from every file in the module. A library is a separate
 	// source file whose functions live in another namespace, so its
@@ -418,7 +428,7 @@ func (l *Lowerer) lowerSpawnHook(cd syntax.ClassDecl, m syntax.Method, fields ma
 		fb.SetTerm(end, ir.Return{})
 	}
 	l.spawns = append(l.spawns, SpawnEntry{
-		Selector: withSelectorArg(cd.Selector, "tag=!"+spawnTag(cd.Name)),
+		Selector: withSelectorArg(l.selString(cd.Selector, cd.P), "tag=!"+spawnTag(cd.Name)),
 		Path:     name,
 		P:        m.P,
 	})
@@ -877,7 +887,7 @@ func (l *Lowerer) lowerClass(cd syntax.ClassDecl) {
 			l.periods = append(l.periods, PeriodEntry{
 				Ticks:    m.EveryTicks,
 				Path:     name,
-				Selector: cd.Selector,
+				Selector: l.selString(cd.Selector, cd.P),
 				P:        m.P,
 			})
 		}

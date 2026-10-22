@@ -55,6 +55,8 @@ const (
 	ENCODE
 	OVER
 	NBTDECL
+	// SEL declares a named set of selector filters.
+	SEL
 	// punctuation
 	LPAREN
 	RPAREN
@@ -104,7 +106,7 @@ var keywords = map[string]Kind{
 	"budget": BUDGET, "wrapping": WRAPPING,
 	"loop": LOOP, "obj": OBJ,
 	"bits": BITS, "enum": ENUM, "decode": DECODE, "encode": ENCODE, "over": OVER,
-	"nbt": NBTDECL,
+	"nbt": NBTDECL, "sel": SEL,
 }
 
 func (k Kind) String() string {
@@ -127,6 +129,7 @@ var kindNames = map[Kind]string{
 	BUDGET: "budget", WRAPPING: "wrapping", LOOP: "loop", OBJ: "obj",
 	BITS: "bits", ENUM: "enum", DECODE: "decode", ENCODE: "encode", OVER: "over",
 	NBTDECL: "nbt",
+	SEL:     "sel",
 	LPAREN:  "(", RPAREN: ")", LBRACE: "{", RBRACE: "}",
 	LBRACK: "[", RBRACK: "]", COLON: ":", SEMI: ";", COMMA: ",",
 	DOT: ".", DOTDOT: "..", AT: "@", HASH: "#", ASSIGN: "=",

@@ -1,10 +1,6 @@
 // luo:math —— 原库 309 行 / 17 文件的 GGM 移植
 namespace luo:math
 
-comptime {
-    // 只生成真正被引用的常量
-    for n in [1, 2, 4, 100, 1000, 2147483647, -1] { score("#math." + str(n), "math", n) }
-}
 
 extern arg1: int = @s.arg1
 extern arg2: int = @s.arg2

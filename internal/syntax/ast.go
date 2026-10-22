@@ -375,6 +375,8 @@ type Container struct {
 type File struct {
 	Namespace string
 	Consts    map[string]Expr
+	// Sels are the `sel` declarations: named sets of selector filters.
+	Sels      []SelDecl
 	Comptime  []ComptimeBlock
 	Externs   []ExternDecl
 	Objs      []ObjDecl
@@ -382,4 +384,22 @@ type File struct {
 	Funcs     []FuncDecl
 	Classes   []ClassDecl
 	P         Pos
+}
+
+// SelDecl is `sel Name = filter,filter,...`.
+//
+// The filters are stored as TEXT, exactly like a selector literal is: the
+// parser does not know which filter keys exist, and pretending to would be a
+// second implementation of the target's filter grammar.
+//
+// The value is deliberately NOT a string literal. A string would drag in
+// escapes, concatenation and a value type the language does not otherwise
+// have, for something that is only ever spliced into a selector.
+type SelDecl struct {
+	Name    string
+	Filters string
+	// FiltersPos is where the filter text begins, so a bad filter can be
+	// reported at its own column instead of at the `sel` keyword.
+	FiltersPos Pos
+	P          Pos
 }

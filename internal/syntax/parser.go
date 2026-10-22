@@ -17,7 +17,10 @@
 // thought.
 package syntax
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Error is a positioned syntax error.
 type Error struct {
@@ -192,6 +195,21 @@ func (p *parser) parseFile() (*File, error) {
 				return nil, err
 			}
 			f.Comptime = append(f.Comptime, ComptimeBlock{Body: body, P: t.Pos})
+		case SEL:
+			p.next()
+			n, err := p.expectIdent()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.expect(ASSIGN); err != nil {
+				return nil, err
+			}
+			filtersPos := p.cur().Pos
+			filters, err := p.parseFilterList()
+			if err != nil {
+				return nil, err
+			}
+			f.Sels = append(f.Sels, SelDecl{Name: n.Text, Filters: filters, FiltersPos: filtersPos, P: t.Pos})
 		case CONST:
 			p.next()
 			n, err := p.expectName()
@@ -337,4 +355,25 @@ func join(parts []string, sep string) string {
 		out += s
 	}
 	return out
+}
+
+// parseFilterList reads the rest of the line as raw selector-filter text.
+//
+// It is text, not a parsed filter list, for the same reason a selector is: the
+// target owns the filter grammar, and this compiler already has exactly one
+// validator for it (the back end's). Parsing the keys here would create a
+// second one that can disagree.
+func (p *parser) parseFilterList() (string, error) {
+	var b strings.Builder
+	for {
+		switch p.cur().Kind {
+		case EOF, NEWLINE, SEMI, RBRACE:
+			if b.Len() == 0 {
+				return "", &Error{Pos: p.cur().Pos, Msg: "a selector set needs at least one filter"}
+			}
+			return b.String(), nil
+		}
+		b.WriteString(p.cur().Text)
+		p.next()
+	}
 }

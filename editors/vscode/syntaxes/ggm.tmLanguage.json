@@ -107,6 +107,17 @@
     "declaration": {
       "patterns": [
         {
+          "match": "\\b(sel)(\\s+)([\\p{L}\\p{N}_]+)(?=\\s*=)",
+          "captures": {
+            "1": {
+              "name": "storage.type.ggm"
+            },
+            "3": {
+              "name": "variable.other.constant.ggm"
+            }
+          }
+        },
+        {
           "match": "\\b(fn)(\\s+)([\\p{L}\\p{N}_./:-]+)(?=\\s*\\()",
           "captures": {
             "1": {
@@ -224,7 +235,7 @@
     "keyword": {
       "patterns": [
         {
-          "match": "\\b(namespace|obj|extern|nbt|const|class|fn|var)\\b",
+          "match": "\\b(namespace|obj|extern|nbt|const|class|fn|var|sel)\\b",
           "name": "storage.type.ggm"
         },
         {
@@ -242,8 +253,29 @@
       "name": "storage.type.primitive.ggm"
     },
     "quantifier": {
-      "match": "\\b(any|count|reduce)(?=\\s*<)",
-      "name": "support.function.builtin.ggm"
+      "patterns": [
+        {
+          "match": "(entities|any|count|reduce)(<)([\\p{L}\\p{N}_]+)(>)",
+          "captures": {
+            "1": {
+              "name": "support.function.builtin.ggm"
+            },
+            "2": {
+              "name": "keyword.operator.ggm"
+            },
+            "3": {
+              "name": "variable.other.constant.ggm"
+            },
+            "4": {
+              "name": "keyword.operator.ggm"
+            }
+          }
+        },
+        {
+          "match": "\\b(any|count|reduce)(?=\\s*<)",
+          "name": "support.function.builtin.ggm"
+        }
+      ]
     }
   }
 }

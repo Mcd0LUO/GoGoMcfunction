@@ -36,6 +36,8 @@ type Scope struct {
 	Externs map[string]syntax.ExternDecl
 	// Fields are the `nbt` declarations, by name.
 	Fields map[string]syntax.NBTField
+	// Sels are the `sel` declarations: named sets of selector filters, by name.
+	Sels map[string]string
 	// warned remembers the dotted names already reported, so one ambiguous
 	// name is reported ONCE for the whole module rather than once per use.
 	//
@@ -51,6 +53,7 @@ func NewScope() Scope {
 		Objs:    map[string]bool{},
 		Externs: map[string]syntax.ExternDecl{},
 		Fields:  map[string]syntax.NBTField{},
+		Sels:    map[string]string{},
 		warned:  map[string]bool{},
 	}
 }
@@ -79,6 +82,11 @@ func CollectScope(files []*syntax.File) Scope {
 		for _, fd := range f.NBTFields {
 			if _, taken := s.Fields[fd.Name]; !taken {
 				s.Fields[fd.Name] = fd
+			}
+		}
+		for _, sd := range f.Sels {
+			if _, taken := s.Sels[sd.Name]; !taken {
+				s.Sels[sd.Name] = sd.Filters
 			}
 		}
 	}

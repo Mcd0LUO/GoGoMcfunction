@@ -499,8 +499,12 @@ func (l *Lowerer) reduce(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syn
 		return ir.Loc{}, fmt.Errorf("reduce needs (selector, objective)")
 	}
 	sel, ok := c.Args[0].(syntax.Ident)
-	if !ok || !strings.HasPrefix(sel.Name, "@") {
+	if !ok {
 		return ir.Loc{}, fmt.Errorf("reduce first argument must be a selector")
+	}
+	selText, isSel := l.selText(sel)
+	if !isSel {
+		return ir.Loc{}, fmt.Errorf("reduce first argument must be a selector, not %q", sel.Name)
 	}
 	obj, ok := c.Args[1].(syntax.Ident)
 	if !ok {
@@ -528,7 +532,7 @@ func (l *Lowerer) reduce(ctx *fnCtx, fb *ir.FuncBuilder, block ir.BlockID, c syn
 	}
 	fb.Emit(block, ir.Set{Dst: acc, Value: seed})
 	fb.Emit(block, ir.Raw{Text: fmt.Sprintf("execute %s ~ ~ ~ scoreboard players operation %s %s %s @s %s",
-		sel.Name, acc.Holder, acc.Obj, op, obj.Name)})
+		selText, acc.Holder, acc.Obj, op, obj.Name)})
 	fb.Emit(block, ir.Copy{Dst: t, Src: acc})
 	return t, nil
 }
@@ -716,9 +720,15 @@ func (l *Lowerer) targetArg(c syntax.Call, i int) string {
 	if i < len(c.Args) {
 		switch a := c.Args[i].(type) {
 		case syntax.Ident:
-			if strings.HasPrefix(a.Name, "@") {
-				return a.Name
+			if text, isSel := l.selText(a); isSel {
+				return text
 			}
+			// A bare name here can only have meant a selector set: this
+			// argument IS a selector, and a local is not one.
+			l.diags.Error(posOf(a.P), "E_SEL_UNKNOWN",
+				"no selector set named %q; write the selector out, or declare it with `sel %s = @e[...]`",
+				a.Name, a.Name)
+			return inertSelector
 		case syntax.SelfExpr:
 			return "@s"
 		}

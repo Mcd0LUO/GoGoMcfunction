@@ -32,6 +32,7 @@ const (
 	KExtern    Kind = "extern"
 	KNBT       Kind = "nbt"
 	KConst     Kind = "const"
+	KSel       Kind = "sel"
 	KLocal     Kind = "let"
 	KParam     Kind = "param"
 	KShorthand Kind = "holder.objective"
@@ -150,6 +151,13 @@ func (ix *Index) addFile(file string, f *syntax.File) {
 	}
 	// Constants carry no name position of their own: File.Consts is a map of
 	// name to value expression, so the value is the only position available.
+	for _, sd := range f.Sels {
+		// A selector set: the name stands for a whole selector, and hovering it
+		// anywhere it is used should show what it stands for.
+		ix.declare(Symbol{Name: sd.Name, Kind: KSel, File: file,
+			Pos:  diag.Pos{File: file, Line: sd.P.Line, Col: sd.P.Col},
+			Type: "sel " + sd.Name + " = " + sd.Filters})
+	}
 	for name := range f.Consts {
 		// A constant has no position of its own: File.Consts is a map of name
 		// to value expression, and the name is not a node. Hover still works;
