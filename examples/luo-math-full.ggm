@@ -91,6 +91,7 @@ fn sort_asc() {
     }
 }
 
+
 [load]
 fn on_load() {
     SEED = 12345

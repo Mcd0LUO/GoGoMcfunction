@@ -59,7 +59,16 @@ type Server struct {
 	// came from. A keystroke changes one file; without this, every other file
 	// in the module is parsed again for the symbol index and a third time
 	// inside the compiler.
-	ast     map[string]*syntax.File
+	ast map[string]*syntax.File
+	// lastGood is the most recent AST that actually parsed, per file. The
+	// symbol index falls back to it while the text is broken.
+	lastGood map[string]*syntax.File
+	// badText remembers which text failed to parse, so a broken file is
+	// parsed once rather than once per query. astText must NOT be used for
+	// this: it names the text that s.ast[path] came from, and overwriting it
+	// with a failed text made the next call report the stale AST as if it
+	// described the new one -- which silently swallowed the syntax error.
+	badText map[string]string
 	astText map[string]string
 	// compiled remembers the text of each file at the last successful
 	// compilation, so a save that changed nothing does no work.
@@ -83,6 +92,8 @@ func New(dir string) *Server {
 		idx:      map[string]*symbols.Index{},
 		solo:     map[string]*symbols.Index{},
 		ast:      map[string]*syntax.File{},
+		lastGood: map[string]*syntax.File{},
+		badText:  map[string]string{},
 		astText:  map[string]string{},
 		compiled: map[string]string{},
 	}
@@ -433,37 +444,57 @@ func (s *Server) textOf(path string) (string, bool) {
 }
 
 // astOf returns a file's parse, re-parsing only when its text changed.
-func (s *Server) astOf(path string) *syntax.File {
+// astOf returns the AST to use for a file, and whether its TEXT parsed.
+//
+// A file that does not parse keeps the AST of the last version that did. The
+// distinction matters twice over: the compiler must see the real text so it can
+// report the syntax error, while the symbol index must keep working -- a file
+// being typed is unparseable most of the time, and dropping the index then
+// meant hover, completion, the outline and references all went dead exactly
+// when the author needed them.
+//
+// The fallback AST describes the PREVIOUS text, so its positions can be a few
+// characters off and its declarations can lag behind the edit. That is the deal
+// every language server makes; the alternative is answering nothing.
+func (s *Server) astOf(path string) (*syntax.File, bool) {
 	s.mu.Lock()
 	text, ok := s.textOf(path)
 	cached, hasCache := s.ast[path]
 	sameText := s.astText[path] == text
+	knownBad := s.badText[path] == text
+	stale := s.lastGood[path]
 	s.mu.Unlock()
 	if !ok {
-		return nil
+		return nil, false
 	}
 	if hasCache && sameText {
-		return cached
+		return cached, true
+	}
+	if knownBad {
+		// Already know this text does not parse. Answer from the last good
+		// AST without parsing the same broken text again on every query.
+		return stale, false
 	}
 	s.mu.Lock()
 	s.parses++
 	s.mu.Unlock()
 	f, err := syntax.Parse(text)
-	if err != nil {
-		f = nil
-	}
 	s.mu.Lock()
-	if f != nil {
-		s.ast[path] = f
+	if err != nil {
+		s.badText[path] = text
+		s.mu.Unlock()
+		return stale, false
 	}
+	s.ast[path] = f
 	s.astText[path] = text
+	s.lastGood[path] = f
 	s.mu.Unlock()
-	return f
+	return f, true
 }
 
 // namespaceOf returns a file's namespace, through the AST cache.
 func (s *Server) namespaceOf(path string) string {
-	if f := s.astOf(path); f != nil {
+	if f, _ := s.astOf(path); f != nil {
 		return f.Namespace
 	}
 	return ""
@@ -536,9 +567,19 @@ func (s *Server) recompile(changed string) {
 		if !ok {
 			continue
 		}
-		f := s.astOf(path)
+		f, parsedOK := s.astOf(path)
 		texts[path] = t
-		srcs = append(srcs, driver.Source{Name: path, Text: t, Parsed: f})
+		// The compiler is handed the AST only when that AST describes this
+		// exact text. A fallback AST would make it compile the previous
+		// version and report no syntax error at all -- silence where the
+		// author most needs a message.
+		var forCompile *syntax.File
+		if parsedOK {
+			forCompile = f
+		}
+		srcs = append(srcs, driver.Source{Name: path, Text: t, Parsed: forCompile})
+		// The INDEX gets the fallback, so hover and completion survive the
+		// keystroke that broke the file.
 		if f != nil {
 			parsed[path] = f
 		}

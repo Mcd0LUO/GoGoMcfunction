@@ -229,12 +229,17 @@ type CompletionItem struct {
 }
 
 // CompletionItemKind values used by this server.
+//
+// The numbers are the specification's, and they matter: 14 is Keyword and 21
+// is Constant. This file had Constant on 14, so every objective the server
+// offered was drawn with a keyword's icon.
 const (
 	CompletionItemKindFunction uint32 = 3
 	CompletionItemKindField    uint32 = 5
 	CompletionItemKindVariable uint32 = 6
 	CompletionItemKindClass    uint32 = 7
-	CompletionItemKindConstant uint32 = 14
+	CompletionItemKindKeyword  uint32 = 14
+	CompletionItemKindConstant uint32 = 21
 )
 
 // CompletionList is the result of textDocument/completion.

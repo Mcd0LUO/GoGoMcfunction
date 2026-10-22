@@ -489,3 +489,89 @@ func TestMalformedMessagesDoNotStopTheServer(t *testing.T) {
 		t.Fatalf("after two malformed messages the server answered %q", h.Contents.Value)
 	}
 }
+
+// Completing at the start of a line offers words, not just names.
+//
+// The index holds declarations, so a new file -- where the only useful answer
+// is `namespace` -- had nothing to offer at all.
+func TestKeywordsAppearAtTheStartOfALine(t *testing.T) {
+	sess, path := openFixture(t)
+	var list CompletionList
+	sess.ask(200, "textDocument/completion", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     pos(9, 0), // a fresh line at the end of the file
+	}, &list)
+	got := map[string]bool{}
+	for _, it := range list.Items {
+		got[it.Label] = true
+	}
+	for _, want := range []string{"namespace", "obj", "extern", "fn", "nbt", "class"} {
+		if !got[want] {
+			t.Fatalf("%q was not offered at the start of a line; got %v", want, list.Items)
+		}
+	}
+}
+
+// A keyword is not offered in the middle of an expression.
+//
+// A list that contains `obj` while you are writing `a.` is a list that teaches
+// the author to ignore it.
+func TestKeywordsStayOutOfExpressions(t *testing.T) {
+	sess, path := openFixture(t)
+	var list CompletionList
+	sess.ask(201, "textDocument/completion", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     pos(7, 9), // inside `Hp = a + CAP`, after the assignment
+	}, &list)
+	for _, it := range list.Items {
+		if it.Kind == CompletionItemKindKeyword {
+			t.Fatalf("keyword %q was offered inside an expression", it.Label)
+		}
+	}
+}
+
+// Breaking the file must not silence the editor.
+//
+// A file being typed is unparseable most of the time. Dropping the index then
+// meant hover, the outline and completion all went dead exactly when the author
+// needed them, and the syntax error was the only thing left.
+func TestFeaturesSurviveASyntaxError(t *testing.T) {
+	sess, path := openFixture(t)
+	// Drain the didOpen publish, or the next read returns that one and the
+	// test passes or fails on a message about the previous text.
+	sess.diagnostics(uriFromPath(path))
+	broken := strings.Replace(fixture, "helper(ATK)", "helper(ATK", 1) // drop the )
+	sess.notify("textDocument/didChange", DidChangeTextDocumentParams{
+		TextDocument:   VersionedTextDocumentIdentifier{URI: uriFromPath(path), Version: 2},
+		ContentChanges: []TextDocumentContentChangeEvent{{Text: broken}},
+	})
+
+	// The error still has to arrive.
+	var sawParse bool
+	for _, d := range sess.diagnostics(uriFromPath(path)) {
+		if d.Code == "E_PARSE" {
+			sawParse = true
+		}
+	}
+	if !sawParse {
+		t.Fatal("a syntax error produced no E_PARSE; the stale AST is reaching the compiler")
+	}
+
+	// And the rest of the editor keeps working against the last good parse.
+	var h Hover
+	sess.ask(202, "textDocument/hover", PositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+		Position:     pos(1, 4), // obj Hp
+	}, &h)
+	if !strings.Contains(h.Contents.Value, "obj Hp") {
+		t.Fatalf("hover died on a broken file: %q", h.Contents.Value)
+	}
+
+	var syms []SymbolInformation
+	sess.ask(203, "textDocument/documentSymbol", DocumentSymbolParams{
+		TextDocument: TextDocumentIdentifier{URI: uriFromPath(path)},
+	}, &syms)
+	if len(syms) == 0 {
+		t.Fatal("the outline died on a broken file")
+	}
+}

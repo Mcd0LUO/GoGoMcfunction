@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Mcd0LUO/GoGoMcfunction/internal/symbols"
+	"github.com/Mcd0LUO/GoGoMcfunction/internal/syntax"
 )
 
 // fence wraps text in a ggm code block. Written with byte escapes so this
@@ -129,6 +130,20 @@ func (s *Server) handleCompletion(p PositionParams) (any, error) {
 	prefix := identPrefix(text, line, col)
 	var items []CompletionItem
 	seen := map[string]bool{}
+	// Keywords first: at the top of a file, or after an attribute's `[`, the
+	// only useful answers are words, and the index has none of them.
+	for _, kw := range syntax.KeywordsAt(text, line, col) {
+		if !strings.HasPrefix(kw.Word, prefix) || seen[kw.Word] {
+			continue
+		}
+		seen[kw.Word] = true
+		items = append(items, CompletionItem{
+			Label:         kw.Word,
+			Kind:          CompletionItemKindKeyword,
+			Detail:        kw.Detail,
+			Documentation: kw.Detail,
+		})
+	}
 	for _, sym := range ix.Completions(prefix) {
 		if seen[sym.Name] {
 			continue

@@ -265,6 +265,16 @@ func references(ix *symbols.Index, file string, line, col int) string {
 func completion(ix *symbols.Index, file string, line, col int) string {
 	prefix := prefixAt(file, line, col)
 	var out []string
+	// Keywords first, exactly as the editor shows them: this command exists
+	// to answer "what will the editor say", so it must not answer differently.
+	if b, err := os.ReadFile(file); err == nil {
+		for _, kw := range syntax.KeywordsAt(string(b), line, col) {
+			if !strings.HasPrefix(kw.Word, prefix) {
+				continue
+			}
+			out = append(out, kw.Word+"\tkeyword\t"+kw.Detail)
+		}
+	}
 	for _, s := range ix.Completions(prefix) {
 		out = append(out, s.Name+"\t"+string(s.Kind)+"\t"+s.Type)
 	}

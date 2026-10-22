@@ -312,7 +312,7 @@ func (p *parser) parsePath() (string, error) {
 			// pack has `probe:ph/1`. parsePathSegment assembles such a name
 			// from adjacent tokens, because the lexer splits `1a` into an
 			// integer and an identifier.
-			seg, err := p.parsePathSegment()
+			seg, _, err := p.parsePathSegment()
 			if err != nil {
 				return "", err
 			}

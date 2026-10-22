@@ -172,9 +172,21 @@ func (p *parser) parseFuncPath() (string, error) {
 	// The first segment goes through the same assembler as the rest, so a
 	// function may be named `1a` -- legal in a 1.12.2 function id, and split
 	// by the lexer into an integer and an identifier.
-	name, err := p.parsePathSegment()
+	name, _, err := p.parsePathSegment()
 	if err != nil {
 		return "", err
+	}
+	// A reserved word can be declared but never CALLED: `fn step()` parsed, and
+	// every `step(...)` was then a syntax error because the call position reads
+	// that word as the loop keyword. Declaring something uncallable is a trap,
+	// so it is refused where it is written.
+	//
+	// Only function names are restricted. A namespace segment may be a keyword
+	// (the reference packs use `rpg:bug/else`), because it never appears in an
+	// expression.
+	if _, isKeyword := keywords[name]; isKeyword {
+		return "", &Error{Pos: p.cur().Pos,
+			Msg: fmt.Sprintf("%q is a reserved word, so a function named that could never be called", name)}
 	}
 	for p.cur().Kind == SLASH {
 		p.next()
@@ -182,9 +194,13 @@ func (p *parser) parseFuncPath() (string, error) {
 		// functions like `rpg:skill/1/main` and `rpg:item/buy/cl/1`, where the
 		// directory is a slot or a tier. Rejecting those made roughly
 		// three-quarters of its files impossible to express.
-		seg, err := p.parsePathSegment()
+		seg, _, err := p.parsePathSegment()
 		if err != nil {
 			return "", err
+		}
+		if _, isKeyword := keywords[seg]; isKeyword {
+			return "", &Error{Pos: p.cur().Pos,
+				Msg: fmt.Sprintf("%q is a reserved word, so a function named that could never be called", seg)}
 		}
 		name += "/" + seg
 	}
@@ -203,9 +219,10 @@ func (p *parser) parseFuncPath() (string, error) {
 // touch on the same line, restricted to characters a function id may contain.
 // Adjacency is what makes this safe -- `1 - 10` written with spaces stays an
 // arithmetic expression and is still rejected.
-func (p *parser) parsePathSegment() (string, error) {
+func (p *parser) parsePathSegment() (string, Pos, error) {
 	var b strings.Builder
 	lastLine, lastEnd := 0, 0
+	var start Pos
 	for {
 		tok := p.cur()
 		if tok.Kind == EOF || tok.Kind == NEWLINE || tok.Kind == SEMI || tok.Kind == RBRACE {
@@ -221,6 +238,9 @@ func (p *parser) parsePathSegment() (string, error) {
 				break
 			}
 		}
+		if b.Len() == 0 {
+			start = tok.Pos
+		}
 		b.WriteString(tok.Text)
 		lastLine = tok.Pos.Line
 		lastEnd = tok.Pos.Col + len([]rune(tok.Text))
@@ -229,11 +249,11 @@ func (p *parser) parsePathSegment() (string, error) {
 	if b.Len() == 0 {
 		tok, err := p.expectNameLike()
 		if err != nil {
-			return "", err
+			return "", Pos{}, err
 		}
-		return tok.Text, nil
+		return tok.Text, tok.Pos, nil
 	}
-	return b.String(), nil
+	return b.String(), start, nil
 }
 
 // pathSegmentRune reports whether text is made only of characters a 1.12.2

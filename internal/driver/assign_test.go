@@ -32,3 +32,36 @@ func TestDeclaredAssignmentTargetsCompile(t *testing.T) {
 		}
 	}
 }
+
+// A reserved word cannot name a function.
+//
+// `fn step()` parsed, and then every `step(...)` was a syntax error because the
+// call position reads that word as the loop keyword. Declaring something
+// uncallable is a trap: the author sees the declaration accepted and concludes
+// the call syntax must be wrong.
+func TestKeywordCannotNameAFunction(t *testing.T) {
+	for _, word := range []string{"step", "if", "loop", "self"} {
+		src := "namespace t:kw\nobj X\n[export]\nfn " + word + "() { X = 1 }\n"
+		diags := compileDiags(src)
+		var reported bool
+		for _, d := range diags {
+			if strings.HasPrefix(d, "E_PARSE") && strings.Contains(d, "reserved word") {
+				reported = true
+			}
+		}
+		if !reported {
+			t.Fatalf("%q was accepted as a function name: %v", word, diags)
+		}
+	}
+}
+
+// A namespace segment may be a reserved word: the reference packs have
+// `rpg:bug/else`, and a namespace never appears in an expression.
+func TestKeywordMayNameANamespaceSegment(t *testing.T) {
+	src := "namespace rpg:bug/else\nobj X\n[export]\nfn f() { X = 1 }\n"
+	for _, d := range compileDiags(src) {
+		if strings.HasPrefix(d, "E_") {
+			t.Fatalf("a keyword namespace segment was rejected: %s", d)
+		}
+	}
+}
