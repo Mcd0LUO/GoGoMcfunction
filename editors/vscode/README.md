@@ -2,22 +2,57 @@
 
 Shows the compiler's diagnostics in the editor. That is all it does.
 
-## Run it from this repository
+## Run it from this repository (F5)
 
 ```sh
 cd editors/vscode
-npm install          # once
+npm install                # once
+cd ../.. && go build -o ggmls.exe ./cmd/ggmls
 ```
 
-Build the server, then open `editors/vscode` in VS Code and press **F5**:
+Open **`editors/vscode`** in VS Code and press **F5**.
+
+The second window (the Extension Development Host) opens the REPOSITORY ROOT,
+not the extension folder. That is deliberate: the extension activates on
+`onLanguage:ggm`, and the extension folder contains no `.ggm` file, so a host
+opened there would show nothing at all and look broken. The repository root has
+`ggmls.exe` (found by rule 2 below, no configuration) and the examples.
+
+In that window open `examples/luo-math.ggm` or `stdlib/math.ggm`.
+
+## Install it for real (no F5)
+
+Copy the folder into the extensions directory, named `<publisher>.<name>-<version>`:
 
 ```sh
-go build -o ggmls.exe ./cmd/ggmls     # from the repository root
+# Windows
+xcopy /E /I editors\vscode "%USERPROFILE%\.vscode\extensions\mcd0luo.ggm-0.1.0"
 ```
 
-A second VS Code window opens with the extension loaded. Open any `.ggm` file
-in it and the squiggles appear as you type.
+Then put the server where it can be found. A real project will not have
+`ggmls.exe` sitting in it, so either set `ggm.serverPath`, or copy the binary
+into `<extension>/bin/`, or put it on `PATH`.
 
+Restart VS Code. `.ggm` files open with the language set to GGM and the server
+starts with them.
+
+## What to open as a test workspace
+
+Any folder with `.ggm` files. The most useful are:
+
+| Folder | Why |
+|---|---|
+| `examples/` | Committed, small, exercises comptime and classes |
+| `stdlib/` | Committed, one namespace over several files -- shows cross-file jumps |
+| a real ported pack | Hundreds of lines; the place where diagnostics and performance actually matter |
+
+## Known limitation
+
+There is no syntax highlighting yet: no TextMate grammar is contributed, so a
+`.ggm` file renders as plain text with brackets and comments handled only by
+`language-configuration.json`. Diagnostics, hover, jumps and the rest are
+unaffected -- they come from the server, not from colouring -- but the file will
+look monochrome until a grammar is added.
 ## Where it looks for the server
 
 1. `ggm.serverPath`, if set;
