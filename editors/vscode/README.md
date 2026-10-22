@@ -84,11 +84,15 @@ the scope names every theme knows:
 | Numbers, `true` / `false` / `none` | `constant.numeric`, `constant.language` |
 | `[export]` and friends | `entity.other.attribute-name` |
 
-`node grammar.test.js` checks the file mechanically: every expression must
-compile, every `#include` must resolve, and every scope name must be one a theme
-is likely to have a rule for. A grammar typo does not fail a build -- it just
-stops colouring -- so the check is the only thing standing between a typo and a
-silently plain file.
+`node grammar.test.js` does three things: compiles every expression, resolves
+every `#include`, and then **tokenizes sample source with the engine VS Code
+itself uses** (`vscode-textmate` over `oniguruma`, dev dependencies) and asserts
+on the resulting scopes.
+
+That last part is not ceremony. Two bugs shipped in the first version and only
+the tokenizer found them: the selector was a begin/end rule waiting for a `]`
+that `tellraw(@s, ...)` never provides, so everything after it turned grey; and
+`1..10` coloured its second number as a member access. Neither fails a build.
 ## Where it looks for the server
 
 1. `ggm.serverPath`, if set;

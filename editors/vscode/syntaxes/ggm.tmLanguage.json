@@ -83,16 +83,13 @@
       }
     },
     "attribute": {
-      "match": "^([ \\t]*)(\\[)([\\p{L}\\p{N}_]+)(\\])",
+      "match": "^([ \\t]*)(\\[)([\\p{L}_][\\p{L}\\p{N}_]*)(?=[\\]()])",
       "captures": {
         "2": {
           "name": "punctuation.definition.attribute.begin.ggm"
         },
         "3": {
           "name": "entity.other.attribute-name.ggm"
-        },
-        "4": {
-          "name": "punctuation.definition.attribute.end.ggm"
         }
       }
     },
@@ -209,7 +206,7 @@
       }
     },
     "property": {
-      "match": "(?<=\\.)([\\p{L}\\p{N}_]+(?:\\.[\\p{L}\\p{N}_]+)*)",
+      "match": "(?<=[\\p{L}_]\\.)([\\p{L}\\p{N}_]+(?:\\.[\\p{L}\\p{N}_]+)*)",
       "captures": {
         "1": {
           "name": "variable.other.property.ggm"
